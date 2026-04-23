@@ -27,8 +27,8 @@ export default async function AppHomePage() {
     return (
       <main className="mx-auto max-w-xl space-y-8 px-6 py-16">
         <header className="space-y-2">
-          <p className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
-            欢迎,{user.email}
+          <p className="text-sm text-muted-foreground">
+            欢迎,<span className="font-mono">{user.email}</span>
           </p>
           <h1 className="text-3xl font-semibold">先创建你的第一个租户</h1>
           <p className="text-sm text-muted-foreground">
@@ -51,8 +51,8 @@ export default async function AppHomePage() {
   return (
     <main className="mx-auto max-w-2xl space-y-8 px-6 py-16">
       <header className="space-y-1">
-        <p className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
-          {user.email}
+        <p className="text-sm text-muted-foreground">
+          <span className="font-mono">{user.email}</span>
         </p>
         <h1 className="text-3xl font-semibold">选择要进入的租户</h1>
       </header>
