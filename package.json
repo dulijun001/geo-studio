@@ -17,7 +17,8 @@
     "db:generate": "pnpm --filter @geo/db generate",
     "db:migrate": "pnpm --filter @geo/db migrate",
     "db:studio": "pnpm --filter @geo/db studio",
-    "db:seed": "pnpm --filter @geo/db seed"
+    "db:seed": "pnpm --filter @geo/db seed",
+    "db:test-rls": "pnpm --filter @geo/db test-rls"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

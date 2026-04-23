@@ -15,9 +15,11 @@
     "studio": "drizzle-kit studio",
     "push": "drizzle-kit push",
     "seed": "tsx --env-file=../../.env src/seed/index.ts",
+    "test-rls": "tsx --env-file=../../.env src/test-rls.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.46.1",
     "dotenv": "^16.4.5",
     "drizzle-orm": "^0.36.4",
     "postgres": "^3.4.5"
