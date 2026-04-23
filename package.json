@@ -1,0 +1,26 @@
+{
+  "name": "geo-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-tenant Generative Engine Optimization platform",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @geo/web dev",
+    "dev:worker": "pnpm --filter @geo/worker dev",
+    "build": "pnpm -r build",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @geo/db generate",
+    "db:migrate": "pnpm --filter @geo/db migrate",
+    "db:studio": "pnpm --filter @geo/db studio",
+    "db:seed": "pnpm --filter @geo/db seed"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "typescript": "^5.6.3"
+  }
+}

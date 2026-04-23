@@ -1,0 +1,66 @@
+import { relations } from 'drizzle-orm';
+import { jsonb, pgEnum, pgTable, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { pk, tenantFk, timestamps } from './_shared';
+
+export const industryEnum = pgEnum('industry', [
+  'dental',
+  'medical_beauty',
+  'maternity',
+  'hair_transplant',
+  'law',
+  'accounting',
+  'education',
+  'hospital',
+  'fitness',
+  'pet',
+  'other',
+]);
+
+export const planEnum = pgEnum('plan', ['trial', 'pro', 'enterprise']);
+
+export const memberRoleEnum = pgEnum('member_role', [
+  'owner',
+  'admin',
+  'operator',
+  'auditor',
+  'staff',
+]);
+
+export const tenants = pgTable(
+  'tenants',
+  {
+    id: pk(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    industry: industryEnum('industry').notNull().default('other'),
+    plan: planEnum('plan').notNull().default('trial'),
+    settings: jsonb('settings').notNull().default({}),
+    ...timestamps(),
+  },
+  (t) => ({
+    slug_uq: uniqueIndex('tenants_slug_uq').on(t.slug),
+  }),
+);
+
+export const tenantMemberships = pgTable('tenant_memberships', {
+  id: pk(),
+  tenant_id: tenantFk(),
+  user_id: uuid('user_id').notNull(), // references auth.users from Supabase
+  role: memberRoleEnum('role').notNull(),
+  ...timestamps(),
+});
+
+export const tenantsRelations = relations(tenants, ({ many }) => ({
+  memberships: many(tenantMemberships),
+}));
+
+export const tenantMembershipsRelations = relations(tenantMemberships, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [tenantMemberships.tenant_id],
+    references: [tenants.id],
+  }),
+}));
+
+export type Tenant = typeof tenants.$inferSelect;
+export type NewTenant = typeof tenants.$inferInsert;
+export type TenantMembership = typeof tenantMemberships.$inferSelect;
