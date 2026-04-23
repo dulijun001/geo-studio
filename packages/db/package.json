@@ -17,6 +17,7 @@
     "seed": "tsx --env-file=../../.env src/seed/index.ts",
     "test-rls": "tsx --env-file=../../.env src/test-rls.ts",
     "test-auth": "tsx --env-file=../../.env src/test-auth-flow.ts",
+    "test-tenant": "tsx --env-file=../../.env src/test-tenant-flow.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

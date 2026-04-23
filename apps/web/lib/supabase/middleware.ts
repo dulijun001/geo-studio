@@ -49,10 +49,10 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
-  const isAppRoute = pathname.startsWith('/app');
+  const isProtected = pathname.startsWith('/app') || pathname.startsWith('/t/');
   const isLoginRoute = pathname === '/login';
 
-  if (!user && isAppRoute) {
+  if (!user && isProtected) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = '/login';
     redirectUrl.searchParams.set('next', pathname);
