@@ -1,4 +1,8 @@
+import { config } from 'dotenv';
 import { defineConfig } from 'drizzle-kit';
+
+// Load root .env so drizzle-kit migrate/studio/push see DATABASE_URL.
+config({ path: '../../.env' });
 
 // DATABASE_URL is only required for `drizzle-kit migrate | push | studio`.
 // `drizzle-kit generate` works from schema files alone, so we fall back to a

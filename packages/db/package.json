@@ -14,7 +14,7 @@
     "migrate": "drizzle-kit migrate",
     "studio": "drizzle-kit studio",
     "push": "drizzle-kit push",
-    "seed": "tsx src/seed/index.ts",
+    "seed": "tsx --env-file=../../.env src/seed/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

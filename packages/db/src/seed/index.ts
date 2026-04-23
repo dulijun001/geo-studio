@@ -5,7 +5,6 @@
  *
  * Run: pnpm db:seed
  */
-import 'dotenv/config';
 import { db } from '../index';
 import { complianceKeywords } from '../schema/compliance';
 import { tenants } from '../schema/tenants';
