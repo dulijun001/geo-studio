@@ -1,20 +1,13 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { updateSession } from './lib/supabase/middleware';
 
-/**
- * V0 middleware. Placeholder only.
- *
- * TODO (V1 Week 2):
- *   - Resolve tenant from subdomain or path prefix
- *   - Attach Supabase SSR session (via @supabase/ssr)
- *   - Enforce member-role redirects (unauthenticated → /login)
- *
- * Keep this lean: anything heavy belongs in a Server Component / Route Handler.
- */
-export function middleware(_req: NextRequest) {
-  return NextResponse.next();
+export async function middleware(request: NextRequest) {
+  return await updateSession(request);
 }
 
 export const config = {
-  // Skip static assets and Next.js internals
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  // Skip Next.js internals and static assets; everything else goes through session refresh.
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+  ],
 };
