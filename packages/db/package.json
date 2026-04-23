@@ -18,6 +18,7 @@
     "test-rls": "tsx --env-file=../../.env src/test-rls.ts",
     "test-auth": "tsx --env-file=../../.env src/test-auth-flow.ts",
     "test-tenant": "tsx --env-file=../../.env src/test-tenant-flow.ts",
+    "dev-link": "tsx --env-file=../../.env src/dev-mint-link.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -20,7 +20,8 @@
     "db:seed": "pnpm --filter @geo/db seed",
     "db:test-rls": "pnpm --filter @geo/db test-rls",
     "db:test-auth": "pnpm --filter @geo/db test-auth",
-    "db:test-tenant": "pnpm --filter @geo/db test-tenant"
+    "db:test-tenant": "pnpm --filter @geo/db test-tenant",
+    "db:dev-link": "pnpm --filter @geo/db dev-link"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

@@ -55,16 +55,14 @@ async function main() {
     );
   }
 
-  // 3. /auth/callback with bogus code → bounce to /login?error=callback_failed
+  // 3. /auth/callback is a client page → 200 + handler script present
   {
-    const res = await fetch(`${APP_URL}/auth/callback?code=invalid-code-xyz`, {
-      redirect: 'manual',
-    });
-    const loc = res.headers.get('location') ?? '';
+    const res = await fetch(`${APP_URL}/auth/callback?code=invalid`, { redirect: 'manual' });
+    const body = res.status === 200 ? await res.text() : '';
     record(
-      'GET /auth/callback?code=invalid → /login?error=callback_failed',
-      res.status === 307 && loc.includes('/login') && loc.includes('error=callback_failed'),
-      `status=${res.status} loc=${loc}`,
+      'GET /auth/callback → 200 client page',
+      res.status === 200 && body.includes('正在完成登录'),
+      `status=${res.status}`,
     );
   }
 
