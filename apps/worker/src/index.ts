@@ -9,7 +9,6 @@
  *
  * Queue: pg-boss on top of the same Postgres instance as the web app.
  */
-import 'dotenv/config';
 import PgBoss from 'pg-boss';
 import { registerJobs } from './jobs/index';
 
