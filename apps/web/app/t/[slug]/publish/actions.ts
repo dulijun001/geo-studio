@@ -18,6 +18,65 @@ function generateActivityCode(): string {
   return out;
 }
 
+const CANCEL_GRACE_HOURS = 2;
+
+/**
+ * Withdraw a misdispatched task. Allowed only on dispatched tasks within
+ * a short grace window — once staff has actually published, undispatching
+ * silently leaves their post hanging without a tracking trail.
+ *
+ * Effect: soft-delete the publish_task + soft-delete its hooks, so the
+ * variant returns to the "fresh" pool and the next 派单 will pick it up
+ * again (possibly to a different staff). Audit logged.
+ */
+export async function cancelDispatch(
+  tenantSlug: string,
+  taskId: string,
+): Promise<void> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+  const supabase = createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Unauthenticated');
+
+  const service = getSupabaseServiceClient();
+  const { data: task, error: tErr } = await service
+    .from('publish_tasks')
+    .select('id, tenant_id, status, created_at')
+    .eq('id', taskId)
+    .single();
+  if (tErr || !task) throw new Error('任务不存在');
+  if (task.tenant_id !== tenant.id) throw new Error('Tenant mismatch');
+  if (task.status !== 'dispatched' && task.status !== 'pending') {
+    throw new Error(`任务状态是 ${task.status},不是 dispatched/pending,不能撤回`);
+  }
+  const ageHours = (Date.now() - new Date(task.created_at).getTime()) / 3600 / 1000;
+  if (ageHours > CANCEL_GRACE_HOURS) {
+    throw new Error(
+      `任务派发已超 ${CANCEL_GRACE_HOURS} 小时,员工可能已经发布,不能撤回。请改用「跳过」或直接联系员工。`,
+    );
+  }
+
+  const nowIso = new Date().toISOString();
+  await service
+    .from('publish_tasks')
+    .update({ deleted_at: nowIso, status: 'failed', skip_reason: '管理员撤回' })
+    .eq('id', taskId);
+  await service.from('hooks').update({ deleted_at: nowIso }).eq('publish_task_id', taskId);
+
+  await service.from('audit_logs').insert({
+    tenant_id: tenant.id,
+    actor_user_id: user.id,
+    action: 'publish.dispatch_cancelled',
+    target_type: 'publish_task',
+    target_id: taskId,
+    payload: { age_hours: Math.round(ageHours * 10) / 10 },
+  });
+
+  revalidatePath(`/t/${tenantSlug}/publish`);
+}
+
 /**
  * Trigger the dispatcher for the current tenant.
  *

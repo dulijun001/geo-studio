@@ -3,6 +3,9 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/components/page-header';
 import { InlineGuide } from '@/components/inline-guide';
 import { DispatchButton } from './dispatch-button';
+import { CancelButton } from './cancel-button';
+
+const CANCEL_GRACE_MS = 2 * 3600 * 1000;
 
 export const dynamic = 'force-dynamic';
 
@@ -208,6 +211,13 @@ export default async function PublishPage({ params }: { params: { slug: string }
                       </a>
                     ) : t.skip_reason ? (
                       <span>跳过:{t.skip_reason}</span>
+                    ) : t.status === 'dispatched' &&
+                      Date.now() - new Date(t.created_at).getTime() < CANCEL_GRACE_MS ? (
+                      <CancelButton
+                        tenantSlug={tenant.slug}
+                        taskId={t.id}
+                        staffName={s?.real_name ?? '?'}
+                      />
                     ) : (
                       '—'
                     )}
