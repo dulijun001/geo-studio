@@ -26,9 +26,31 @@ function generateActivityCode(): string {
  * We do NOT use PostgREST embeds here — the schema has no FKs declared at
  * the DB level (only Drizzle relations), so PostgREST cannot join. Two-step.
  */
+export type DispatchProposal = {
+  variant_id: string;
+  variant_title: string;
+  variant_platform: string;
+  staff_id: string;
+  staff_name: string;
+  staff_phone: string | null;
+  time_window: 'morning' | 'afternoon';
+};
+
+export type DispatchResult = {
+  /** Detailed proposals for UI preview / display. */
+  proposals: DispatchProposal[];
+  /** Variants the algorithm couldn't place (no matching staff). */
+  unmatched: number;
+  /** Staff that got nothing today (low fresh variant count or no platform fit). */
+  idle_staff: number;
+  /** Whether the rows were actually inserted. */
+  committed: boolean;
+};
+
 export async function dispatchToday(
   tenantSlug: string,
-): Promise<{ assigned: number; unmatched: number; idle_staff: number }> {
+  confirm = false,
+): Promise<DispatchResult> {
   const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
 
   // requireRole already verified the user is authenticated; reuse the id via a
@@ -82,7 +104,7 @@ export async function dispatchToday(
   const takenIds = new Set(allTasks.map((r) => r.variant_id as string));
   const freshVariants = variants.filter((v) => !takenIds.has(v.id as string));
   if (freshVariants.length === 0) {
-    return { assigned: 0, unmatched: 0, idle_staff: 0 };
+    return { proposals: [], unmatched: 0, idle_staff: 0, committed: false };
   }
 
   // Today's tasks: count per staff for daily-cap enforcement.
@@ -143,6 +165,38 @@ export async function dispatchToday(
     seed: startOfDay.toISOString().slice(0, 10),
   };
   const result = dispatchDaily(input);
+
+  // Build the detailed, UI-ready proposal list (joins variant title + staff name in).
+  const variantById = new Map(freshVariants.map((v) => [v.id as string, v]));
+  const staffMap = new Map(
+    staffRows.map((s) => {
+      const r = s as { id: string; real_name?: string; phone?: string | null };
+      return [r.id, { name: r.real_name ?? '医生', phone: r.phone ?? null }];
+    }),
+  );
+  const detailedProposals: DispatchProposal[] = result.proposals.map((p) => {
+    const v = variantById.get(p.variant_id);
+    const s = staffMap.get(p.staff_id);
+    return {
+      variant_id: p.variant_id,
+      variant_title: (v as { title?: string })?.title ?? '(未知)',
+      variant_platform: (v as { platform?: string })?.platform ?? 'unknown',
+      staff_id: p.staff_id,
+      staff_name: s?.name ?? '医生',
+      staff_phone: s?.phone ?? null,
+      time_window: p.time_window,
+    };
+  });
+
+  // Dry-run path — return proposals without inserting.
+  if (!confirm) {
+    return {
+      proposals: detailedProposals,
+      unmatched: result.unmatched.length,
+      idle_staff: result.idle_staff.length,
+      committed: false,
+    };
+  }
 
   const morningAt = new Date(startOfDay);
   morningAt.setHours(10, 0, 0, 0);
@@ -217,8 +271,9 @@ export async function dispatchToday(
 
   revalidatePath(`/t/${tenantSlug}/publish`);
   return {
-    assigned: result.proposals.length,
+    proposals: detailedProposals,
     unmatched: result.unmatched.length,
     idle_staff: result.idle_staff.length,
+    committed: true,
   };
 }
