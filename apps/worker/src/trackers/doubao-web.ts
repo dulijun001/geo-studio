@@ -14,7 +14,10 @@
  * tracking accounts + proxies land.
  */
 
-import { chromium, type Browser, type BrowserContext } from 'playwright';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { chromium, type BrowserContext } from 'playwright';
 import type { TrackerAdapter, TrackerContext, TrackerQuery, TrackerResult } from '@geo/geo-core';
 
 const CHAT_URL = 'https://www.doubao.com/chat/';
@@ -39,20 +42,22 @@ class DoubaoWebAdapter implements TrackerAdapter {
     }
 
     const started = Date.now();
-    let browser: Browser | undefined;
     let context: BrowserContext | undefined;
+    let userDataDir: string | undefined;
 
     try {
-      // Use the system Chrome channel + disable the automation-controlled flag
-      // so doubao.com sees a plausible real browser. Bundled Playwright chromium
-      // gets hard-blocked (ERR_CONNECTION_CLOSED in headless, silent-ignored
-      // in headful). V2 can layer a stealth plugin on top if this drifts.
-      browser = await chromium.launch({
+      // launchPersistentContext with an isolated tmp userDataDir avoids the
+      // Chrome single-instance trap: if the user already has Chrome open,
+      // chromium.launch({ channel: 'chrome' }) hands control to that running
+      // process and our newPage call returns a page that's never wired up to
+      // doubao's auth/session — observed as raw_response_len=0 timeouts in
+      // the W6.2 first run. Persistent context = its own Chrome process tree
+      // tied to a throwaway profile directory.
+      userDataDir = await mkdtemp(join(tmpdir(), 'geo-tracker-'));
+      context = await chromium.launchPersistentContext(userDataDir, {
         headless: ctx.headless,
         channel: 'chrome',
         args: ['--disable-blink-features=AutomationControlled'],
-      });
-      context = await browser.newContext({
         proxy: ctx.proxy,
         viewport: { width: 1280, height: 900 },
         locale: 'zh-CN',
@@ -63,7 +68,7 @@ class DoubaoWebAdapter implements TrackerAdapter {
       await context.addInitScript(() => {
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
       });
-      const page = await context.newPage();
+      const page = context.pages()[0] ?? (await context.newPage());
 
       // AbortController wires ctx.timeout_ms into every await below.
       const hardDeadline = started + ctx.timeout_ms;
@@ -157,7 +162,9 @@ class DoubaoWebAdapter implements TrackerAdapter {
       };
     } finally {
       await context?.close().catch(() => undefined);
-      await browser?.close().catch(() => undefined);
+      if (userDataDir) {
+        await rm(userDataDir, { recursive: true, force: true }).catch(() => undefined);
+      }
     }
   }
 

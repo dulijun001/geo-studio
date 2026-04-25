@@ -1,5 +1,6 @@
 import type PgBoss from 'pg-boss';
 import { handleComplianceReview, type ComplianceReviewJob } from './compliance-review';
+import { handleGeoSnapshot, type GeoSnapshotJob } from './geo-snapshot';
 import { handleParseContent, type ParseContentJob } from './parse-content';
 import { handleVariantGenerate, type VariantGenerateJob } from './variant-generate';
 
@@ -32,8 +33,13 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
     await handleVariantGenerate(job.data);
   });
 
+  await boss.work<GeoSnapshotJob>(JOBS.GEO_SNAPSHOT, async ([job]) => {
+    if (!job?.data) return;
+    await handleGeoSnapshot(job.data);
+  });
+
   // Placeholders for later weeks — log receipt so we can verify wiring.
-  for (const job of [JOBS.GEO_SNAPSHOT, JOBS.HOOK_PROVISION]) {
+  for (const job of [JOBS.HOOK_PROVISION]) {
     await boss.work(job, async ([msg]) => {
       console.log(`[job:${job}] received`, msg?.id);
     });

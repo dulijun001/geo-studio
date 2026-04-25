@@ -11,6 +11,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { vocabTypeEnum } from './brands';
 import { publishTasks } from './publish';
 import { pk, tenantFk, timestamps } from './_shared';
 
@@ -119,6 +120,12 @@ export const geoSnapshots = pgTable(
   }),
 );
 
+/**
+ * One row per brand-vocab mention found in a snapshot's raw_response.
+ * `vocab_id` + `term_type` are denormalized from brand_vocab so SOV queries
+ * don't need a join. `brand_mentioned` is legacy (always true under the W6
+ * model) and stays only for backward compat with earlier seeds.
+ */
 export const citations = pgTable(
   'citations',
   {
@@ -128,6 +135,9 @@ export const citations = pgTable(
     brand_mentioned: boolean('brand_mentioned').notNull(),
     mention_position: integer('mention_position'),
     mention_text: text('mention_text'),
+    /** FK to brand_vocab.id; nullable so deleting a vocab row doesn't lose history. */
+    vocab_id: uuid('vocab_id'),
+    term_type: vocabTypeEnum('term_type'),
     matched_task_id: uuid('matched_task_id'),
     match_confidence: doublePrecision('match_confidence'),
     sentiment: sentimentEnum('sentiment'),
@@ -135,6 +145,10 @@ export const citations = pgTable(
   },
   (t) => ({
     snapshot_idx: index('citations_snapshot_idx').on(t.snapshot_id),
+    snapshot_term_idx: index('citations_term_type_idx').on(t.snapshot_id, t.term_type),
+    vocab_idx: index('citations_vocab_idx')
+      .on(t.vocab_id)
+      .where(sql`vocab_id IS NOT NULL`),
     matched_task_idx: index('citations_matched_task_idx')
       .on(t.matched_task_id)
       .where(sql`matched_task_id IS NOT NULL`),

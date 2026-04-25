@@ -77,3 +77,20 @@ V1 W6 开工前,roadmap(`04-roadmap.md`)对豆包 Web 追踪解析的前提描�
 - W6.0 探针原始 dump:`candidates={"main [class*=\"message-list\"]":{"tag":"DIV","class":"message-list-S2Fv2S ...","text_len":1225}}`; `linkCount: 0`
 - `brand_vocab` 表结构:`packages/db/src/schema/brands.ts`
 - W4 compliance scanner(可复用的匹配核心):`packages/geo-core/src/compliance/scanner.ts`
+
+## V1 已知局限(W6.2 实测,2026-04-25)
+
+豆包 Web 对**同 IP 短时高频请求**有静默限流:
+
+- 第 1 次 fresh 访问 → 拿到完整 RAG / 知识卡答复(64s, 1067 字)
+- 同一 IP 7 分钟内反复触发同 query → 浏览器启动正常、page 加载正常,但 `message-list` 容器全程空文本,worker 超时失败(`raw_response_len = 0`)
+
+不弹验证码、不报错、不重定向 — 就是不渲染答复。这是大厂典型的"对真用户优雅,对疑似爬虫静默"反爬策略。
+
+V1 应对:
+- 不堆代码绕过。`launchPersistentContext` + 临时独立 userDataDir 已经隔离 Chrome 进程,但 IP 仍是同一个,没有用
+- **接受 V1 = 半自动 + 低频**:200 个问题每周或每天跑一次,真实使用频次远低于反爬触发阈值
+- worker job 之间不加 sleep — 让用户自己控制触发节奏(目前 UI 就是一题一点)
+- V2 解开:代理池 + 账号池(roadmap W9-W16),拿到稳定 7×24 自动化
+
+W8 验收前的 demo 流程:**冷 IP**(早上第一次开机或换网络后)跑一次大批,把当天结果作为 demo 数据。生产客户也大致这样用。

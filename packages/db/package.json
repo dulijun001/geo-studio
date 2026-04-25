@@ -28,6 +28,7 @@
     "dev-clear-variants": "tsx --env-file=../../.env src/dev-clear-variants.ts",
     "dev-test-doubao": "tsx --env-file=../../.env src/dev-test-doubao.ts",
     "dev-seed-w5": "tsx --env-file=../../.env src/dev-seed-w5.ts",
+    "dev-seed-w6": "tsx --env-file=../../.env src/dev-seed-w6.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
