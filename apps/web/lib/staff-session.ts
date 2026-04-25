@@ -15,7 +15,11 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
 
 const COOKIE_NAME = 'geo_staff_session';
-const SESSION_DURATION_MS = 12 * 60 * 60 * 1000; // 12 hours
+// 7-day session: empirically the right balance for staff. Longer than a single
+// shift so coming back the next morning doesn't force a re-login, short enough
+// that a phone left at home eventually goes stale. Multi-device login is
+// supported out of the box — each successful issue mints an independent cookie.
+const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type StaffSession = {
   staff_id: string;
