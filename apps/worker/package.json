@@ -6,6 +6,7 @@
   "main": "./dist/index.js",
   "scripts": {
     "dev": "tsx watch --env-file=../../.env src/index.ts",
+    "dev-smoke-tracker": "tsx src/trackers/dev-smoke.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"
