@@ -42,7 +42,7 @@ export default async function AttributionPage({ params }: { params: { slug: stri
   const [eventsRes, tasksRes] = await Promise.all([
     supabase
       .from('conversion_events')
-      .select('id, hook_id, stage, stage_at')
+      .select('id, hook_id, stage, stage_at, notes')
       .eq('tenant_id', tenant.id)
       .is('deleted_at', null)
       .order('stage_at', { ascending: false })
@@ -55,7 +55,7 @@ export default async function AttributionPage({ params }: { params: { slug: stri
       .limit(2000),
   ]);
 
-  type Event = { id: string; hook_id: string | null; stage: string; stage_at: string };
+  type Event = { id: string; hook_id: string | null; stage: string; stage_at: string; notes: string | null };
   type Task = { id: string; variant_id: string; status: string; published_at: string | null };
   const events = (eventsRes.data ?? []) as Event[];
   const tasks = (tasksRes.data ?? []) as Task[];
@@ -200,6 +200,49 @@ export default async function AttributionPage({ params }: { params: { slug: stri
         <h2 className="mb-4 text-sm font-medium text-foreground">主漏斗</h2>
         <FunnelChart steps={funnelSteps} />
       </section>
+
+      {events.length > 0 ? (
+        <section>
+          <h2 className="mb-3 text-sm font-medium text-muted-foreground">最近转化事件(点击查看完整溯源)</h2>
+          <div className="overflow-hidden rounded-md border border-border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-2 font-medium">时间</th>
+                  <th className="px-4 py-2 font-medium">阶段</th>
+                  <th className="px-4 py-2 font-medium">备注</th>
+                  <th className="px-4 py-2 font-medium" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {events.slice(0, 20).map((e) => (
+                  <tr key={e.id} className="hover:bg-muted/30">
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                      {new Date(e.stage_at).toLocaleString('zh-CN')}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs">
+                        {STAGE_LABEL[e.stage] ?? e.stage}
+                      </span>
+                    </td>
+                    <td className="max-w-[420px] truncate px-4 py-2.5 text-xs text-muted-foreground">
+                      {e.notes ?? '—'}
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <Link
+                        href={`/t/${tenant.slug}/attribution/${e.id}`}
+                        className="text-xs font-medium text-indigo-700 hover:underline underline-offset-2"
+                      >
+                        溯源 →
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <section>
         <h2 className="mb-3 text-sm font-medium text-muted-foreground">单内容回流(Top 20)</h2>
