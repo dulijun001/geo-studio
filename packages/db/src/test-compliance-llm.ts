@@ -79,8 +79,15 @@ async function main() {
     await boss.send('compliance.review', { variant_id: variantId, tenant_id: tenantId });
 
     // Poll up to 180s for an 'llm' stage review.
+    type LlmReview = {
+      verdict: string;
+      risk_level: string;
+      findings: unknown;
+      rationale: string;
+      llm_response_raw: string | null;
+    };
     const deadline = Date.now() + 180_000;
-    let llmReview: { verdict: string; risk_level: string; findings: unknown; rationale: string; llm_response_raw: string | null } | null = null;
+    let llmReview: LlmReview | null = null;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 2000));
       const { data: reviews } = await admin
@@ -89,14 +96,13 @@ async function main() {
         .eq('target_id', variantId);
       const llm = (reviews ?? []).find((r) => r.stage === 'llm');
       if (llm) {
-        llmReview = llm as unknown as typeof llmReview;
+        llmReview = llm as unknown as LlmReview;
         break;
       }
     }
 
     if (!llmReview) {
-      console.error('✗ no stage=llm review appeared within 180s');
-      process.exit(1);
+      throw new Error('✗ no stage=llm review appeared within 180s');
     }
 
     console.log('✓ stage=llm review row written');

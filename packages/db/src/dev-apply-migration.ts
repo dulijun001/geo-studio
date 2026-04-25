@@ -36,9 +36,10 @@ async function main() {
   try {
     await client.begin(async (tx) => {
       for (let i = 0; i < chunks.length; i++) {
-        const preview = chunks[i].replace(/\s+/g, ' ').slice(0, 80);
+        const chunk = chunks[i]!;
+        const preview = chunk.replace(/\s+/g, ' ').slice(0, 80);
         console.log(`  [${i + 1}/${chunks.length}] ${preview}…`);
-        await tx.unsafe(chunks[i]);
+        await tx.unsafe(chunk);
       }
     });
     console.log('[apply-migration] ✓ committed');
