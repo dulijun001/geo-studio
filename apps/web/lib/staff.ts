@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { cache } from 'react';
-import { clearStaffSession, readStaffSession } from './staff-session';
+import { readStaffSession } from './staff-session';
 import { getSupabaseServiceClient } from './supabase/service';
 
 export type StaffContext = {
@@ -53,7 +53,10 @@ export const getStaffContext = cache(async (): Promise<StaffContext | null> => {
 export async function requireStaff(): Promise<StaffContext> {
   const ctx = await getStaffContext();
   if (!ctx) {
-    clearStaffSession();
+    // Don't clear the cookie here — Next.js 14 only allows cookie writes from
+    // Server Actions / Route Handlers, not Server Components. A stale or
+    // tampered cookie is harmless: getStaffContext keeps returning null, and
+    // a successful login overwrites it via issueStaffSession.
     redirect('/staff/login');
   }
   return ctx;
