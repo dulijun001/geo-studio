@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireRole } from '@/lib/tenant';
 import { PageHeader } from '@/components/page-header';
 import { InlineGuide } from '@/components/inline-guide';
+import { BulkActions, BulkCheckbox } from './bulk-actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -110,8 +111,16 @@ export default async function CompliancePage({
         })}
       </div>
 
+      {activeTab.key === 'pending' && rows.length > 0 ? (
+        <BulkActions tenantSlug={tenant.slug} />
+      ) : null}
+
       {rows.length > 0 ? (
-        <ReviewTable rows={rows} tenantSlug={tenant.slug} />
+        <ReviewTable
+          rows={rows}
+          tenantSlug={tenant.slug}
+          showCheckbox={activeTab.key === 'pending'}
+        />
       ) : (
         <EmptyState activeTab={activeTab.key} />
       )}
@@ -119,12 +128,21 @@ export default async function CompliancePage({
   );
 }
 
-function ReviewTable({ rows, tenantSlug }: { rows: Row[]; tenantSlug: string }) {
+function ReviewTable({
+  rows,
+  tenantSlug,
+  showCheckbox,
+}: {
+  rows: Row[];
+  tenantSlug: string;
+  showCheckbox: boolean;
+}) {
   return (
     <div className="overflow-hidden rounded-md border border-border">
       <table className="w-full text-sm">
         <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
           <tr>
+            {showCheckbox ? <th className="w-10 px-4 py-2" /> : null}
             <th className="px-4 py-2 font-medium">变体标题</th>
             <th className="px-4 py-2 font-medium">平台</th>
             <th className="px-4 py-2 font-medium">合规状态</th>
@@ -134,6 +152,11 @@ function ReviewTable({ rows, tenantSlug }: { rows: Row[]; tenantSlug: string }) 
         <tbody className="divide-y divide-border">
           {rows.map((r) => (
             <tr key={r.id} className="hover:bg-muted/30">
+              {showCheckbox ? (
+                <td className="px-4 py-2.5">
+                  <BulkCheckbox variantId={r.id} />
+                </td>
+              ) : null}
               <td className="px-4 py-2.5">
                 <Link
                   href={`/t/${tenantSlug}/compliance/${r.id}`}

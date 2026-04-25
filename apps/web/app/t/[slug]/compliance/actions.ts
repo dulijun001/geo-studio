@@ -103,6 +103,38 @@ export async function rejectVariant(
   await transition(tenantSlug, variantId, 'reject', reason);
 }
 
+/**
+ * Batch approve / reject many variants at once.
+ *
+ * Failures are isolated per row so one bad ID doesn't lose the whole submit.
+ * Returns the count succeeded + a list of (id, error) pairs the UI can display.
+ */
+export async function bulkReviewVariants(
+  tenantSlug: string,
+  variantIds: string[],
+  verb: 'approve' | 'reject',
+  rationale: string,
+): Promise<{ succeeded: number; failed: Array<{ id: string; error: string }> }> {
+  if (variantIds.length === 0) throw new Error('请先勾选变体');
+  if (variantIds.length > 200) throw new Error('一次最多处理 200 条,请分批');
+  if (verb === 'reject' && rationale.trim().length < 3) {
+    throw new Error('请填写拒绝原因(至少 3 字)');
+  }
+  await requireRole(tenantSlug, ['owner', 'admin', 'auditor']);
+
+  let succeeded = 0;
+  const failed: Array<{ id: string; error: string }> = [];
+  for (const id of variantIds) {
+    try {
+      await transition(tenantSlug, id, verb, rationale);
+      succeeded += 1;
+    } catch (e) {
+      failed.push({ id, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return { succeeded, failed };
+}
+
 async function transition(
   tenantSlug: string,
   variantId: string,
