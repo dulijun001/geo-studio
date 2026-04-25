@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@geo/db": "workspace:*",
+    "@geo/geo-core": "workspace:*",
     "@geo/shared": "workspace:*",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.46.1",

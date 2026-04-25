@@ -19,7 +19,10 @@
     "test-auth": "tsx --env-file=../../.env src/test-auth-flow.ts",
     "test-tenant": "tsx --env-file=../../.env src/test-tenant-flow.ts",
     "test-content": "tsx --env-file=../../.env src/test-content-flow.ts",
+    "test-variant-flow": "tsx --env-file=../../.env src/test-variant-flow.ts",
     "dev-link": "tsx --env-file=../../.env src/dev-mint-link.ts",
+    "dev-clear-variants": "tsx --env-file=../../.env src/dev-clear-variants.ts",
+    "dev-test-doubao": "tsx --env-file=../../.env src/dev-test-doubao.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -30,6 +33,7 @@
     "postgres": "^3.4.5"
   },
   "devDependencies": {
+    "@geo/geo-core": "workspace:*",
     "@geo/shared": "workspace:*",
     "@types/node": "^22.9.0",
     "drizzle-kit": "^0.28.1",

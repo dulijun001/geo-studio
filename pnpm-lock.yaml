@@ -20,6 +20,9 @@ importers:
       '@geo/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@geo/geo-core':
+        specifier: workspace:*
+        version: link:../../packages/geo-core
       '@geo/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -134,6 +137,9 @@ importers:
         specifier: ^3.4.5
         version: 3.4.9
     devDependencies:
+      '@geo/geo-core':
+        specifier: workspace:*
+        version: link:../geo-core
       '@geo/shared':
         specifier: workspace:*
         version: link:../shared
@@ -159,6 +165,9 @@ importers:
         specifier: ^1.48.2
         version: 1.59.1
     devDependencies:
+      '@types/node':
+        specifier: ^22.9.0
+        version: 22.19.17
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
