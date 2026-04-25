@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireRole } from '@/lib/tenant';
 import { ReviewActions } from './review-actions';
 import { HighlightedBody } from './highlighted-body';
+import { EditForm } from './edit-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,6 +63,7 @@ export default async function ComplianceDetailPage({
   const isTerminal =
     variant.compliance_status === 'manual_approved' || variant.compliance_status === 'rejected';
   const canAct = !isTerminal;
+  const editLocked = ['dispatched', 'published'].includes(variant.status);
 
   return (
     <div className="space-y-6">
@@ -107,6 +109,14 @@ export default async function ComplianceDetailPage({
               变体已处于终态({variant.compliance_status}),不再接受审批动作。
             </div>
           )}
+          <EditForm
+            tenantSlug={tenant.slug}
+            variantId={variant.id}
+            initialTitle={variant.title}
+            initialBody={variant.body}
+            disabled={editLocked}
+            disabledReason="变体已派发给员工,改文案会让员工手里版本不一致。先撤回派单或废弃变体重新生成。"
+          />
         </aside>
       </div>
     </div>

@@ -1,8 +1,81 @@
 'use server';
 
+import PgBoss from 'pg-boss';
 import { revalidatePath } from 'next/cache';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { getSupabaseServiceClient } from '@/lib/supabase/service';
 import { requireRole } from '@/lib/tenant';
+
+/**
+ * Edit a variant's title/body and re-queue compliance review.
+ *
+ * Available while the variant has not been dispatched yet — once it's in a
+ * staff member's hands, content drift would mean the post they're publishing
+ * doesn't match what we approved. Reset compliance_status to 'pending' and
+ * re-enqueue the worker job so the new text gets scanned + LLM-reviewed.
+ */
+export async function updateVariantContent(
+  tenantSlug: string,
+  variantId: string,
+  title: string,
+  body: string,
+): Promise<void> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+  const t = title.trim();
+  const b = body.trim();
+  if (t.length < 4) throw new Error('标题至少 4 字');
+  if (b.length < 30) throw new Error('正文至少 30 字');
+  if (b.length > 20000) throw new Error('正文超过 20000 字,请精简');
+
+  const service = getSupabaseServiceClient();
+
+  const { data: variant, error: vErr } = await service
+    .from('content_variants')
+    .select('id, tenant_id, status')
+    .eq('id', variantId)
+    .eq('tenant_id', tenant.id)
+    .single();
+  if (vErr || !variant) throw new Error('变体不存在');
+  if (['dispatched', 'published'].includes(variant.status)) {
+    throw new Error('已派发或已发布的变体不能再改文案,以免和员工手里的版本不一致');
+  }
+
+  const { error: upErr } = await service
+    .from('content_variants')
+    .update({
+      title: t,
+      body: b,
+      status: 'draft',
+      compliance_status: 'pending',
+      compliance_review_id: null,
+    })
+    .eq('id', variantId);
+  if (upErr) throw new Error(`保存失败: ${upErr.message}`);
+
+  // Re-queue compliance review.
+  const databaseUrl = process.env.DATABASE_URL;
+  if (databaseUrl) {
+    const boss = new PgBoss({ connectionString: databaseUrl, schema: 'pgboss' });
+    await boss.start();
+    try {
+      await boss.createQueue('compliance.review');
+      await boss.send('compliance.review', { variant_id: variantId, tenant_id: tenant.id });
+    } finally {
+      await boss.stop({ graceful: true, timeout: 5000 });
+    }
+  }
+
+  await service.from('audit_logs').insert({
+    tenant_id: tenant.id,
+    action: 'content.variant_edited',
+    target_type: 'content_variant',
+    target_id: variantId,
+    payload: { title_len: t.length, body_len: b.length },
+  });
+
+  revalidatePath(`/t/${tenantSlug}/compliance/${variantId}`);
+  revalidatePath(`/t/${tenantSlug}/compliance`);
+}
 
 /**
  * Stage-3 manual approval. Records a `manual` compliance_review, flips variant
