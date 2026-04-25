@@ -8,6 +8,116 @@ import { generatePasscode, hashPasscode } from '@/lib/staff-passcode';
 
 const INVITE_TTL_MINUTES = 15;
 
+const STAFF_ROLES = ['doctor', 'consultant', 'receptionist', 'marketing', 'nurse', 'other'] as const;
+type StaffRole = (typeof STAFF_ROLES)[number];
+
+const PLATFORMS = ['toutiao_article', 'douyin_script', 'wechat_mp', 'zhihu', 'xiaohongshu', 'baijiahao', 'souhu'] as const;
+
+export type CreateStaffInput = {
+  real_name: string;
+  role: StaffRole;
+  phone: string;
+  /** Comma-separated persona tags. */
+  tags?: string;
+  /** Subset of PLATFORMS the staff has accounts on. */
+  platforms?: string[];
+};
+
+/**
+ * Create a new staff_account in the current tenant's default brand.
+ *
+ * V1 simplification: every tenant has exactly one brand (per D2 — no industry-
+ * specific assumptions, but each tenant is a single dental hospital / clinic
+ * for now). Pick the first active brand. V3 SaaS will surface a brand picker.
+ */
+export async function createStaffAccount(
+  tenantSlug: string,
+  input: CreateStaffInput,
+): Promise<{ id: string }> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+
+  const real_name = input.real_name.trim();
+  const phone = input.phone.trim();
+  if (!real_name) throw new Error('请填写姓名');
+  if (!/^1[3-9]\d{9}$/.test(phone)) throw new Error('请填写正确的中国大陆手机号(11 位)');
+  if (!STAFF_ROLES.includes(input.role)) throw new Error('请选择岗位');
+
+  const supabase = createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Unauthenticated');
+
+  const service = getSupabaseServiceClient();
+
+  // Pick the first brand for this tenant.
+  const { data: brand, error: bErr } = await service
+    .from('brands')
+    .select('id')
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single();
+  if (bErr || !brand) {
+    throw new Error('当前租户还没有 brand。请先在数据库 seed 一个,或等 V2 加品牌管理 UI。');
+  }
+
+  // Phone uniqueness within tenant — schema has a partial unique index but the
+  // user-facing error is much friendlier than a 23505 constraint violation.
+  const { data: dup } = await service
+    .from('staff_accounts')
+    .select('id')
+    .eq('tenant_id', tenant.id)
+    .eq('phone', phone)
+    .is('deleted_at', null)
+    .limit(1);
+  if (dup && dup.length > 0) {
+    throw new Error('该手机号已经在员工列表里,不能重复');
+  }
+
+  const tags = (input.tags ?? '')
+    .split(/[,,、\s]+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+
+  const platformsObj: Record<string, { handle?: string }> = {};
+  for (const p of input.platforms ?? []) {
+    if ((PLATFORMS as readonly string[]).includes(p)) {
+      platformsObj[p] = {};
+    }
+  }
+
+  const { data: inserted, error: insErr } = await service
+    .from('staff_accounts')
+    .insert({
+      tenant_id: tenant.id,
+      brand_id: brand.id,
+      real_name,
+      role: input.role,
+      phone,
+      persona: { tags },
+      platforms: platformsObj,
+      status: 'active',
+    })
+    .select('id')
+    .single();
+  if (insErr || !inserted) throw new Error(`新建失败: ${insErr?.message}`);
+
+  await service.from('audit_logs').insert({
+    tenant_id: tenant.id,
+    actor_user_id: user.id,
+    action: 'staff.created',
+    target_type: 'staff_account',
+    target_id: inserted.id,
+    payload: { real_name, role: input.role, platforms: Object.keys(platformsObj) },
+  });
+
+  revalidatePath(`/t/${tenantSlug}/settings/staff`);
+  return { id: inserted.id as string };
+}
+
 /**
  * Generate a new 6-digit passcode for a staff account and store its hash.
  *

@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/components/page-header';
 import { InlineGuide } from '@/components/inline-guide';
 import { InviteButton } from './invite-button';
+import { NewStaffForm } from './new-staff-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,12 +47,15 @@ export default async function StaffSettingsPage({ params }: { params: { slug: st
         title="员工管理"
         subtitle="员工矩阵 · 人设标签 · 平台账号 · 登录访问码"
         actions={
-          <Link
-            href={`/t/${tenant.slug}/settings`}
-            className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-muted"
-          >
-            ← 返回设置
-          </Link>
+          <div className="flex items-center gap-2">
+            <NewStaffForm tenantSlug={tenant.slug} />
+            <Link
+              href={`/t/${tenant.slug}/settings`}
+              className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-muted"
+            >
+              ← 返回设置
+            </Link>
+          </div>
         }
       />
 
@@ -63,7 +67,7 @@ export default async function StaffSettingsPage({ params }: { params: { slug: st
 
       {staff.length === 0 ? (
         <div className="rounded-md border border-dashed border-border bg-muted/20 p-10 text-center text-sm text-muted-foreground">
-          还没有员工。V1 W5 阶段请运行 <code>pnpm -F @geo/db dev-seed-w5</code> 导入种子员工,或在品牌设置里手动添加。
+          还没有员工。点右上角「+新建员工」开始添加,或运行 <code>pnpm -F @geo/db dev-seed-w5</code> 导入种子员工。
         </div>
       ) : (
         <div className="overflow-hidden rounded-md border border-border">
