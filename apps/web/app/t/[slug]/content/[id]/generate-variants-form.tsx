@@ -26,7 +26,7 @@ export function GenerateVariantsForm({
   disabledReason?: string;
 }) {
   const router = useRouter();
-  const [selected, setSelected] = useState<Set<Platform>>(new Set(['toutiao_article']));
+  const [selected, setSelected] = useState<Set<Platform>>(new Set());
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +93,7 @@ export function GenerateVariantsForm({
             <button
               key={p.id}
               type="button"
+              aria-pressed={on}
               onClick={() => toggle(p.id)}
               className={`rounded-full px-3 py-1 text-xs transition-colors ${
                 on
