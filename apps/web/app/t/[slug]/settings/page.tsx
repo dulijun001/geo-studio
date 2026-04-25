@@ -72,6 +72,15 @@ export default async function SettingsPage({ params }: { params: { slug: string 
               本品牌主名 + 别名、医生姓名、服务名、城市、竞品名 — GEO 追踪基于这本词典做命中识别
             </p>
           </Link>
+          <Link
+            href={`/t/${tenant.slug}/settings/audit`}
+            className="rounded-md border border-border bg-background p-4 hover:bg-muted/40"
+          >
+            <div className="mb-1 text-sm font-medium">操作日志</div>
+            <p className="text-xs text-muted-foreground">
+              所有合规审批 / 派单 / 员工创建动作的可追溯时间轴 + CSV 导出,医疗合规审计必备
+            </p>
+          </Link>
         </div>
       </section>
 
