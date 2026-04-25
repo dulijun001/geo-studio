@@ -56,16 +56,30 @@ export default async function PublishPage({ params }: { params: { slug: string }
   // Two-step: no PG FKs exist, so PostgREST embeds return nothing.
   const variantIds = Array.from(new Set(tasks.map((t) => t.variant_id)));
   const staffIds = Array.from(new Set(tasks.map((t) => t.staff_account_id)));
-  const [{ data: vRows }, { data: sRows }] = await Promise.all([
+  const taskIds = tasks.map((t) => t.id);
+  const [{ data: vRows }, { data: sRows }, { data: hRows }] = await Promise.all([
     variantIds.length > 0
       ? supabase.from('content_variants').select('id, title, platform').in('id', variantIds)
       : Promise.resolve({ data: [] as VariantLite[] }),
     staffIds.length > 0
       ? supabase.from('staff_accounts').select('id, real_name, phone').in('id', staffIds)
       : Promise.resolve({ data: [] as StaffLite[] }),
+    taskIds.length > 0
+      ? supabase
+          .from('hooks')
+          .select('publish_task_id, hook_type, hook_value')
+          .in('publish_task_id', taskIds)
+          .eq('hook_type', 'activity_code')
+          .is('deleted_at', null)
+      : Promise.resolve({ data: [] as Array<{ publish_task_id: string; hook_value: string }> }),
   ]);
   const variantById = new Map((vRows ?? []).map((v) => [v.id as string, v as VariantLite]));
   const staffById = new Map((sRows ?? []).map((s) => [s.id as string, s as StaffLite]));
+  const codeByTask = new Map(
+    ((hRows ?? []) as Array<{ publish_task_id: string; hook_value: string }>).map(
+      (h) => [h.publish_task_id, h.hook_value],
+    ),
+  );
 
   const counts = {
     total: tasks.length,
@@ -108,6 +122,7 @@ export default async function PublishPage({ params }: { params: { slug: string }
                 <th className="px-4 py-2 font-medium">平台</th>
                 <th className="px-4 py-2 font-medium">派给</th>
                 <th className="px-4 py-2 font-medium">档位</th>
+                <th className="px-4 py-2 font-medium">暗号</th>
                 <th className="px-4 py-2 font-medium">状态</th>
                 <th className="px-4 py-2 font-medium">链接 / 原因</th>
               </tr>
@@ -134,6 +149,15 @@ export default async function PublishPage({ params }: { params: { slug: string }
                   </td>
                   <td className="px-4 py-2.5 text-xs text-muted-foreground">
                     {formatWindow(t.scheduled_at)}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {codeByTask.get(t.id) ? (
+                      <code className="rounded bg-amber-50 px-1.5 py-0.5 font-mono text-xs text-amber-900">
+                        {codeByTask.get(t.id)}
+                      </code>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5">
                     <span

@@ -12,6 +12,10 @@ type TaskProps = {
   scheduled_at: string | null;
   published_url: string | null;
   time_window: string | null;
+  /** 6-char attribution code the staff should embed in their post. */
+  activity_code: string | null;
+  /** Doctor name hook (= staff real name); shown for context. */
+  doctor_name: string | null;
 };
 
 const PLATFORM_LABEL: Record<string, string> = {
@@ -41,7 +45,13 @@ export function TaskCard({ task }: { task: TaskProps }) {
   const appScheme = PLATFORM_SCHEME[task.platform];
 
   const copyContent = async () => {
-    const text = `${task.title}\n\n${task.body}`;
+    // Auto-append the attribution CTA when an activity_code exists. This is
+    // what makes /c/[slug]/checkin able to flow conversions back — without it
+    // the funnel stays empty even with hooks in DB.
+    const cta = task.activity_code
+      ? `\n\n— 到院请说「${task.doctor_name ?? ''}医生 ${task.activity_code}」,我会知道你是看了这条来的。`
+      : '';
+    const text = `${task.title}\n\n${task.body}${cta}`;
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -95,6 +105,21 @@ export function TaskCard({ task }: { task: TaskProps }) {
       <p className="mb-3 line-clamp-3 whitespace-pre-wrap text-sm text-muted-foreground">
         {task.body}
       </p>
+
+      {task.activity_code ? (
+        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <div className="font-medium">📌 发布时记得带上暗号</div>
+          <div className="mt-0.5">
+            点「复制文案」会自动在末尾加一句话:
+            <br />
+            <span className="font-mono">
+              {`「${task.doctor_name ?? ''}医生 ${task.activity_code}」`}
+            </span>
+            <br />
+            患者来店时报这串字,系统能归到这条内容。
+          </div>
+        </div>
+      ) : null}
 
       {done ? (
         <div className="space-y-1 rounded-md bg-emerald-100 px-3 py-2 text-xs text-emerald-800">
