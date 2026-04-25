@@ -9,6 +9,8 @@ type TaskRow = {
   status: string;
   variant_id: string;
   scheduled_at: string | null;
+  dispatched_at: string | null;
+  created_at: string;
   published_url: string | null;
   skip_reason: string | null;
   feedback: string | null;
@@ -37,7 +39,7 @@ export default async function StaffHomePage() {
   const { data: rawTasks, error } = await client
     .from('publish_tasks')
     .select(
-      'id, status, variant_id, scheduled_at, published_url, skip_reason, feedback',
+      'id, status, variant_id, scheduled_at, dispatched_at, created_at, published_url, skip_reason, feedback',
     )
     .eq('staff_account_id', ctx.staff_id)
     .eq('tenant_id', ctx.tenant_id)
@@ -161,6 +163,7 @@ function taskToProps(
     body: v?.body ?? '',
     status: t.status,
     scheduled_at: t.scheduled_at,
+    dispatched_at: t.dispatched_at ?? t.created_at,
     published_url: t.published_url,
     time_window: v?.extra_assets?.time_window ?? null,
     activity_code:

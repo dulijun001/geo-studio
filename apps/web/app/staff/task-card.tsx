@@ -10,6 +10,8 @@ type TaskProps = {
   body: string;
   status: string;
   scheduled_at: string | null;
+  /** When admin dispatched this task — used for the 24h deadline countdown. */
+  dispatched_at: string;
   published_url: string | null;
   time_window: string | null;
   /** 6-char attribution code the staff should embed in their post. */
@@ -17,6 +19,8 @@ type TaskProps = {
   /** Doctor name hook (= staff real name); shown for context. */
   doctor_name: string | null;
 };
+
+const DEADLINE_HOURS = 24;
 
 const PLATFORM_LABEL: Record<string, string> = {
   toutiao_article: '头条号文章',
@@ -90,14 +94,47 @@ export function TaskCard({ task }: { task: TaskProps }) {
   const done = task.status === 'published';
   const skipped = task.status === 'skipped';
 
+  // Time-to-publish countdown (only meaningful for unfinished tasks).
+  const dispatchedMs = new Date(task.dispatched_at).getTime();
+  const deadlineMs = dispatchedMs + DEADLINE_HOURS * 3600 * 1000;
+  const remainingMs = deadlineMs - Date.now();
+  const overdue = !done && !skipped && remainingMs < 0;
+  const remainingLabel = formatRemaining(remainingMs);
+
   return (
-    <article className={`rounded-md border bg-background p-4 ${done ? 'border-emerald-200 bg-emerald-50/40' : skipped ? 'border-border/50 opacity-60' : 'border-border'}`}>
+    <article
+      className={`rounded-md border bg-background p-4 ${
+        done
+          ? 'border-emerald-200 bg-emerald-50/40'
+          : skipped
+            ? 'border-border/50 opacity-60'
+            : overdue
+              ? 'border-rose-300 bg-rose-50/40'
+              : 'border-border'
+      }`}
+    >
       <div className="mb-2 flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           {platformLabel}
         </span>
-        <span className="text-xs text-muted-foreground">
-          {task.time_window === 'morning' ? '上午档' : task.time_window === 'afternoon' ? '下午档' : '今日'}
+        <span
+          className={
+            overdue
+              ? 'rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-800'
+              : !done && !skipped && remainingMs < 6 * 3600 * 1000
+                ? 'rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800'
+                : 'text-xs text-muted-foreground'
+          }
+        >
+          {done || skipped
+            ? task.time_window === 'morning'
+              ? '上午档'
+              : task.time_window === 'afternoon'
+                ? '下午档'
+                : '今日'
+            : overdue
+              ? '已逾期 · 请尽快回填'
+              : `还剩 ${remainingLabel}`}
         </span>
       </div>
 
@@ -248,4 +285,12 @@ export function TaskCard({ task }: { task: TaskProps }) {
       )}
     </article>
   );
+}
+
+function formatRemaining(ms: number): string {
+  if (ms <= 0) return '0m';
+  const h = Math.floor(ms / 3600_000);
+  const m = Math.floor((ms % 3600_000) / 60_000);
+  if (h >= 1) return `${h}h${m > 0 ? `${m}m` : ''}`;
+  return `${m}m`;
 }

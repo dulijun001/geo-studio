@@ -83,11 +83,18 @@ export default async function PublishPage({ params }: { params: { slug: string }
     ),
   );
 
+  const OVERDUE_HOURS = 24;
+  const overdueDeadline = Date.now() - OVERDUE_HOURS * 3600 * 1000;
+  const isOverdue = (t: TaskRow) =>
+    (t.status === 'dispatched' || t.status === 'pending') &&
+    new Date(t.created_at).getTime() < overdueDeadline;
+
   const counts = {
     total: tasks.length,
     pending: tasks.filter((t) => t.status === 'pending' || t.status === 'dispatched').length,
     published: tasks.filter((t) => t.status === 'published').length,
     skipped: tasks.filter((t) => t.status === 'skipped').length,
+    overdue: tasks.filter(isOverdue).length,
   };
 
   return (
@@ -109,11 +116,16 @@ export default async function PublishPage({ params }: { params: { slug: string }
         ]}
       />
 
-      <section className="grid grid-cols-4 gap-3">
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Stat label="今日总任务" value={counts.total} />
         <Stat label="待发布" value={counts.pending} accent="slate" />
         <Stat label="已发布" value={counts.published} accent="emerald" />
         <Stat label="已跳过" value={counts.skipped} accent="amber" />
+        <Stat
+          label="逾期未发"
+          value={counts.overdue}
+          accent={counts.overdue > 0 ? 'rose' : 'slate'}
+        />
       </section>
 
       {tasks.length === 0 ? (
@@ -140,8 +152,9 @@ export default async function PublishPage({ params }: { params: { slug: string }
               {tasks.map((t) => {
                 const v = variantById.get(t.variant_id);
                 const s = staffById.get(t.staff_account_id);
+                const overdue = isOverdue(t);
                 return (
-                <tr key={t.id} className="hover:bg-muted/30">
+                <tr key={t.id} className={overdue ? 'bg-rose-50/40 hover:bg-rose-50' : 'hover:bg-muted/30'}>
                   <td className="max-w-[260px] truncate px-4 py-2.5 font-medium">
                     {v?.title ?? '(变体已删除)'}
                   </td>
@@ -174,6 +187,14 @@ export default async function PublishPage({ params }: { params: { slug: string }
                     >
                       {STATUS_LABEL[t.status] ?? t.status}
                     </span>
+                    {overdue ? (
+                      <span
+                        title={`派发于 ${new Date(t.created_at).toLocaleString('zh-CN')},超过 ${OVERDUE_HOURS} 小时未回填发布链接`}
+                        className="ml-1.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-800"
+                      >
+                        逾期
+                      </span>
+                    ) : null}
                   </td>
                   <td className="max-w-[260px] px-4 py-2.5 text-xs text-muted-foreground">
                     {t.published_url ? (
@@ -209,13 +230,14 @@ function Stat({
 }: {
   label: string;
   value: number;
-  accent?: 'default' | 'slate' | 'emerald' | 'amber';
+  accent?: 'default' | 'slate' | 'emerald' | 'amber' | 'rose';
 }) {
   const bg: Record<string, string> = {
     default: 'bg-background',
     slate: 'bg-slate-50',
     emerald: 'bg-emerald-50',
     amber: 'bg-amber-50',
+    rose: 'bg-rose-50',
   };
   return (
     <div className={`rounded-md border border-border ${bg[accent]} p-3`}>
