@@ -92,15 +92,24 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
   try {
     await boss.createQueue('compliance.review');
 
-    for (const platform of platforms) {
+    // Per-platform LLM calls run in parallel. A single content_item rarely
+    // targets more than ~6 platforms, comfortably under typical Ark RPM
+    // limits, so we don't bother with a concurrency cap. Per-platform errors
+    // are isolated — one failure does not abort the others.
+    const results = await Promise.allSettled(
+      platforms.map((platform) => processPlatform(platform)),
+    );
+    successCount = results.filter((r) => r.status === 'fulfilled' && r.value).length;
+
+    async function processPlatform(platform: VariantPlatform): Promise<boolean> {
       const t0 = Date.now();
       const result = await generateVariant({
-        source_markdown: item.markdown,
+        source_markdown: item!.markdown,
         platform,
         tactics: chosenTactics,
         brand_name: tenant?.name,
         industry: tenant?.industry,
-        topic_hints: item.topics?.length ? item.topics : undefined,
+        topic_hints: item!.topics?.length ? item!.topics : undefined,
       });
       const elapsed = Date.now() - t0;
 
@@ -113,7 +122,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
           content_item_id,
           { platform, reason: result.reason, provider: result.provider, elapsed_ms: elapsed },
         );
-        continue;
+        return false;
       }
 
       const v = result.variant;
@@ -134,7 +143,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
         .single();
       if (insErr || !inserted) {
         console.error(`[variant-generate] insert variant failed: ${insErr?.message}`);
-        continue;
+        return false;
       }
 
       await writeAudit(
@@ -151,17 +160,16 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
         },
       );
 
-      // 4. Kick off compliance review — reviews will flip variant state asynchronously.
       await boss.send('compliance.review', {
         variant_id: inserted.id,
         tenant_id,
         triggered_by,
       });
 
-      successCount++;
       console.log(
         `[variant-generate] ${platform} → variant=${inserted.id} (${v.provider}, ${elapsed}ms)`,
       );
+      return true;
     }
   } finally {
     await boss.stop({ graceful: true, timeout: 5000 });
