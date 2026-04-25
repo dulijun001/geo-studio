@@ -18,7 +18,7 @@
  * a try/catch around adapter.query here for those — only for unexpected bugs.
  */
 import { scanBrandMentions, type VocabRow } from '@geo/geo-core';
-import type { Engine } from '@geo/shared';
+import { reportError, type Engine } from '@geo/shared';
 import { getServiceClient } from '../lib/supabase';
 import { doubaoWebAdapter } from '../trackers/doubao-web';
 
@@ -138,7 +138,10 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
 
 async function markFailed(snapshotId: string, reason: string): Promise<void> {
   const client = getServiceClient();
-  console.error(`[geo-snapshot] ${snapshotId} failed: ${reason}`);
+  reportError(new Error(reason), {
+    scope: 'tracker.geo_snapshot',
+    extra: { snapshot_id: snapshotId },
+  });
   await client
     .from('geo_snapshots')
     .update({ status: 'failed', failure_reason: reason })

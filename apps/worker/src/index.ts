@@ -10,7 +10,15 @@
  * Queue: pg-boss on top of the same Postgres instance as the web app.
  */
 import PgBoss from 'pg-boss';
+import { reportError } from '@geo/shared';
 import { registerJobs } from './jobs/index';
+
+process.on('unhandledRejection', (reason) => {
+  reportError(reason, { scope: 'worker.unhandled_rejection' });
+});
+process.on('uncaughtException', (err) => {
+  reportError(err, { scope: 'worker.uncaught_exception' });
+});
 
 async function main() {
   const connectionString = process.env.DATABASE_URL;
@@ -24,7 +32,7 @@ async function main() {
   });
 
   boss.on('error', (err) => {
-    console.error('[pg-boss] error:', err);
+    reportError(err, { scope: 'pg-boss' });
   });
 
   await boss.start();
@@ -43,6 +51,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('[worker] fatal:', err);
+  reportError(err, { scope: 'worker.main_fatal' });
   process.exit(1);
 });
