@@ -10,5 +10,6 @@
 
 export * from './types';
 export * from './adapter';
+export * from './compliance';
 export * from './llm';
 export * from './generation';

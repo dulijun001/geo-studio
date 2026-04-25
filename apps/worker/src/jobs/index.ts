@@ -1,10 +1,11 @@
 import type PgBoss from 'pg-boss';
+import { handleComplianceReview, type ComplianceReviewJob } from './compliance-review';
 import { handleParseContent, type ParseContentJob } from './parse-content';
 import { handleVariantGenerate, type VariantGenerateJob } from './variant-generate';
 
 export const JOBS = {
   CONTENT_PARSE: 'content.parse',
-  COMPLIANCE_LLM_REVIEW: 'compliance.llm_review', // W4
+  COMPLIANCE_REVIEW: 'compliance.review', // W4
   VARIANT_GENERATE: 'content.variant_generate', // W3.2
   GEO_SNAPSHOT: 'geo.snapshot', // W6
   HOOK_PROVISION: 'publish.hook_provision', // W7
@@ -21,13 +22,18 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
     await handleParseContent(job.data);
   });
 
+  await boss.work<ComplianceReviewJob>(JOBS.COMPLIANCE_REVIEW, async ([job]) => {
+    if (!job?.data) return;
+    await handleComplianceReview(job.data);
+  });
+
   await boss.work<VariantGenerateJob>(JOBS.VARIANT_GENERATE, async ([job]) => {
     if (!job?.data) return;
     await handleVariantGenerate(job.data);
   });
 
   // Placeholders for later weeks — log receipt so we can verify wiring.
-  for (const job of [JOBS.COMPLIANCE_LLM_REVIEW, JOBS.GEO_SNAPSHOT, JOBS.HOOK_PROVISION]) {
+  for (const job of [JOBS.GEO_SNAPSHOT, JOBS.HOOK_PROVISION]) {
     await boss.work(job, async ([msg]) => {
       console.log(`[job:${job}] received`, msg?.id);
     });
