@@ -3,6 +3,15 @@ import type { ReactNode } from 'react';
 import { readStaffSession } from '@/lib/staff-session';
 import { getStaffContext } from '@/lib/staff';
 import { logoutStaff } from './actions';
+import { PwaRegister } from './pwa-register';
+
+export const metadata = {
+  title: 'GEO Studio · 员工端',
+  manifest: '/manifest.webmanifest',
+  themeColor: '#6366f1',
+  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'GEO 员工' },
+  icons: { icon: '/icon-192.svg', apple: '/icon-512.svg' },
+};
 
 /**
  * Staff (mobile web) shell.
@@ -18,6 +27,7 @@ export default async function StaffLayout({ children }: { children: ReactNode })
 
   return (
     <div className="min-h-screen bg-muted/20">
+      <PwaRegister />
       <header className="border-b border-border bg-background px-4 py-3">
         <div className="mx-auto flex max-w-md items-center justify-between">
           <Link href="/staff" className="text-sm font-semibold">
