@@ -32,6 +32,7 @@
 | D8 | 豆包 API(火山方舟)**只用作** LLM 能力调用(品牌识别、合规审查、内容生成),不用作 GEO 追踪 | 2026-04-23 | 见 D4 |
 | D9 | 绝不存储员工的头条/抖音账号登录凭证 | 2026-04-23 | 合规、隐私、风控三重风险 |
 | D10 | 每条 DB 变更都走 migration,绝不在生产手改 schema | 2026-04-23 | 多租户环境下手改=数据灾难 |
+| D11 | 员工端(`/staff`)不走 Supabase Auth,用 phone + 一次性 passcode + HMAC cookie 自建 session | 2026-04-25 | 员工只有手机号没邮箱;Supabase Auth 强绑邮箱魔链不适合移动端高频场景;V1 W5 用管理员手发 dev-passcode 跑通,V1 收尾接阿里云 SMS OTP,`staff_invites` 表结构不变 |
 
 ## 四、目录结构(强制)
 

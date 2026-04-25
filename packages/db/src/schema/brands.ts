@@ -1,5 +1,14 @@
-import { relations } from 'drizzle-orm';
-import { index, jsonb, pgEnum, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+import { relations, sql } from 'drizzle-orm';
+import {
+  index,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { pk, tenantFk, timestamps } from './_shared';
 import { tenants } from './tenants';
 
@@ -49,6 +58,11 @@ export const staffAccounts = pgTable(
     brand_id: uuid('brand_id').notNull(),
     real_name: text('real_name').notNull(),
     role: staffRoleEnum('role').notNull(),
+    /**
+     * Mobile phone (mainland CN format, '13812345678'). Required once invited.
+     * Used as login identifier for /staff. Tenant-unique.
+     */
+    phone: text('phone'),
     /** Persona tags driving tone/specialty/avatar style for dispatching */
     persona: jsonb('persona').notNull().default({}),
     /** Platform account matrix: { toutiao: {...}, douyin: {...}, ... }. Never store login credentials. */
@@ -62,6 +76,38 @@ export const staffAccounts = pgTable(
     tenant_idx: index('staff_accounts_tenant_idx').on(t.tenant_id),
     brand_idx: index('staff_accounts_brand_idx').on(t.brand_id),
     auth_idx: index('staff_accounts_auth_idx').on(t.auth_user_id),
+    tenant_phone_uq: uniqueIndex('staff_accounts_tenant_phone_uq')
+      .on(t.tenant_id, t.phone)
+      .where(sql`${t.phone} IS NOT NULL`),
+  }),
+);
+
+/**
+ * One-time passcodes for staff login.
+ *
+ * V1 W5 uses a "dev-passcode" model: admins generate a 6-digit code per staff,
+ * show it once in the admin UI, staff enters phone + code at /staff/login.
+ * This is temporary — V1 final ships with Aliyun SMS OTP that writes the same
+ * table shape. The production worker will move the actual SMS send here.
+ */
+export const staffInvites = pgTable(
+  'staff_invites',
+  {
+    id: pk(),
+    tenant_id: tenantFk(),
+    staff_account_id: uuid('staff_account_id').notNull(),
+    /** bcrypt/sha256 hash of the plaintext passcode. Plaintext never stored. */
+    passcode_hash: text('passcode_hash').notNull(),
+    expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumed_at: timestamp('consumed_at', { withTimezone: true }),
+    ...timestamps(),
+  },
+  (t) => ({
+    staff_active_idx: index('staff_invites_staff_active_idx').on(
+      t.staff_account_id,
+      t.expires_at,
+    ),
+    tenant_idx: index('staff_invites_tenant_idx').on(t.tenant_id),
   }),
 );
 
@@ -100,3 +146,5 @@ export type NewBrand = typeof brands.$inferInsert;
 export type StaffAccount = typeof staffAccounts.$inferSelect;
 export type NewStaffAccount = typeof staffAccounts.$inferInsert;
 export type BrandVocab = typeof brandVocab.$inferSelect;
+export type StaffInvite = typeof staffInvites.$inferSelect;
+export type NewStaffInvite = typeof staffInvites.$inferInsert;

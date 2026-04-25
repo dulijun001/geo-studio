@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
@@ -49,8 +50,23 @@ export default async function SettingsPage({ params }: { params: { slug: string 
         )}
       </section>
 
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">子模块</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <Link
+            href={`/t/${tenant.slug}/settings/staff`}
+            className="rounded-md border border-border bg-background p-4 hover:bg-muted/40"
+          >
+            <div className="mb-1 text-sm font-medium">员工管理</div>
+            <p className="text-xs text-muted-foreground">
+              员工矩阵、人设标签、平台账号、登录访问码
+            </p>
+          </Link>
+        </div>
+      </section>
+
       <section className="rounded-md border border-dashed border-border bg-muted/20 p-5 text-sm text-muted-foreground">
-        <p className="mb-2 text-foreground">后续功能(W2 后):</p>
+        <p className="mb-2 text-foreground">后续功能(W6+):</p>
         <ul className="list-inside list-disc space-y-1">
           <li>邀请成员(email + 角色)</li>
           <li>品牌词典管理(医生名、别名、竞品名)</li>

@@ -23,9 +23,11 @@
     "test-compliance-flow": "tsx --env-file=../../.env src/test-compliance-flow.ts",
     "test-compliance-llm": "tsx --env-file=../../.env src/test-compliance-llm.ts",
     "test-variant-flow": "tsx --env-file=../../.env src/test-variant-flow.ts",
+    "test-dispatch": "tsx --env-file=../../.env src/test-dispatch.ts",
     "dev-link": "tsx --env-file=../../.env src/dev-mint-link.ts",
     "dev-clear-variants": "tsx --env-file=../../.env src/dev-clear-variants.ts",
     "dev-test-doubao": "tsx --env-file=../../.env src/dev-test-doubao.ts",
+    "dev-seed-w5": "tsx --env-file=../../.env src/dev-seed-w5.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
