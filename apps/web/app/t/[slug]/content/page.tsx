@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireTenantMember } from '@/lib/tenant';
+import { PageHeader } from '@/components/page-header';
+import { InlineGuide } from '@/components/inline-guide';
 import { UploadForm } from './upload-form';
 
 export const dynamic = 'force-dynamic'; // Always fresh status after uploads
@@ -21,16 +23,23 @@ export default async function ContentPage({ params }: { params: { slug: string }
     .limit(50);
 
   return (
-    <div className="space-y-8">
-      <header className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold">内容</h1>
-          <p className="text-sm text-muted-foreground">
-            上传 Word / PDF / 纯文本,系统会自动解析为 markdown,供下游 GEO 改写使用。
-          </p>
-        </div>
-        {canEdit && <UploadForm tenantSlug={tenant.slug} />}
-      </header>
+    <div className="space-y-6">
+      <PageHeader
+        title="内容"
+        subtitle="上传 Word / PDF / 纯文本,系统会自动解析为 markdown,供下游 GEO 改写使用"
+        actions={canEdit ? <UploadForm tenantSlug={tenant.slug} /> : undefined}
+      />
+
+      <InlineGuide
+        storageKey={`guide:content:${tenant.slug}`}
+        title="为什么从「上传素材」开始?"
+        body="GEO 改写的质量上限取决于源素材。建议上传医院已有的科普文章、临床指南、医生访谈、典型病例(脱敏)— 这些事实密度高的素材改写后引用率明显更好。AI 生成 + AI 改写质量会一代不如一代。"
+        steps={[
+          '点右上角「上传文件」选 .docx / .pdf / .md / .txt',
+          '系统自动解析为 markdown(异步,通常 10-30 秒)',
+          '点列表里某条 → 进详情页选平台改写,下一步进合规审核',
+        ]}
+      />
 
       {items && items.length > 0 ? (
         <ContentTable items={items} canEdit={canEdit} />

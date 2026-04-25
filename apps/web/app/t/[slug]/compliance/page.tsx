@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireRole } from '@/lib/tenant';
+import { PageHeader } from '@/components/page-header';
+import { InlineGuide } from '@/components/inline-guide';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,12 +71,18 @@ export default async function CompliancePage({
 
   return (
     <div className="space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">合规审核</h1>
-        <p className="text-sm text-muted-foreground">
-          三道门:关键词黑名单(自动)→ 豆包语义审查(自动)→ 管理员人工复核。
-        </p>
-      </header>
+      <PageHeader
+        title="合规审核"
+        subtitle="三道门:关键词黑名单(自动)→ 豆包语义审查(自动)→ 管理员人工复核"
+      />
+
+      <InlineGuide
+        storageKey={`guide:compliance:${tenant.slug}`}
+        title="为什么医疗行业需要三道门"
+        body="《医疗广告法》对绝对化用语 / 治愈承诺 / 患者照片 / 专家排名等都有明确禁用,违规处罚十万起步。我们用 A 级关键词(无法挽救,直接拒)+ B 级关键词(有可能违规,触发 LLM 评估)+ 人工兜底,把假阳性和假阴性都压到最低。"
+        linkLabel="A/B 级词库管理"
+        linkHref={`/t/${tenant.slug}/help#compliance`}
+      />
 
       <div className="flex gap-1 border-b border-border">
         {TABS.map((t, i) => {

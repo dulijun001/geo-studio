@@ -1,6 +1,9 @@
 import Link from 'next/link';
 import { requireTenantMember } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { PageHeader } from '@/components/page-header';
+import { InlineGuide } from '@/components/inline-guide';
+import { SovDonut } from '@/components/sov-donut';
 import { RunButton } from './run-button';
 
 export const dynamic = 'force-dynamic';
@@ -125,15 +128,47 @@ export default async function TrackingPage({ params }: { params: { slug: string 
     }
   }
 
+  let totalOwn = 0;
+  let totalComp = 0;
+  let questionsWithData = 0;
+  for (const latest of latestByQuestion.values()) {
+    if (latest.status !== 'done') continue;
+    totalOwn += latest.own_count;
+    totalComp += latest.comp_count;
+    questionsWithData += 1;
+  }
+
   return (
     <div className="space-y-6">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">GEO 追踪</h1>
-        <p className="text-sm text-muted-foreground">
-          模拟真人在豆包 Web 提问,品牌词典 NER 解析答复(ADR-002)。
-          单次约 60-90s · V1 手动触发,V2 改为定时任务。
-        </p>
-      </header>
+      <PageHeader
+        title="GEO 追踪"
+        subtitle="模拟真人在豆包 Web 提问,品牌词典 NER 解析答复(ADR-002)· 单次约 60-90s,V1 手动触发"
+      />
+
+      <InlineGuide
+        storageKey={`guide:tracking:${tenant.slug}`}
+        title="GEO 是什么、追踪什么"
+        body="豆包/元宝/ChatGPT 这类 AI 助手已经替代了搜索引擎的一部分。患者问「南京种植牙推荐哪家」,答案里出现的是省口腔、市口腔还是你?这页就是把这些问题定期跑给 AI,看你是被提到的、还是不在场的。"
+        steps={[
+          '左侧问题列表是种子库(20 条),点「跑这条」会启动 Playwright 在头部 Chrome 里模拟真人问豆包',
+          '答复回来后,品牌词典(在 brand_vocab 表)做关键词命中,本品牌 / 竞品 / 医生名分类',
+          '同 IP 高频请求会被豆包静默限流,V1 半自动可接受,V2 加代理池解开',
+        ]}
+        linkLabel="为什么不直接调豆包 API"
+        linkHref={`/t/${tenant.slug}/help#tracking`}
+      />
+
+      {questionsWithData > 0 ? (
+        <section className="card-surface p-5">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-sm font-medium text-foreground">本品牌话语权(SOV)</h2>
+            <p className="text-xs text-muted-foreground">
+              基于 {questionsWithData} 条已抓回的问题
+            </p>
+          </div>
+          <SovDonut ownCount={totalOwn} competitorCount={totalComp} />
+        </section>
+      ) : null}
 
       {questions.length === 0 ? (
         <div className="rounded-md border border-dashed border-border bg-muted/20 p-10 text-center text-sm text-muted-foreground">

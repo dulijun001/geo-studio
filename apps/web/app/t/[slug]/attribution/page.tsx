@@ -1,6 +1,9 @@
 import Link from 'next/link';
 import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { PageHeader } from '@/components/page-header';
+import { InlineGuide } from '@/components/inline-guide';
+import { FunnelChart } from '@/components/funnel-chart';
 
 export const dynamic = 'force-dynamic';
 
@@ -153,33 +156,49 @@ export default async function AttributionPage({ params }: { params: { slug: stri
     .sort((a, b) => b.triggered_hook_ids.size - a.triggered_hook_ids.size)
     .slice(0, 20);
 
+  const funnelSteps = [
+    { label: '已发布任务', value: funnel.published_tasks },
+    { label: '钩子已发', value: funnel.hooks_total },
+    { label: '钩子被回报', value: funnel.hooks_triggered },
+    ...STAGE_ORDER.map((s) => ({ label: STAGE_LABEL[s] ?? s, value: funnel.by_stage[s] ?? 0 })),
+  ];
+
   return (
-    <div className="space-y-8">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">转化归因</h1>
-        <p className="text-sm text-muted-foreground">
-          多钩子自动回流(D6)· 患者通过暗号 / 医生名找回路径,自动归到具体内容。
-          {' · '}
+    <div className="space-y-6">
+      <PageHeader
+        title="转化归因"
+        subtitle="多钩子自动回流(D6)· 患者通过暗号 / 医生名找回路径,自动归到具体内容。"
+        actions={
           <Link
             href={`/c/${tenant.slug}/checkin`}
             target="_blank"
-            className="underline-offset-2 hover:underline"
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-muted"
           >
             患者登记入口 →
           </Link>
-        </p>
-      </header>
+        }
+      />
 
-      <section>
-        <h2 className="mb-3 text-sm font-medium text-muted-foreground">主漏斗</h2>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-7">
-          <Stat label="已发布" value={funnel.published_tasks} />
-          <Stat label="钩子已发" value={funnel.hooks_total} />
-          <Stat label="钩子被回报" value={funnel.hooks_triggered} accent="emerald" />
-          {STAGE_ORDER.map((s) => (
-            <Stat key={s} label={STAGE_LABEL[s] ?? s} value={funnel.by_stage[s] ?? 0} />
-          ))}
-        </div>
+      <InlineGuide
+        storageKey={`guide:attribution:${tenant.slug}`}
+        title="这页能告诉你哪些内容真的赚回了客户"
+        body="员工发布的每条内容都自动带 6 位暗号。患者来店报暗号 → 系统反查到具体 publish_task → 进而追到 variant 和原始内容,把转化数字落到内容粒度。下面是当前漏斗。"
+        linkLabel="完整工作流说明"
+        linkHref={`/t/${tenant.slug}/help#attribution`}
+      />
+
+      <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+        <Stat label="已发布" value={funnel.published_tasks} />
+        <Stat label="钩子已发" value={funnel.hooks_total} />
+        <Stat label="钩子被回报" value={funnel.hooks_triggered} accent="emerald" />
+        {STAGE_ORDER.map((s) => (
+          <Stat key={s} label={STAGE_LABEL[s] ?? s} value={funnel.by_stage[s] ?? 0} />
+        ))}
+      </section>
+
+      <section className="card-surface p-5">
+        <h2 className="mb-4 text-sm font-medium text-foreground">主漏斗</h2>
+        <FunnelChart steps={funnelSteps} />
       </section>
 
       <section>

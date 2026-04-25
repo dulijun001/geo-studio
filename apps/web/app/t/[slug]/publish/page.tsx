@@ -1,5 +1,7 @@
 import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { PageHeader } from '@/components/page-header';
+import { InlineGuide } from '@/components/inline-guide';
 import { DispatchButton } from './dispatch-button';
 
 export const dynamic = 'force-dynamic';
@@ -90,15 +92,22 @@ export default async function PublishPage({ params }: { params: { slug: string }
 
   return (
     <div className="space-y-6">
-      <header className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold">派单</h1>
-          <p className="text-sm text-muted-foreground">
-            今日员工矩阵的发布计划 · 派单算法自动匹配平台、人设、节奏。
-          </p>
-        </div>
-        <DispatchButton tenantSlug={tenant.slug} />
-      </header>
+      <PageHeader
+        title="派单"
+        subtitle="今日员工矩阵的发布计划 · 派单算法自动匹配平台 / 人设 / 节奏"
+        actions={<DispatchButton tenantSlug={tenant.slug} />}
+      />
+
+      <InlineGuide
+        storageKey={`guide:publish:${tenant.slug}`}
+        title="派单做的事"
+        body="把已通过合规的变体分配给员工矩阵。算法考虑:平台匹配(员工的账号)、人设匹配(医生 vs 咨询 vs 前台)、节奏控制(每人每天 ≤ 2 条不撞车)、新颖度(避免同一员工连发相似)。"
+        steps={[
+          '点右上角「派单今日」一键计算并分配',
+          '每个任务自动 mint 6 位暗号(activity_code),员工卡片会显示',
+          '员工在 /staff 看到任务,「复制文案」会自动加 CTA 含暗号',
+        ]}
+      />
 
       <section className="grid grid-cols-4 gap-3">
         <Stat label="今日总任务" value={counts.total} />

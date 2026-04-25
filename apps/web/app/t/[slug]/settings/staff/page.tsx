@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { PageHeader } from '@/components/page-header';
+import { InlineGuide } from '@/components/inline-guide';
 import { InviteButton } from './invite-button';
 
 export const dynamic = 'force-dynamic';
@@ -40,20 +42,24 @@ export default async function StaffSettingsPage({ params }: { params: { slug: st
 
   return (
     <div className="space-y-6">
-      <header className="flex items-start justify-between">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold">员工管理</h1>
-          <p className="text-sm text-muted-foreground">
-            员工矩阵 · 人设标签 · 平台账号 · 登录访问码。
-          </p>
-        </div>
-        <Link
-          href={`/t/${tenant.slug}/settings`}
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
-          ← 返回设置
-        </Link>
-      </header>
+      <PageHeader
+        title="员工管理"
+        subtitle="员工矩阵 · 人设标签 · 平台账号 · 登录访问码"
+        actions={
+          <Link
+            href={`/t/${tenant.slug}/settings`}
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-muted"
+          >
+            ← 返回设置
+          </Link>
+        }
+      />
+
+      <InlineGuide
+        storageKey={`guide:staff:${tenant.slug}`}
+        title="员工是怎么登录的(V1 dev-passcode)"
+        body="员工没有邮箱,V1 用「管理员手发 6 位访问码」过渡:你点「生成访问码」→ 弹出 6 位数字 → 把手机号 + 这 6 位通过企微 / 电话告诉员工 → 员工去 /staff/login 登录。访问码 15 分钟内有效,新生成会作废旧的。V1 收尾切换到阿里云 SMS OTP,DB schema 不变。"
+      />
 
       {staff.length === 0 ? (
         <div className="rounded-md border border-dashed border-border bg-muted/20 p-10 text-center text-sm text-muted-foreground">

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { PageHeader } from '@/components/page-header';
 
 export default async function SettingsPage({ params }: { params: { slug: string } }) {
   const tenant = await requireRole(params.slug, ['owner', 'admin']);
@@ -13,10 +14,10 @@ export default async function SettingsPage({ params }: { params: { slug: string 
 
   return (
     <div className="space-y-8">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">设置</h1>
-        <p className="text-sm text-muted-foreground">租户配置、成员、品牌词典、合规词库</p>
-      </header>
+      <PageHeader
+        title="设置"
+        subtitle="租户配置 · 成员管理 · 品牌词典 · 合规词库"
+      />
 
       <section className="space-y-3">
         <h2 className="text-lg font-medium">基本信息</h2>
