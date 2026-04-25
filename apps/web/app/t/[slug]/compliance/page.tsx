@@ -168,7 +168,7 @@ function ComplianceBadge({ status }: { status: string }) {
 
 function EmptyState({ activeTab }: { activeTab: string }) {
   const messages: Record<string, string> = {
-    pending: '目前没有待审变体。W3.2 开始生成变体后,系统会自动把需要人工复核的推到这里。',
+    pending: '目前没有待人工复核的变体。命中 B 级关键词或 LLM 判定为中等风险的变体会自动推到这里。',
     rejected: '还没有被拒绝的变体。',
     approved: '还没有已通过的变体。',
   };
