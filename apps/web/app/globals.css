@@ -4,13 +4,34 @@
 
 @layer base {
   :root {
+    /* surface */
     --background: 0 0% 100%;
-    --foreground: 222 15% 12%;
-    --muted: 210 20% 96%;
-    --muted-foreground: 222 8% 40%;
-    --border: 210 15% 90%;
-    --accent: 221 83% 53%;
+    --foreground: 222 20% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 20% 11%;
+    --muted: 220 16% 97%;
+    --muted-foreground: 220 8% 42%;
+    --border: 220 13% 91%;
+    --ring: 245 70% 60%;
+
+    /* brand — indigo → violet */
+    --brand-from: 245 70% 60%;
+    --brand-to: 270 70% 64%;
+    --brand-foreground: 0 0% 100%;
+
+    /* accent (kept for legacy callers) */
+    --accent: 245 70% 60%;
     --accent-foreground: 0 0% 100%;
+
+    /* radii */
+    --radius-sm: 0.375rem;
+    --radius-md: 0.625rem;
+    --radius-lg: 0.875rem;
+
+    /* depth */
+    --shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.04);
+    --shadow-md: 0 4px 12px -2px rgb(15 23 42 / 0.06), 0 2px 4px -2px rgb(15 23 42 / 0.04);
+    --shadow-lg: 0 12px 32px -8px rgb(15 23 42 / 0.10), 0 4px 12px -4px rgb(15 23 42 / 0.06);
   }
 
   html {
@@ -21,5 +42,64 @@
   body {
     background: hsl(var(--background));
     color: hsl(var(--foreground));
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  /* nicer focus ring across the app */
+  *:focus-visible {
+    outline: 2px solid hsl(var(--ring) / 0.6);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Brand gradient — used on primary CTAs and the sidebar logo */
+  .gradient-brand {
+    background-image: linear-gradient(135deg, hsl(var(--brand-from)) 0%, hsl(var(--brand-to)) 100%);
+  }
+  .text-gradient-brand {
+    background-image: linear-gradient(135deg, hsl(var(--brand-from)) 0%, hsl(var(--brand-to)) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Card — softer than border-only, has subtle shadow */
+  .card-surface {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+  }
+  .card-elevated {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+  }
+
+  /* Primary button — brand gradient */
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: hsl(var(--brand-foreground));
+    background-image: linear-gradient(135deg, hsl(var(--brand-from)), hsl(var(--brand-to)));
+    box-shadow: 0 1px 2px 0 rgb(99 102 241 / 0.20), 0 4px 12px -2px rgb(99 102 241 / 0.18);
+    transition: opacity 120ms ease, transform 120ms ease;
+  }
+  .btn-primary:hover {
+    opacity: 0.92;
+  }
+  .btn-primary:active {
+    transform: translateY(1px);
+  }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 }
