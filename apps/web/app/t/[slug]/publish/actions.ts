@@ -8,6 +8,16 @@ import { getSupabaseServiceClient } from '@/lib/supabase/service';
 
 const DEFAULT_DAILY_CAP = 2;
 
+/** 6-char activity code, base32 minus easily-confused chars (0/O, 1/I/L). */
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function generateActivityCode(): string {
+  let out = '';
+  for (let i = 0; i < 6; i++) {
+    out += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+  }
+  return out;
+}
+
 /**
  * Trigger the dispatcher for the current tenant.
  *
@@ -50,7 +60,7 @@ export async function dispatchToday(
       .is('deleted_at', null),
     service
       .from('staff_accounts')
-      .select('id, persona, platforms')
+      .select('id, persona, platforms, real_name')
       .eq('tenant_id', tenant.id)
       .eq('status', 'active')
       .is('deleted_at', null),
@@ -152,7 +162,7 @@ export async function dispatchToday(
   // Insert + audit in parallel — independent writes.
   if (rows.length > 0) {
     const [insRes] = await Promise.all([
-      service.from('publish_tasks').insert(rows),
+      service.from('publish_tasks').insert(rows).select('id, staff_account_id'),
       service.from('audit_logs').insert({
         tenant_id: tenant.id,
         actor_user_id: user.id,
@@ -170,6 +180,39 @@ export async function dispatchToday(
       }),
     ]);
     if (insRes.error) throw new Error(`派单写入失败: ${insRes.error.message}`);
+
+    // W7 hooks: per-task doctor_name + activity_code.
+    // Both close in 30 days — rough match for the typical conversion window
+    // for high-ticket dental services. Configurable later via tenant settings.
+    type InsertedTask = { id: string; staff_account_id: string };
+    const inserted = (insRes.data ?? []) as InsertedTask[];
+    if (inserted.length > 0) {
+      const staffNameById = new Map(
+        staffRows.map((s) => {
+          const r = s as { id: string; real_name?: string };
+          return [r.id, r.real_name ?? '医生'];
+        }),
+      );
+      const validUntil = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
+      const hookRows = inserted.flatMap((t) => [
+        {
+          tenant_id: tenant.id,
+          publish_task_id: t.id,
+          hook_type: 'doctor_name' as const,
+          hook_value: staffNameById.get(t.staff_account_id) ?? '医生',
+          valid_until: validUntil,
+        },
+        {
+          tenant_id: tenant.id,
+          publish_task_id: t.id,
+          hook_type: 'activity_code' as const,
+          hook_value: generateActivityCode(),
+          valid_until: validUntil,
+        },
+      ]);
+      const { error: hErr } = await service.from('hooks').insert(hookRows);
+      if (hErr) console.error(`[dispatch] hooks insert: ${hErr.message}`);
+    }
   }
 
   revalidatePath(`/t/${tenantSlug}/publish`);

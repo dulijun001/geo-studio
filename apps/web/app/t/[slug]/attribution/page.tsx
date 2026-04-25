@@ -1,18 +1,256 @@
+import Link from 'next/link';
 import { requireRole } from '@/lib/tenant';
-import { ComingSoon } from '../_shared/coming-soon';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
+
+export const dynamic = 'force-dynamic';
+
+const STAGE_LABEL: Record<string, string> = {
+  arrived: '到店',
+  consulted: '咨询',
+  treated: '治疗',
+  paid: '付款',
+  lost: '流失',
+};
+
+const STAGE_ORDER = ['arrived', 'consulted', 'treated', 'paid'] as const;
+
+type FunnelCounts = {
+  published_tasks: number;
+  hooks_total: number;
+  hooks_triggered: number;
+  by_stage: Record<string, number>;
+};
+
+type ContentRow = {
+  content_item_id: string;
+  title: string;
+  publish_count: number;
+  triggered_hook_ids: Set<string>;
+  by_stage: Record<string, number>;
+};
 
 export default async function AttributionPage({ params }: { params: { slug: string } }) {
-  await requireRole(params.slug, ['owner', 'admin', 'operator']);
+  const tenant = await requireRole(params.slug, ['owner', 'admin', 'operator', 'auditor']);
+  const supabase = createSupabaseServerClient();
+
+  // ── all conversion_events, hooks, publish_tasks, variants, content_items ──
+  // (Two-step joins because the schema has no DB-level FKs; PostgREST embeds
+  // return nothing. Same pattern as publish/page.tsx.)
+  const [eventsRes, tasksRes] = await Promise.all([
+    supabase
+      .from('conversion_events')
+      .select('id, hook_id, stage, stage_at')
+      .eq('tenant_id', tenant.id)
+      .is('deleted_at', null)
+      .order('stage_at', { ascending: false })
+      .limit(2000),
+    supabase
+      .from('publish_tasks')
+      .select('id, variant_id, status, published_at')
+      .eq('tenant_id', tenant.id)
+      .is('deleted_at', null)
+      .limit(2000),
+  ]);
+
+  type Event = { id: string; hook_id: string | null; stage: string; stage_at: string };
+  type Task = { id: string; variant_id: string; status: string; published_at: string | null };
+  const events = (eventsRes.data ?? []) as Event[];
+  const tasks = (tasksRes.data ?? []) as Task[];
+
+  const hookIds = Array.from(
+    new Set(events.map((e) => e.hook_id).filter((id): id is string => !!id)),
+  );
+  const variantIds = Array.from(new Set(tasks.map((t) => t.variant_id)));
+
+  const [hooksRes, hooksAllRes, variantsRes] = await Promise.all([
+    hookIds.length > 0
+      ? supabase
+          .from('hooks')
+          .select('id, publish_task_id, hook_type, hook_value')
+          .in('id', hookIds)
+      : Promise.resolve({
+          data: [] as Array<{
+            id: string;
+            publish_task_id: string;
+            hook_type: string;
+            hook_value: string;
+          }>,
+        }),
+    supabase
+      .from('hooks')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.id),
+    variantIds.length > 0
+      ? supabase
+          .from('content_variants')
+          .select('id, content_item_id, title')
+          .in('id', variantIds)
+      : Promise.resolve({
+          data: [] as Array<{ id: string; content_item_id: string; title: string }>,
+        }),
+  ]);
+
+  type HookRow = { id: string; publish_task_id: string; hook_type: string; hook_value: string };
+  type VariantRow = { id: string; content_item_id: string; title: string };
+  const hooks = (hooksRes.data ?? []) as HookRow[];
+  const hooksTotalCount = hooksAllRes.count ?? 0;
+  const variants = (variantsRes.data ?? []) as VariantRow[];
+
+  const variantById = new Map(variants.map((v) => [v.id, v]));
+  const taskById = new Map(tasks.map((t) => [t.id, t]));
+  const hookById = new Map(hooks.map((h) => [h.id, h]));
+
+  const contentItemIds = Array.from(new Set(variants.map((v) => v.content_item_id)));
+  const itemsRes =
+    contentItemIds.length > 0
+      ? await supabase.from('content_items').select('id, title').in('id', contentItemIds)
+      : { data: [] as Array<{ id: string; title: string }> };
+  type ItemRow = { id: string; title: string };
+  const itemById = new Map(((itemsRes.data ?? []) as ItemRow[]).map((i) => [i.id, i]));
+
+  // ── funnel ───────────────────────────────────────────────────────────────
+  const funnel: FunnelCounts = {
+    published_tasks: tasks.filter((t) => t.status === 'published').length,
+    hooks_total: hooksTotalCount,
+    hooks_triggered: new Set(events.map((e) => e.hook_id).filter(Boolean)).size,
+    by_stage: { arrived: 0, consulted: 0, treated: 0, paid: 0, lost: 0 },
+  };
+  for (const e of events) funnel.by_stage[e.stage] = (funnel.by_stage[e.stage] ?? 0) + 1;
+
+  // ── per-content ROI ──────────────────────────────────────────────────────
+  const byContent = new Map<string, ContentRow>();
+  for (const t of tasks) {
+    const v = variantById.get(t.variant_id);
+    if (!v) continue;
+    const cid = v.content_item_id;
+    if (!byContent.has(cid)) {
+      byContent.set(cid, {
+        content_item_id: cid,
+        title: itemById.get(cid)?.title ?? '(已删除)',
+        publish_count: 0,
+        triggered_hook_ids: new Set(),
+        by_stage: {},
+      });
+    }
+    byContent.get(cid)!.publish_count += 1;
+  }
+  for (const e of events) {
+    if (!e.hook_id) continue;
+    const h = hookById.get(e.hook_id);
+    if (!h) continue;
+    const t = taskById.get(h.publish_task_id);
+    if (!t) continue;
+    const v = variantById.get(t.variant_id);
+    if (!v) continue;
+    const row = byContent.get(v.content_item_id);
+    if (!row) continue;
+    row.triggered_hook_ids.add(h.id);
+    row.by_stage[e.stage] = (row.by_stage[e.stage] ?? 0) + 1;
+  }
+
+  const ranked = Array.from(byContent.values())
+    .filter((r) => r.publish_count > 0)
+    .sort((a, b) => b.triggered_hook_ids.size - a.triggered_hook_ids.size)
+    .slice(0, 20);
+
   return (
-    <ComingSoon
-      title="转化归因"
-      subtitle="W7 · 多钩子转化漏斗"
-      bullets={[
-        '钩子管理:医生名 / 活动暗号 / 电话尾号 / 企微 utm',
-        '前台打卡端(小程序)→ 到店事件自动回流',
-        '漏斗看板:内容 → 引用 → 咨询 → 到店 → 成交',
-        'ROI 计算:单客成本 · 单员工产出 · 单篇内容 LTV',
-      ]}
-    />
+    <div className="space-y-8">
+      <header className="space-y-1">
+        <h1 className="text-2xl font-semibold">转化归因</h1>
+        <p className="text-sm text-muted-foreground">
+          多钩子自动回流(D6)· 患者通过暗号 / 医生名找回路径,自动归到具体内容。
+          {' · '}
+          <Link
+            href={`/c/${tenant.slug}/checkin`}
+            target="_blank"
+            className="underline-offset-2 hover:underline"
+          >
+            患者登记入口 →
+          </Link>
+        </p>
+      </header>
+
+      <section>
+        <h2 className="mb-3 text-sm font-medium text-muted-foreground">主漏斗</h2>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-7">
+          <Stat label="已发布" value={funnel.published_tasks} />
+          <Stat label="钩子已发" value={funnel.hooks_total} />
+          <Stat label="钩子被回报" value={funnel.hooks_triggered} accent="emerald" />
+          {STAGE_ORDER.map((s) => (
+            <Stat key={s} label={STAGE_LABEL[s] ?? s} value={funnel.by_stage[s] ?? 0} />
+          ))}
+        </div>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-sm font-medium text-muted-foreground">单内容回流(Top 20)</h2>
+        {ranked.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border bg-muted/20 p-8 text-center text-sm text-muted-foreground">
+            还没有任何转化事件。等患者通过暗号在
+            {' '}<code className="rounded bg-muted px-1">/c/{tenant.slug}/checkin</code>{' '}
+            登记后,这里会出现内容回流分布。
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-md border border-border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-2 font-medium">内容</th>
+                  <th className="px-4 py-2 font-medium">发布次数</th>
+                  <th className="px-4 py-2 font-medium">触发钩子数</th>
+                  {STAGE_ORDER.map((s) => (
+                    <th key={s} className="px-4 py-2 font-medium">
+                      {STAGE_LABEL[s] ?? s}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {ranked.map((r) => (
+                  <tr key={r.content_item_id} className="hover:bg-muted/30">
+                    <td className="max-w-[360px] truncate px-4 py-2.5 font-medium">
+                      <Link
+                        href={`/t/${tenant.slug}/content/${r.content_item_id}`}
+                        className="hover:underline"
+                      >
+                        {r.title}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-2.5 text-muted-foreground">{r.publish_count}</td>
+                    <td className="px-4 py-2.5 font-medium text-emerald-700">
+                      {r.triggered_hook_ids.size}
+                    </td>
+                    {STAGE_ORDER.map((s) => (
+                      <td key={s} className="px-4 py-2.5 text-muted-foreground">
+                        {r.by_stage[s] ?? 0}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: number;
+  accent?: 'emerald';
+}) {
+  const accentClass =
+    accent === 'emerald' ? 'text-emerald-700' : 'text-foreground';
+  return (
+    <div className="rounded-md border border-border bg-background px-4 py-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={`mt-0.5 text-2xl font-semibold ${accentClass}`}>{value}</div>
+    </div>
   );
 }
