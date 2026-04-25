@@ -89,6 +89,53 @@ V1 没迁移老数据(demo 数据是测试性质)。新流程:
 4. **5432 暴露范围**:目前只对开发本机开。Vercel 部署 web 时,Vercel serverless IP 池极广,可能要改成 0.0.0.0 + 强密码 + 监控,或者改用 Supabase Pooler transaction mode + IP 限制
 5. **ECS 续费**:实例当前包月,2026-05-04 到期,demo 通了改成包年(便宜 30%)
 
+## 故障手册(实测踩坑)
+
+### 现象 A:`/auth/v1/admin/generate_link` 返回 500/504,`createUser` 抛空 error `{}`
+
+**症状**:dev-mint-link.ts 报 `generateLink: {}`;Studio 也打不开;magic-link 登录无效。
+
+**根因**:supabase-auth 容器无法解析 docker 内部 DNS(`lookup db on 127.0.0.11:53: i/o timeout`),所有 DB 操作 10s 超时。压力来源是 4GB 物理内存 + 2GB swap 不够跑全套 supabase(supabase-db 单 + supabase-auth + supavisor + analytics + storage + studio + edge 加起来稳态 ~2.5GB,洪峰更高)。
+
+**最快 fix**:
+```bash
+ssh root@121.196.228.102 'cd /opt/supabase/docker && docker compose restart'
+```
+Compose restart **不重读 .env**,但够把内存压力释放、DNS 恢复。
+
+**根本性 fix**:把 swap 扩到 4GB(已做,见 secrets.local.md 启动命令小节),或者 V1 上线前升 ECS 到 4C8G。
+
+### 现象 B:每次 navigate 都被踢回 /login,但 cookie 看起来在
+
+**症状**:刚通过 magic link 登录,进 /t/[slug] 一会儿就 redirect /login。`document.cookie` 显示 `sb-{ref}-auth-token` 还在。
+
+**根因**:middleware 的 `getUser()` 调用打到 supabase-auth,如果 auth 容器在故障状态(见 现象 A),`getUser()` 超时 → middleware 视作未登录 → 踢出。
+
+**fix**:解决现象 A 后即可恢复。
+
+### 现象 C:旧 deployment 留下的 stale cookie
+
+**症状**:浏览器同时存在 `sb-{oldRef}-auth-token` 和 `sb-{newRef}-auth-token`,supabase-js 偶尔读到旧的导致 session 校验失败。
+
+**fix**:`apps/web/app/auth/callback/callback-handler.tsx` 在 setSession 前会扫一遍 `sb-*-auth-token` cookie 清掉(commit b67XX)。手动清:
+```js
+document.cookie.split(';').forEach(c => {
+  const n = c.split('=')[0].trim();
+  if (/^sb-.+-auth-token/.test(n)) document.cookie = `${n}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+});
+```
+
+### 监控建议(W8 上线前补)
+
+最低限度的 health check:
+```bash
+# 每 2 分钟跑一次,失败时 docker compose restart
+*/2 * * * * curl -fs --max-time 8 http://121.196.228.102:8000/auth/v1/health || \
+  docker compose -f /opt/supabase/docker/docker-compose.yml restart auth db
+```
+
+或者接 UptimeRobot 监 8000 端口。
+
 ## 不在本 ADR 范围
 
 - 多客户场景下"每客户一个 Supabase 实例" vs "共享实例多 tenant"——是 V3 SaaS 的事

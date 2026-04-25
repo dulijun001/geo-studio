@@ -25,18 +25,13 @@ if (!url || !serviceKey) throw new Error('Missing Supabase env vars');
 const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
 async function main() {
-  // Ensure user exists (admin.generateLink with magiclink requires existing user)
-  const { data: existing } = await admin.auth.admin.listUsers();
-  const found = existing.users.find((u) => u.email === email);
-
-  if (!found) {
-    console.log(`User ${email} not found, creating…`);
-    const { error: createErr } = await admin.auth.admin.createUser({
-      email,
-      email_confirm: true,
-    });
-    if (createErr) throw new Error(`createUser: ${createErr.message}`);
-  }
+  // Ensure user exists (admin.generateLink with magiclink requires existing user).
+  // Best-effort createUser: if the user is already there, the call may fail with
+  // a non-descriptive error from gotrue; that's fine, generateLink below either
+  // succeeds (user exists) or surfaces the real reason.
+  await admin.auth.admin
+    .createUser({ email, email_confirm: true })
+    .catch(() => undefined);
 
   const redirectTo = `${appUrl}/auth/callback?next=${encodeURIComponent(nextPath)}`;
 

@@ -232,14 +232,7 @@ export default async function TrackingPage({ params }: { params: { slug: string 
       )}
 
       <p className="text-xs text-muted-foreground">
-        更详细的覆盖率 / SOV 曲线 / 未命中诊断在 W6.3 报表里
-        {' · '}
-        <Link
-          href="/t/demo-dental"
-          className="underline-offset-2 hover:underline"
-        >
-          回概览
-        </Link>
+        提示:同 IP 短时高频跑同一问题会被豆包静默限流,SOV 趋势看起来异常时先静一会儿再试。
       </p>
     </div>
   );

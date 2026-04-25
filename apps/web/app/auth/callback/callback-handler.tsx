@@ -15,6 +15,20 @@ export function CallbackHandler() {
     const next = searchParams.get('next') ?? '/app';
 
     async function run() {
+      // Wipe any stale Supabase auth cookies from a previous deployment.
+      // After switching the project from Supabase US to a self-hosted instance,
+      // the old sb-{oldRef}-auth-token cookies hang around and occasionally win
+      // a read race against the new sb-{newRef}-auth-token, kicking the user
+      // back to /login. Best-effort: clear anything matching the supabase
+      // cookie pattern before we set a fresh session.
+      document.cookie
+        .split(';')
+        .map((c) => c.split('=')[0]?.trim() ?? '')
+        .filter((n) => /^sb-.+-auth-token/.test(n))
+        .forEach((n) => {
+          document.cookie = `${n}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+        });
+
       // 1. Implicit flow: Supabase admin.generateLink returns #access_token=&refresh_token=
       const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
       if (hash) {
