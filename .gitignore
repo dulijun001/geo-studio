@@ -14,7 +14,12 @@ out/
 .env
 .env.local
 .env.*.local
+.env.*.bak
 !.env.example
+
+# local-only secrets / scratch notes
+*.local.md
+secrets.local*
 
 # logs
 *.log
