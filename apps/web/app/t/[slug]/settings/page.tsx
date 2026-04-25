@@ -53,7 +53,7 @@ export default async function SettingsPage({ params }: { params: { slug: string 
 
       <section className="space-y-3">
         <h2 className="text-lg font-medium">子模块</h2>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-3 md:grid-cols-2">
           <Link
             href={`/t/${tenant.slug}/settings/staff`}
             className="rounded-md border border-border bg-background p-4 hover:bg-muted/40"
@@ -61,6 +61,15 @@ export default async function SettingsPage({ params }: { params: { slug: string 
             <div className="mb-1 text-sm font-medium">员工管理</div>
             <p className="text-xs text-muted-foreground">
               员工矩阵、人设标签、平台账号、登录访问码
+            </p>
+          </Link>
+          <Link
+            href={`/t/${tenant.slug}/settings/vocab`}
+            className="rounded-md border border-border bg-background p-4 hover:bg-muted/40"
+          >
+            <div className="mb-1 text-sm font-medium">品牌词典</div>
+            <p className="text-xs text-muted-foreground">
+              本品牌主名 + 别名、医生姓名、服务名、城市、竞品名 — GEO 追踪基于这本词典做命中识别
             </p>
           </Link>
         </div>
