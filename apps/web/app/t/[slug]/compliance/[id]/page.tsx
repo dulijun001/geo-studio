@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { getSupabaseServiceClient } from '@/lib/supabase/service';
 import { requireRole } from '@/lib/tenant';
 import { ReviewActions } from './review-actions';
 import { HighlightedBody } from './highlighted-body';
@@ -55,6 +56,20 @@ export default async function ComplianceDetailPage({
     .order('created_at', { ascending: true });
   const reviewRows = (reviews ?? []) as ReviewRow[];
 
+  // Hydrate reviewer email for manual reviews. service client because auth.users
+  // is not reachable via anon-key.
+  const service = getSupabaseServiceClient();
+  const reviewerEmails = new Map<string, string>();
+  const reviewerIds = Array.from(
+    new Set(reviewRows.map((r) => r.reviewer_id).filter((id): id is string => !!id)),
+  );
+  await Promise.all(
+    reviewerIds.map(async (id) => {
+      const { data: u } = await service.auth.admin.getUserById(id);
+      if (u?.user?.email) reviewerEmails.set(id, u.user.email);
+    }),
+  );
+
   // Source findings come from the most recent keyword-stage review — this is what
   // we highlight in the body. LLM stage may add its own span-level findings later.
   const keywordReview = [...reviewRows].reverse().find((r) => r.stage === 'keyword');
@@ -101,7 +116,7 @@ export default async function ComplianceDetailPage({
         </section>
 
         <aside className="space-y-5">
-          <ReviewTimeline reviews={reviewRows} />
+          <ReviewTimeline reviews={reviewRows} reviewerEmails={reviewerEmails} />
           {canAct ? (
             <ReviewActions tenantSlug={tenant.slug} variantId={variant.id} />
           ) : (
@@ -123,7 +138,13 @@ export default async function ComplianceDetailPage({
   );
 }
 
-function ReviewTimeline({ reviews }: { reviews: ReviewRow[] }) {
+function ReviewTimeline({
+  reviews,
+  reviewerEmails,
+}: {
+  reviews: ReviewRow[];
+  reviewerEmails: Map<string, string>;
+}) {
   if (reviews.length === 0) {
     return (
       <div className="rounded-md border border-dashed border-border bg-muted/20 p-4 text-xs text-muted-foreground">
@@ -169,6 +190,11 @@ function ReviewTimeline({ reviews }: { reviews: ReviewRow[] }) {
             )}
             <p className="mt-2 text-muted-foreground/70">
               {new Date(r.created_at).toLocaleString('zh-CN')}
+              {r.stage === 'manual' && r.reviewer_id ? (
+                <span className="ml-2">
+                  · 由 {reviewerEmails.get(r.reviewer_id) ?? r.reviewer_id.slice(0, 8)}
+                </span>
+              ) : null}
             </p>
           </li>
         ))}

@@ -1,16 +1,32 @@
 import Link from 'next/link';
 import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { getSupabaseServiceClient } from '@/lib/supabase/service';
 import { PageHeader } from '@/components/page-header';
 
 export default async function SettingsPage({ params }: { params: { slug: string } }) {
   const tenant = await requireRole(params.slug, ['owner', 'admin']);
   const supabase = createSupabaseServerClient();
 
-  const { data: members } = await supabase
+  const { data: rawMembers } = await supabase
     .from('tenant_memberships')
     .select('user_id, role, created_at')
     .eq('tenant_id', tenant.id);
+
+  // Hydrate auth.users.email per member (needed for display; can't be reached
+  // via the anon-key client so use service-role).
+  const service = getSupabaseServiceClient();
+  const members = await Promise.all(
+    (rawMembers ?? []).map(async (m) => {
+      const { data: u } = await service.auth.admin.getUserById(m.user_id as string);
+      return {
+        user_id: m.user_id as string,
+        role: m.role as string,
+        created_at: m.created_at as string,
+        email: u?.user?.email ?? null,
+      };
+    }),
+  );
 
   return (
     <div className="space-y-8">
@@ -36,12 +52,17 @@ export default async function SettingsPage({ params }: { params: { slug: string 
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-medium">成员({members?.length ?? 0})</h2>
-        {members && members.length > 0 ? (
+        <h2 className="text-lg font-medium">成员({members.length})</h2>
+        {members.length > 0 ? (
           <ul className="divide-y divide-border rounded-md border border-border">
             {members.map((m) => (
               <li key={m.user_id} className="flex items-center justify-between px-4 py-2 text-sm">
-                <code className="text-xs text-muted-foreground">{m.user_id}</code>
+                <span className="space-x-2">
+                  <span className="font-medium">{m.email ?? '(邮箱缺失)'}</span>
+                  <code className="text-[10px] text-muted-foreground">
+                    {m.user_id.slice(0, 8)}
+                  </code>
+                </span>
                 <span className="rounded-full bg-muted px-2 py-0.5 text-xs">{m.role}</span>
               </li>
             ))}
