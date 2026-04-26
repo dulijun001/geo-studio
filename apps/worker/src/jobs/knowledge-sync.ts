@@ -25,6 +25,7 @@ import { join, sep } from 'node:path';
 import fg from 'fast-glob';
 import matter from 'gray-matter';
 import { getServiceClient } from '../lib/supabase';
+import { deriveAllFromKb } from './derive-from-kb';
 
 export type KnowledgeSyncJob = {
   /** Limit sync to one tenant by slug. Default: all active tenants. */
@@ -296,6 +297,10 @@ export async function handleKnowledgeSync(
     console.log(
       `[kb-sync] tenant=${tenant.slug} scanned=${scan.length} added=${added} updated=${updated} deleted=${deleted} unchanged=${unchanged}`,
     );
+
+    // After indexing, refresh derived data (compliance keywords, doctors, vocab).
+    // Errors don't fail the sync — they're already logged inside deriveAllFromKb.
+    await deriveAllFromKb(tenant.id);
   }
 
   return all;
