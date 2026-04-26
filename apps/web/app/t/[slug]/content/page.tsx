@@ -4,6 +4,7 @@ import { requireTenantMember } from '@/lib/tenant';
 import { PageHeader } from '@/components/page-header';
 import { InlineGuide } from '@/components/inline-guide';
 import { UploadForm } from './upload-form';
+import { AiDraftForm } from './ai-draft-form';
 
 export const dynamic = 'force-dynamic'; // Always fresh status after uploads
 
@@ -26,8 +27,15 @@ export default async function ContentPage({ params }: { params: { slug: string }
     <div className="space-y-6">
       <PageHeader
         title="内容"
-        subtitle="上传 Word / PDF / 纯文本,系统会自动解析为 markdown,供下游 GEO 改写使用"
-        actions={canEdit ? <UploadForm tenantSlug={tenant.slug} /> : undefined}
+        subtitle="上传素材或 AI 基于知识库生成,系统自动解析为 markdown 供下游 GEO 改写"
+        actions={
+          canEdit ? (
+            <div className="flex items-center gap-2">
+              <AiDraftForm tenantSlug={tenant.slug} />
+              <UploadForm tenantSlug={tenant.slug} />
+            </div>
+          ) : undefined
+        }
       />
 
       <InlineGuide
@@ -104,6 +112,7 @@ function ContentTable({ items, canEdit: _canEdit }: { items: Item[]; canEdit: bo
 function StatusBadge({ status }: { status: string }) {
   const config: Record<string, { label: string; className: string }> = {
     draft: { label: '待解析', className: 'bg-amber-100 text-amber-800' },
+    ai_drafted: { label: 'AI 草稿', className: 'bg-violet-100 text-violet-800' },
     parsed: { label: '已解析', className: 'bg-emerald-100 text-emerald-800' },
     variant_generated: { label: '已改写', className: 'bg-blue-100 text-blue-800' },
     archived: { label: '已归档', className: 'bg-muted text-muted-foreground' },
