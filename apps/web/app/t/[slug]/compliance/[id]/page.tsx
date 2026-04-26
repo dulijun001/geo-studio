@@ -6,6 +6,7 @@ import { requireRole } from '@/lib/tenant';
 import { ReviewActions } from './review-actions';
 import { HighlightedBody } from './highlighted-body';
 import { EditForm } from './edit-form';
+import { AiRewriteButton } from './ai-rewrite-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -119,6 +120,8 @@ export default async function ComplianceDetailPage({
           <ReviewTimeline reviews={reviewRows} reviewerEmails={reviewerEmails} />
           {canAct ? (
             <ReviewActions tenantSlug={tenant.slug} variantId={variant.id} />
+          ) : variant.compliance_status === 'rejected' ? (
+            <AiRewriteButton tenantSlug={tenant.slug} variantId={variant.id} />
           ) : (
             <div className="rounded-md border border-border bg-muted/30 p-4 text-xs text-muted-foreground">
               变体已处于终态({variant.compliance_status}),不再接受审批动作。

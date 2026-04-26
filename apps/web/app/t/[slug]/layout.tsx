@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { SidebarNav, type NavItem } from '@/components/sidebar-nav';
 import { TenantProvider } from '@/lib/tenant-context';
 import { requireTenantMember } from '@/lib/tenant';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export default async function TenantLayout({
   children,
@@ -12,7 +13,8 @@ export default async function TenantLayout({
   params: { slug: string };
 }) {
   const tenant = await requireTenantMember(params.slug);
-  const menu = buildMenu(tenant.role);
+  const badges = await loadBadges(tenant.id, tenant.role);
+  const menu = buildMenu(tenant.role, badges);
 
   const roleLabel: Record<string, string> = {
     owner: '所有者',
@@ -109,13 +111,39 @@ export default async function TenantLayout({
   );
 }
 
-function buildMenu(role: string): NavItem[] {
+type Badges = {
+  /** Pending manual + rejected variants — anything that needs an admin's eyes. */
+  compliance: number;
+};
+
+async function loadBadges(tenantId: string, role: string): Promise<Badges> {
+  // Only roles that see compliance need the count
+  if (!['owner', 'admin', 'auditor'].includes(role)) {
+    return { compliance: 0 };
+  }
+  const supabase = createSupabaseServerClient();
+  const { count } = await supabase
+    .from('content_variants')
+    .select('id', { count: 'exact', head: true })
+    .eq('tenant_id', tenantId)
+    .in('compliance_status', ['pending', 'rejected'])
+    .is('deleted_at', null);
+  return { compliance: count ?? 0 };
+}
+
+function buildMenu(role: string, badges: Badges): NavItem[] {
   const all: Array<NavItem & { allowed?: readonly string[] }> = [
     { href: '', label: '概览', iconKey: 'overview' },
     { href: '/content', label: '内容', iconKey: 'content' },
     { href: '/publish', label: '派单', iconKey: 'publish' },
     { href: '/tracking', label: 'GEO 追踪', iconKey: 'tracking' },
-    { href: '/compliance', label: '合规审核', iconKey: 'compliance', allowed: ['owner', 'admin', 'auditor'] },
+    {
+      href: '/compliance',
+      label: '合规审核',
+      iconKey: 'compliance',
+      allowed: ['owner', 'admin', 'auditor'],
+      badge: badges.compliance,
+    },
     { href: '/attribution', label: '转化归因', iconKey: 'attribution', allowed: ['owner', 'admin', 'operator'] },
     { href: '/settings', label: '设置', iconKey: 'settings', allowed: ['owner', 'admin'] },
   ];

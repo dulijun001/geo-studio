@@ -2,6 +2,7 @@
 
 import PgBoss from 'pg-boss';
 import { revalidatePath } from 'next/cache';
+import { chat, isAvailable as llmAvailable } from '@geo/geo-core';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 import { requireRole } from '@/lib/tenant';
@@ -207,4 +208,186 @@ async function transition(
 
   revalidatePath(`/t/${tenantSlug}/compliance`);
   revalidatePath(`/t/${tenantSlug}/compliance/${variantId}`);
+}
+
+// ============================================================================
+// AI rewrite (V1.6-1)
+//
+// When a variant is rejected by compliance review, give the admin a one-click
+// "let AI rewrite this" path: feed the original body + the keyword findings
+// to the LLM with a strict rewrite-for-compliance prompt, replace the body,
+// reset compliance_status, and re-enqueue the review job.
+//
+// Audit-logged. Original body preserved in audit payload so we can roll back.
+// ============================================================================
+
+type Finding = {
+  term: string;
+  level: 'A' | 'B';
+  category: string;
+  matched_span?: string;
+  context_snippet?: string;
+};
+
+const REWRITE_SYSTEM = `你是医疗行业合规改写专家。把违规文案改写为合规版本,严格遵守:
+
+1. 不引入新违规词:绝对化(最/第一/独家/根治/包治)、效果承诺(保证/100%/治愈率/无效退款/永久/立竿见影)、夸大安全(无痛/零风险/绝对安全/无并发症)、违规比较(比XX好/碾压同行)、恐吓营销(不治后果严重/再不治就晚了)
+2. 替代策略:
+   - "最好" → "适合的" / "经过验证的"
+   - "保证" → "在严格遵循医嘱的前提下"
+   - "100%成功率" → "X 年存留率约 XX%(数据来源:具体研究/指南)"
+   - "无痛" → "舒适化技术 + 局部麻醉,大幅减轻不适"
+   - "比XX好" → 删除直接比较,改为陈述自身特点
+3. 保留原文事实:数字、医生姓名、诊疗细节不要改;只改违规表述
+4. 保留结构和大致字数(±20%)
+5. 保留平台调性(如小红书的痛点开头/列表)`;
+
+export async function aiRewriteVariant(
+  tenantSlug: string,
+  variantId: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'auditor']);
+  if (!llmAvailable()) {
+    throw new Error('LLM 未配置(ARK_API_KEY 缺失),无法 AI 改写');
+  }
+
+  const service = getSupabaseServiceClient();
+
+  // Load variant + most recent rejecting review with findings
+  const { data: variant, error: vErr } = await service
+    .from('content_variants')
+    .select('id, tenant_id, title, body, platform, status, compliance_status')
+    .eq('id', variantId)
+    .single();
+  if (vErr || !variant) throw new Error('变体不存在');
+  if (variant.tenant_id !== tenant.id) throw new Error('Tenant mismatch');
+  if (variant.compliance_status !== 'rejected') {
+    throw new Error('只有被拒绝的变体才能 AI 改写');
+  }
+  if (['dispatched', 'published'].includes(variant.status)) {
+    throw new Error('已派发或发布的变体不能再改');
+  }
+
+  // Pull findings from the most recent keyword stage review (LLM stage may have
+  // reasoning text but keyword findings have the term-level evidence we need).
+  const { data: reviews } = await service
+    .from('compliance_reviews')
+    .select('stage, findings, rationale, created_at')
+    .eq('target_id', variantId)
+    .eq('target_type', 'content_variant')
+    .order('created_at', { ascending: false });
+  const latestKeyword = (reviews ?? []).find((r) => r.stage === 'keyword');
+  const findings: Finding[] = (latestKeyword?.findings as Finding[] | null) ?? [];
+
+  const llmRationale =
+    (reviews ?? []).find((r) => r.stage === 'llm')?.rationale ??
+    (reviews ?? []).find((r) => r.stage === 'manual')?.rationale ??
+    null;
+
+  // Build user prompt
+  const findingsBlock = findings.length
+    ? findings
+        .map(
+          (f, i) =>
+            `${i + 1}. 「${f.term}」(类别: ${f.category}, ${f.level} 级)${f.context_snippet ? ` — 上下文: "${f.context_snippet.slice(0, 80)}"` : ''}`,
+        )
+        .join('\n')
+    : '(关键词扫描无具体命中,改写时综合考虑 LLM 评审意见)';
+
+  const userPrompt =
+    `# 任务\n` +
+    `把下列被拒绝的医疗营销文案改写为合规版本。\n\n` +
+    `# 平台\n${variant.platform}\n\n` +
+    `# 原始标题\n${variant.title}\n\n` +
+    `# 原始正文\n${variant.body}\n\n` +
+    `# 合规扫描发现的违规词\n${findingsBlock}\n\n` +
+    (llmRationale ? `# LLM 审查意见\n${llmRationale}\n\n` : '') +
+    `# 输出 JSON\n` +
+    `- title: 合规改写后的标题(可保持不变,只要不违规)\n` +
+    `- body: 合规改写后的正文(markdown,字数与原文 ±20%)\n` +
+    `- changes: 列出主要替换(原词 → 替代词)的字符串数组\n`;
+
+  let parsed: { title?: string; body?: string; changes?: string[] };
+  try {
+    const result = await chat({
+      messages: [
+        { role: 'system', content: REWRITE_SYSTEM },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.5,
+      max_tokens: 3000,
+      response_format: 'json_object',
+      timeout_ms: 180_000,
+    });
+    parsed = JSON.parse(result.content);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      reason: /abort/i.test(msg)
+        ? 'AI 超时未返回,请稍后重试'
+        : `AI 调用失败: ${msg.slice(0, 100)}`,
+    };
+  }
+
+  const newBody = parsed.body?.trim() ?? '';
+  const newTitle = parsed.title?.trim() || variant.title;
+  if (newBody.length < 30) {
+    return { ok: false, reason: 'AI 返回正文过短(< 30 字),改写失败' };
+  }
+
+  const supabase = createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Update variant: replace body + reset compliance state
+  const { error: upErr } = await service
+    .from('content_variants')
+    .update({
+      title: newTitle,
+      body: newBody,
+      status: 'draft',
+      compliance_status: 'pending',
+      compliance_review_id: null,
+    })
+    .eq('id', variantId);
+  if (upErr) {
+    return { ok: false, reason: `保存失败: ${upErr.message}` };
+  }
+
+  await service.from('audit_logs').insert({
+    tenant_id: tenant.id,
+    actor_user_id: user?.id ?? null,
+    action: 'compliance.ai_rewrite',
+    target_type: 'content_variant',
+    target_id: variantId,
+    payload: {
+      original_title: variant.title,
+      original_body: variant.body,
+      changes: parsed.changes ?? [],
+      findings_count: findings.length,
+    },
+  });
+
+  // Re-enqueue compliance review for the new body
+  const databaseUrl = process.env.DATABASE_URL;
+  if (databaseUrl) {
+    const boss = new PgBoss({ connectionString: databaseUrl, schema: 'pgboss' });
+    await boss.start();
+    try {
+      await boss.createQueue('compliance.review');
+      await boss.send('compliance.review', {
+        variant_id: variantId,
+        tenant_id: tenant.id,
+        triggered_by: user?.id ?? null,
+      });
+    } finally {
+      await boss.stop({ graceful: true, timeout: 5000 });
+    }
+  }
+
+  revalidatePath(`/t/${tenantSlug}/compliance`);
+  revalidatePath(`/t/${tenantSlug}/compliance/${variantId}`);
+  return { ok: true };
 }
