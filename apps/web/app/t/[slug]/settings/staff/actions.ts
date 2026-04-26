@@ -4,9 +4,15 @@ import { revalidatePath } from 'next/cache';
 import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
-import { generatePasscode, hashPasscode } from '@/lib/staff-passcode';
+import {
+  generatePasscode,
+  hashPasscode,
+  generateInviteToken,
+  hashInviteToken,
+} from '@/lib/staff-passcode';
 
 const INVITE_TTL_MINUTES = 15;
+const SETUP_LINK_TTL_HOURS = 24;
 
 const STAFF_ROLES = ['doctor', 'consultant', 'receptionist', 'marketing', 'nurse', 'other'] as const;
 type StaffRole = (typeof STAFF_ROLES)[number];
@@ -178,4 +184,89 @@ export async function generateStaffInvite(
 
   revalidatePath(`/t/${tenantSlug}/settings/staff`);
   return { passcode, expires_at: expiresAt.toISOString() };
+}
+
+// ============================================================================
+// V1.6-3: setup link + password reset (preferred over disposable passcode)
+// ============================================================================
+
+/**
+ * Generate a one-time setup invite link. Admin sends the URL to the staff
+ * member; they open it and pick their own password. Subsequent logins are
+ * phone + password — no SMS, no admin involvement.
+ *
+ * `kind`:
+ *   - 'setup' (default for new staff): just creates an invite. Existing
+ *     password (if any) is preserved until the staff actually completes setup.
+ *   - 'reset' (when admin clicks 「重置密码」): also nulls password_hash so the
+ *     old password stops working immediately. Staff must use the link to set
+ *     a new one.
+ */
+export async function generateStaffSetupLink(
+  tenantSlug: string,
+  staffAccountId: string,
+  kind: 'setup' | 'reset' = 'setup',
+): Promise<{ url: string; expires_at: string }> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+
+  const supabase = createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Unauthenticated');
+
+  const service = getSupabaseServiceClient();
+
+  const { data: staff, error: sErr } = await service
+    .from('staff_accounts')
+    .select('id, tenant_id, phone, status')
+    .eq('id', staffAccountId)
+    .eq('tenant_id', tenant.id)
+    .single();
+  if (sErr || !staff) throw new Error('员工不存在或不属于当前租户');
+  if (!staff.phone) throw new Error('该员工尚未录入手机号,无法生成邀请链接');
+
+  const token = generateInviteToken();
+  const expiresAt = new Date(Date.now() + SETUP_LINK_TTL_HOURS * 3600 * 1000);
+
+  // Invalidate prior unconsumed setup/reset invites for this staff
+  await service
+    .from('staff_invites')
+    .update({ consumed_at: new Date().toISOString() })
+    .eq('staff_account_id', staffAccountId)
+    .in('kind', ['setup', 'reset'])
+    .is('consumed_at', null);
+
+  // For 'reset', also clear the existing password so the old one stops
+  // working before the staff actually uses the link
+  if (kind === 'reset') {
+    await service
+      .from('staff_accounts')
+      .update({ password_hash: null })
+      .eq('id', staffAccountId);
+  }
+
+  const { error: insErr } = await service.from('staff_invites').insert({
+    tenant_id: tenant.id,
+    staff_account_id: staffAccountId,
+    kind,
+    passcode_hash: hashInviteToken(token),
+    expires_at: expiresAt.toISOString(),
+  });
+  if (insErr) throw new Error(`生成邀请链接失败: ${insErr.message}`);
+
+  await service.from('audit_logs').insert({
+    tenant_id: tenant.id,
+    actor_user_id: user.id,
+    action: kind === 'reset' ? 'staff.password_reset' : 'staff.setup_link_generated',
+    target_type: 'staff_account',
+    target_id: staffAccountId,
+    payload: { ttl_hours: SETUP_LINK_TTL_HOURS },
+  });
+
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3001';
+  const url = `${baseUrl}/staff/setup?token=${encodeURIComponent(token)}`;
+
+  revalidatePath(`/t/${tenantSlug}/settings/staff`);
+  return { url, expires_at: expiresAt.toISOString() };
 }

@@ -17,6 +17,7 @@ type StaffRow = {
   persona: { tags?: string[] } | null;
   platforms: Record<string, unknown> | null;
   auth_user_id: string | null;
+  password_hash: string | null;
 };
 
 const ROLE_LABEL: Record<string, string> = {
@@ -34,7 +35,7 @@ export default async function StaffSettingsPage({ params }: { params: { slug: st
 
   const { data: staffRaw } = await supabase
     .from('staff_accounts')
-    .select('id, real_name, role, phone, status, persona, platforms, auth_user_id')
+    .select('id, real_name, role, phone, status, persona, platforms, auth_user_id, password_hash')
     .eq('tenant_id', tenant.id)
     .is('deleted_at', null)
     .order('created_at', { ascending: true });
@@ -122,6 +123,7 @@ export default async function StaffSettingsPage({ params }: { params: { slug: st
                       <InviteButton
                         tenantSlug={tenant.slug}
                         staffAccountId={s.id}
+                        hasPassword={!!s.password_hash}
                         disabled={!s.phone || s.status !== 'active'}
                       />
                     </td>

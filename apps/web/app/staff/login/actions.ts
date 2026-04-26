@@ -2,8 +2,60 @@
 
 import { redirect } from 'next/navigation';
 import { issueStaffSession } from '@/lib/staff-session';
-import { verifyPasscode } from '@/lib/staff-passcode';
+import { verifyPasscode, verifyPassword } from '@/lib/staff-passcode';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
+
+/**
+ * V1.6-3 default login flow: phone + self-chosen password.
+ *
+ * The legacy 6-digit passcode flow is preserved below for emergency
+ * admin-mediated fallback; the UI no longer surfaces it but devs/admins can
+ * still call loginWithPasscode if the password reset path fails.
+ */
+export async function loginWithPassword(form: FormData): Promise<void> {
+  const phoneRaw = form.get('phone');
+  const passwordRaw = form.get('password');
+  const phone = typeof phoneRaw === 'string' ? phoneRaw.trim() : '';
+  const password = typeof passwordRaw === 'string' ? passwordRaw : '';
+
+  if (!/^1[3-9]\d{9}$/.test(phone) || !password) {
+    redirect(`/staff/login?error=invalid&phone=${encodeURIComponent(phone)}`);
+  }
+  if (!process.env.STAFF_SESSION_SECRET || process.env.STAFF_SESSION_SECRET.length < 32) {
+    redirect('/staff/login?error=missing_secret');
+  }
+
+  const client = getSupabaseServiceClient();
+  const { data: staffRows, error: staffErr } = await client
+    .from('staff_accounts')
+    .select('id, tenant_id, phone, status, password_hash')
+    .eq('phone', phone)
+    .eq('status', 'active')
+    .is('deleted_at', null);
+  if (staffErr) {
+    console.error('[staff-login-pwd] lookup failed:', staffErr.message);
+    redirect(`/staff/login?error=unknown&phone=${encodeURIComponent(phone)}`);
+  }
+  if (!staffRows || staffRows.length === 0) {
+    redirect(`/staff/login?error=not_found&phone=${encodeURIComponent(phone)}`);
+  }
+  if (staffRows.length > 1) {
+    redirect(`/staff/login?error=ambiguous&phone=${encodeURIComponent(phone)}`);
+  }
+  const staff = staffRows[0]!;
+
+  if (!staff.password_hash) {
+    // Staff exists but has never set a password — they need a setup link
+    redirect(`/staff/login?error=no_password&phone=${encodeURIComponent(phone)}`);
+  }
+
+  if (!verifyPassword(password, staff.password_hash)) {
+    redirect(`/staff/login?error=invalid&phone=${encodeURIComponent(phone)}`);
+  }
+
+  issueStaffSession(staff.id, staff.tenant_id);
+  redirect('/staff');
+}
 
 /**
  * Verify (phone, passcode) against staff_invites and issue a staff session cookie.

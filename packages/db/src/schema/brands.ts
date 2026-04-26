@@ -76,6 +76,11 @@ export const staffAccounts = pgTable(
     status: staffStatusEnum('status').notNull().default('active'),
     /** Link to Supabase auth.users. Null until the staff member is invited. */
     auth_user_id: uuid('auth_user_id'),
+    /**
+     * bcrypt-hashed password for self-service login (V1.6-3). Null until the
+     * staff member completes setup via an invite link.
+     */
+    password_hash: text('password_hash'),
     ...timestamps(),
   },
   (t) => ({
@@ -88,13 +93,18 @@ export const staffAccounts = pgTable(
   }),
 );
 
+export const staffInviteKindEnum = pgEnum('staff_invite_kind', ['login', 'setup', 'reset']);
+
 /**
- * One-time passcodes for staff login.
+ * Multi-purpose staff invite tokens.
  *
- * V1 W5 uses a "dev-passcode" model: admins generate a 6-digit code per staff,
- * show it once in the admin UI, staff enters phone + code at /staff/login.
- * This is temporary — V1 final ships with Aliyun SMS OTP that writes the same
- * table shape. The production worker will move the actual SMS send here.
+ *   - kind='login'  : legacy 6-digit dev passcode, 15-min TTL (W5).
+ *   - kind='setup'  : 32-byte one-time link to set initial password (V1.6-3).
+ *   - kind='reset'  : 32-byte one-time link to reset password (V1.6-3).
+ *
+ * For 'setup'/'reset', passcode_hash stores the SHA-256 hash of the link
+ * token (the URL ?token=... part). For 'login' it stores the 6-digit hash
+ * (W5 W7 unchanged). Format identical, semantics differ by kind.
  */
 export const staffInvites = pgTable(
   'staff_invites',
@@ -102,7 +112,8 @@ export const staffInvites = pgTable(
     id: pk(),
     tenant_id: tenantFk(),
     staff_account_id: uuid('staff_account_id').notNull(),
-    /** bcrypt/sha256 hash of the plaintext passcode. Plaintext never stored. */
+    kind: staffInviteKindEnum('kind').notNull().default('login'),
+    /** Hash of the plaintext passcode/token. Plaintext never stored. */
     passcode_hash: text('passcode_hash').notNull(),
     expires_at: timestamp('expires_at', { withTimezone: true }).notNull(),
     consumed_at: timestamp('consumed_at', { withTimezone: true }),
