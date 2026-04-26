@@ -1,0 +1,42 @@
+# GEO Studio 知识库 → ECS 同步 exclude 规则
+# 派生自客户 .kbignore + GEO Studio 加固层
+# 修改后 launchd watcher 会在下一次触发时生效
+
+# === 客户 .kbignore 派生 ===
+.venv/
+node_modules/
+__pycache__/
+.git/
+.stversions/
+工具/app/
+工具/凭证/
+记忆/系统/vectors/
+收件箱/待处理/
+收件箱/临时/
+收件箱/待审核/
+收件箱/已入库/
+收件箱/已处理/
+.sync-conflict-*
+.snapshot
+
+# === GEO Studio 加固:系统垃圾 ===
+.DS_Store
+*.swp
+*.swo
+*~
+
+# === GEO Studio 加固:L3 敏感(员工绩效/招聘/患者投诉)===
+# 按 合规/隐私/数据分级标准.md,L3 仅相关人员可见,GEO Studio 不需要
+团队/绩效/
+团队/招聘/
+患者/投诉/
+
+# === GEO Studio 加固:L4 高敏(患者病历,绝对禁止)===
+# 法律红线 — 即使脱敏也不上
+诊疗/病例库/
+
+# === GEO Studio 加固:其他敏感载荷 ===
+# 二进制大文件不利于索引,等 V2 加 LFS 处理
+*.docx
+*.pdf
+*.zip
