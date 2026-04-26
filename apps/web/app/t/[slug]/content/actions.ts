@@ -177,24 +177,83 @@ const PLATFORM_HINT: Record<CreateAiDraftInput['platform'], string> = {
 };
 
 /**
- * Token-overlap recall — minimal viable RAG without embeddings.
- *
- * Score = title hits × 3 + excerpt hits × 1. Chinese substring matching
- * (no proper tokenizer yet — V2 plugs in pgvector or a tokenizer + BM25).
- * Good enough to find "种植" content for "种植牙" queries.
+ * Platforms with a customer-maintained style guide in the KB. Loaded at draft
+ * time and injected into the prompt — keeps tone evolution in the customer's
+ * hands, no code redeploy needed.
  */
-function scoreSource(query: string, source: { title: string | null; excerpt: string | null }): number {
-  const tokens = query
-    .replace(/[，。！？、:：；,.!?;]/g, ' ')
-    .split(/\s+/)
-    .filter((t) => t.length >= 2);
-  if (tokens.length === 0) return 0;
+const PLATFORM_KB_GUIDE: Partial<Record<CreateAiDraftInput['platform'], string>> = {
+  xiaohongshu: '营销/渠道/小红书/风格指南.md',
+  douyin_script: '营销/渠道/抖音/风格指南.md',
+};
+
+/**
+ * GEO tactics ordered by lift weight (Aggarwal 2023 + W6.0 doubao probes).
+ * Injected verbatim into every draft prompt so the LLM knows what to optimize.
+ */
+const GEO_TACTICS_PROMPT = `# GEO 优化 9 法(按引用率提升权重排序,优先应用前 5 条)
+
+1. **加权威引用**(+41%):明确引用论文/临床指南/行业标准(如《ITI 共识》《医疗广告法》)
+2. **加统计数据**(+33%):具体数字 / 比例 / 临床研究(避免"很多""不少"等模糊词)
+3. **加专家署名**(+28%):必须引用素材中提供的真实医生姓名 + 资质 + 专长
+4. **加结构化标题**(+25%):清晰的一二三 + 子标题层级
+5. **加流畅度优化**(+22%):去除机器味,用自然语言
+6. **加直接引语**(+18%):"《XX 指南》指出..." 直引
+7. **加解释性**(+15%):"为什么这样做" 因果链
+8. **加叙事**(+12%):案例故事化引入
+9. **加列表**(+8%):3 步 / 5 要点 listicle`;
+
+const SYSTEM_PROMPT = `你是一位严谨的医疗内容编辑。基于提供的医院真实知识库素材撰写草稿,目标是被豆包/元宝/DeepSeek 等 AI 引擎倾向引用,同时合规、真实、可溯源。
+
+## 硬约束(必须遵守,违反一条全文重写)
+
+1. **合规底线**:严禁绝对化用语(最/第一/根治/包治/治愈)、效果承诺(保证/100%/无效退款/永久)、安全性夸大(无痛/零风险/绝对安全/无并发症)、违规比较(比XX好/碾压同行)
+2. **零幻觉**:严禁编造数字 / 年限 / 医生姓名。素材没提供的数据 → 不要写。素材没提供的医生 → 不要署名。如必须给数字,只能引用素材里出现过的
+3. **必须引用真实医生**:从提供的素材中至少引用 1 位真实医生姓名 + 该医生的资质 / 专长 / 案例(GEO 加专家署名 +28%)
+4. **citations 必须返回**:在 JSON 的 citations 字段列出实际引用到的素材 path,不可为空数组`;
+
+/**
+ * N-gram substring recall — minimal viable RAG for Chinese without a tokenizer.
+ *
+ * Chinese has no spaces, so word-level tokens don't work. Generate 2-gram and
+ * 3-gram substrings of the query, check substring containment in title/excerpt.
+ * 3-grams score higher (more semantic). For "糖尿病人能种牙吗" this generates
+ * 糖尿/尿病/病人/...种牙/牙吗 + 糖尿病/...种牙吗 — "糖尿病" 3-gram matches md
+ * mentioning 糖尿病 in title or excerpt.
+ *
+ * V2: pgvector embeddings or a Chinese tokenizer (jieba-wasm).
+ */
+function ngrams(s: string, n: number): string[] {
+  const cleaned = s.replace(/[\s，。！？、:：；,.!?;()（）【】「」"""'']/g, '');
+  const out: string[] = [];
+  for (let i = 0; i + n <= cleaned.length; i++) {
+    out.push(cleaned.slice(i, i + n));
+  }
+  return out;
+}
+
+function scoreSource(
+  query: string,
+  source: { title: string | null; excerpt: string | null; source_path: string },
+): number {
+  const grams = Array.from(new Set([...ngrams(query, 2), ...ngrams(query, 3)]));
+  if (grams.length === 0) return 0;
   const title = source.title ?? '';
   const excerpt = source.excerpt ?? '';
+  const path = source.source_path;
   let score = 0;
-  for (const t of tokens) {
-    if (title.includes(t)) score += 3;
-    if (excerpt.includes(t)) score += 1;
+  for (const g of grams) {
+    const inPath = path.includes(g);
+    const inTitle = title.includes(g);
+    const inExcerpt = excerpt.includes(g);
+    if (g.length === 3) {
+      if (inPath) score += 6;
+      if (inTitle) score += 5;
+      if (inExcerpt) score += 2;
+    } else {
+      if (inPath) score += 3;
+      if (inTitle) score += 2;
+      if (inExcerpt) score += 1;
+    }
   }
   return score;
 }
@@ -232,7 +291,14 @@ export async function createAiDraft(
     .slice(0, DRAFT_RECALL_K);
 
   if (ranked.length === 0) {
-    throw new Error(`未在知识库找到与「${topic}」相关的素材`);
+    const samples = candidates
+      .filter((c) => c.title)
+      .slice(0, 6)
+      .map((c) => c.title)
+      .join('、');
+    throw new Error(
+      `知识库 ${candidates.length} 篇内未找到匹配「${topic}」的素材。可用主题示例:${samples}。建议精简关键词,如「单颗种植」「儿童正畸」「糖尿病种植」`,
+    );
   }
 
   // 2. Read source bodies from KB mirror (web app reads /opt/kb in prod or
@@ -251,35 +317,47 @@ export async function createAiDraft(
     throw new Error('召回的素材文件读取失败,请检查知识库挂载');
   }
 
-  // 3. Compose prompt
+  // 3a. Load platform style guide from KB (if customer maintains one)
+  let platformGuide: string | null = null;
+  const guidePath = PLATFORM_KB_GUIDE[input.platform];
+  if (guidePath) {
+    try {
+      const raw = await readFile(join(KB_ROOT, guidePath), 'utf-8');
+      // Trim — only need style sections, not full file
+      platformGuide = raw.slice(0, 3000);
+    } catch (err) {
+      console.warn(`[ai-draft] platform guide ${guidePath} unavailable:`, err);
+    }
+  }
+
+  // 3b. Compose prompt
   const sourcesBlock = sourceBodies
     .map((s, i) => `## 素材 ${i + 1} 〈${s.path}〉\n${s.body}`)
     .join('\n\n---\n\n');
   const platformHint = PLATFORM_HINT[input.platform];
+  const platformBlock = platformGuide
+    ? `# 平台调性(客户维护的风格指南 〈${guidePath}〉)\n\n${platformGuide}`
+    : `# 平台调性\n\n${platformHint}`;
 
   const messages = [
-    {
-      role: 'system' as const,
-      content:
-        '你是一位严谨的医疗内容编辑。基于提供的医院真实知识库素材撰写草稿,严格事实准确,合规优先。' +
-        '严禁使用绝对化表述(最好/第一/根治)、效果承诺(保证/100%)、夸大安全性(无痛/零风险)。' +
-        '内容必须可溯源到提供的素材;不要凭空编数字或医生姓名。',
-    },
+    { role: 'system' as const, content: SYSTEM_PROMPT },
     {
       role: 'user' as const,
       content:
         `# 写作任务\n\n` +
         `**主题**: ${topic}\n` +
         `**目标受众**: ${audience}\n` +
-        `**平台**: ${input.platform}\n` +
-        `**平台调性**: ${platformHint}\n\n` +
-        `# 可用素材\n\n${sourcesBlock}\n\n` +
+        `**目标平台**: ${input.platform}\n\n` +
+        `${platformBlock}\n\n` +
+        `${GEO_TACTICS_PROMPT}\n\n` +
+        `# 可用素材(只能引用以下内容,严禁外部知识)\n\n${sourcesBlock}\n\n` +
         `# 输出要求\n\n` +
         `严格输出 JSON,字段:\n` +
         `- title: 标题(吸引力强,15 字内)\n` +
-        `- body: 正文 markdown(按平台调性,结构化)\n` +
-        `- tactics: 应用的 GEO 技巧数组(从中选: cite_sources / add_statistics / authoritative / add_quotation)\n` +
-        `- citations: 引用的素材路径数组(必须来自上面提供的素材路径,允许少于全部)\n`,
+        `- body: 正文 markdown(按平台调性结构化,优先应用 GEO 9 法前 5 条)\n` +
+        `- tactics: 应用的 GEO 技巧数组(从 9 法中选实际用到的)\n` +
+        `- citations: 引用的素材路径数组(从上面素材路径中选,**至少 1 条**;路径必须完全匹配,不要修改)\n` +
+        `- doctors_cited: 文中提到的真实医生姓名数组(必须来自素材,**至少 1 位**)\n`,
     },
   ];
 
@@ -302,12 +380,28 @@ export async function createAiDraft(
         title?: string;
         body?: string;
         citations?: string[];
+        doctors_cited?: string[];
       };
       draftTitle = parsed.title ?? topic;
       draftBody = parsed.body ?? '';
-      draftCitations = Array.isArray(parsed.citations)
+      // Validate citations strictly; if none match, fall back to all recalled
+      // sources so the back-reference chain (V1.8 attribution) never breaks.
+      const validCitations = Array.isArray(parsed.citations)
         ? parsed.citations.filter((c) => sourceBodies.some((s) => s.path === c))
-        : sourceBodies.map((s) => s.path);
+        : [];
+      if (validCitations.length === 0) {
+        console.warn(
+          `[ai-draft] LLM returned 0 valid citations (raw=${JSON.stringify(parsed.citations)?.slice(0, 200)}), falling back to all recalled sources`,
+        );
+        draftCitations = sourceBodies.map((s) => s.path);
+      } else {
+        draftCitations = validCitations;
+      }
+      if (Array.isArray(parsed.doctors_cited) && parsed.doctors_cited.length > 0) {
+        console.log(`[ai-draft] doctors cited: ${parsed.doctors_cited.join(', ')}`);
+      } else {
+        console.warn(`[ai-draft] LLM did not cite any doctor — GEO 专家署名 lift lost`);
+      }
       provider = 'doubao';
     } catch (err) {
       console.error('[ai-draft] LLM JSON parse failed', err, result.content.slice(0, 200));

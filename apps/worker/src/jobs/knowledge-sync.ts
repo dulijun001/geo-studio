@@ -93,17 +93,43 @@ function extractTitle(fmTitle: unknown, content: string): string | null {
   return match?.[1]?.trim() ?? null;
 }
 
+/**
+ * Extract a meaningful excerpt — skip frontmatter, tables, metadata sections.
+ *
+ * The customer KB convention: every md starts with `## 元信息` / `## 基本信息`
+ * containing a markdown table. Our previous logic captured those tables as
+ * "first paragraph > 20 chars", which produced excerpts like "| 字段 | 值 |"
+ * — useless for keyword recall. We now skip both metadata sections and any
+ * line starting with `|` (tables) or `#` (headings) or `>` (quotes), and
+ * concatenate the first ~250 chars of real prose.
+ */
+const SKIP_SECTIONS = new Set(['元信息', '基本信息', '使用说明', 'metadata', 'meta']);
+
 function extractExcerpt(content: string): string | null {
-  const cleaned = content
-    .replace(/^#.*$/gm, '')
-    .replace(/^>.*$/gm, '')
-    .replace(/^---[\s\S]*?---\s*/m, '');
-  const para = cleaned
-    .split(/\n\n+/)
-    .map((p) => p.trim())
-    .find((p) => p.length > 20);
-  if (!para) return null;
-  return para.replace(/\s+/g, ' ').slice(0, 200);
+  // Drop yaml frontmatter
+  const body = content.replace(/^---[\s\S]*?---\s*/m, '');
+  let inSkipSection = false;
+  const goodLines: string[] = [];
+
+  for (const rawLine of body.split('\n')) {
+    const line = rawLine.trim();
+    const h2 = line.match(/^##\s+(.+)$/);
+    if (h2) {
+      inSkipSection = SKIP_SECTIONS.has(h2[1]!.trim());
+      continue;
+    }
+    if (inSkipSection) continue;
+    if (!line) continue;
+    if (line.startsWith('|') || line.startsWith('#') || line.startsWith('>')) continue;
+    if (line.startsWith('![') || line.startsWith('---')) continue;
+    // List bullets are useful — keep
+    const cleaned = line.replace(/^[-*+]\s+/, '');
+    goodLines.push(cleaned);
+    if (goodLines.join(' ').length > 250) break;
+  }
+
+  if (goodLines.length === 0) return null;
+  return goodLines.join(' ').replace(/\s+/g, ' ').slice(0, 250);
 }
 
 async function scanFile(
