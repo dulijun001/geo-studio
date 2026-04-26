@@ -307,8 +307,9 @@ export async function createAiDraft(
   for (const r of ranked) {
     try {
       const body = await readFile(join(KB_ROOT, r.source_path), 'utf-8');
-      // Trim each source to ~1500 chars to keep prompt within budget
-      sourceBodies.push({ path: r.source_path, body: body.slice(0, 1500) });
+      // Trim to 1000 chars/source — total prompt budget ~5K excluding system
+      // (5 sources × 1000 + style guide 1500 + tactics 700 + system 800 ≈ 8K)
+      sourceBodies.push({ path: r.source_path, body: body.slice(0, 1000) });
     } catch (err) {
       console.warn(`[ai-draft] read source ${r.source_path} failed:`, err);
     }
@@ -323,8 +324,11 @@ export async function createAiDraft(
   if (guidePath) {
     try {
       const raw = await readFile(join(KB_ROOT, guidePath), 'utf-8');
-      // Trim — only need style sections, not full file
-      platformGuide = raw.slice(0, 3000);
+      // Strip frontmatter + ## 元信息 section to save tokens
+      const stripped = raw
+        .replace(/^---[\s\S]*?---\s*/m, '')
+        .replace(/##\s*元信息[\s\S]*?(?=##|\z)/m, '');
+      platformGuide = stripped.slice(0, 1500);
     } catch (err) {
       console.warn(`[ai-draft] platform guide ${guidePath} unavailable:`, err);
     }
@@ -368,13 +372,23 @@ export async function createAiDraft(
   let provider: 'doubao' | 'stub' = 'stub';
 
   if (llmAvailable()) {
-    const result = await chat({
-      messages,
-      temperature: 0.7,
-      max_tokens: 3000,
-      response_format: 'json_object',
-      timeout_ms: 90_000,
-    });
+    let result;
+    try {
+      result = await chat({
+        messages,
+        temperature: 0.7,
+        max_tokens: 2500,
+        response_format: 'json_object',
+        timeout_ms: 180_000,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/abort/i.test(msg)) {
+        throw new Error('AI 生成超过 3 分钟未返回。可能负载过高,请稍后重试或换更具体的主题');
+      }
+      console.error('[ai-draft] LLM call failed:', err);
+      throw new Error(`AI 调用失败: ${msg.slice(0, 100)}`);
+    }
     try {
       const parsed = JSON.parse(result.content) as {
         title?: string;

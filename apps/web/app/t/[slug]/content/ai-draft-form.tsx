@@ -137,7 +137,7 @@ export function AiDraftForm({ tenantSlug }: { tenantSlug: string }) {
 
               {busy ? (
                 <div className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-800">
-                  正在生成,通常 30-60 秒。AI 在阅读知识库 + 撰写,请稍候…
+                  正在生成,通常 60-120 秒(平台调性 + GEO 9 法 prompt 较长)。AI 在阅读知识库 + 撰写,请稍候…
                 </div>
               ) : null}
 
