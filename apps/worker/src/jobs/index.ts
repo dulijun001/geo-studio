@@ -3,6 +3,10 @@ import { handleComplianceReview, type ComplianceReviewJob } from './compliance-r
 import { handleDailyReport, type DailyReportJob } from './daily-report';
 import { handleGeoSnapshot, type GeoSnapshotJob } from './geo-snapshot';
 import { handleKnowledgeSync, type KnowledgeSyncJob } from './knowledge-sync';
+import {
+  handleWeeklyKnowledgeReport,
+  type WeeklyKnowledgeReportJob,
+} from './weekly-knowledge-report';
 import { handleParseContent, type ParseContentJob } from './parse-content';
 import { handleVariantGenerate, type VariantGenerateJob } from './variant-generate';
 
@@ -14,6 +18,7 @@ export const JOBS = {
   HOOK_PROVISION: 'publish.hook_provision', // W7
   REPORTS_DAILY: 'reports.daily', // P1-10
   KNOWLEDGE_SYNC: 'knowledge.sync', // V1.5
+  KNOWLEDGE_WEEKLY: 'knowledge.weekly_report', // V1.5-10
 } as const;
 
 export async function registerJobs(boss: PgBoss): Promise<void> {
@@ -50,6 +55,10 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
     await handleKnowledgeSync(job?.data ?? {});
   });
 
+  await boss.work<WeeklyKnowledgeReportJob>(JOBS.KNOWLEDGE_WEEKLY, async ([job]) => {
+    await handleWeeklyKnowledgeReport(job?.data ?? {});
+  });
+
   // Schedule the daily report at 09:00 Asia/Shanghai (= 01:00 UTC).
   // pg-boss schedule uses UTC cron; 0 1 * * * = 01:00 UTC = 09:00 Asia/Shanghai.
   await boss.schedule(JOBS.REPORTS_DAILY, '0 1 * * *', {});
@@ -57,6 +66,9 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
   // Knowledge-base reconciliation every 5 minutes.
   // Cheap: ~210 md files, hash diff < 200ms; only writes when content changes.
   await boss.schedule(JOBS.KNOWLEDGE_SYNC, '*/5 * * * *', {});
+
+  // Weekly KB report — Mondays 09:00 Asia/Shanghai (= Mon 01:00 UTC).
+  await boss.schedule(JOBS.KNOWLEDGE_WEEKLY, '0 1 * * 1', {});
 
   // Placeholders for later weeks — log receipt so we can verify wiring.
   for (const job of [JOBS.HOOK_PROVISION]) {

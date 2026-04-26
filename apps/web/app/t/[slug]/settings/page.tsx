@@ -102,6 +102,15 @@ export default async function SettingsPage({ params }: { params: { slug: string 
               所有合规审批 / 派单 / 员工创建动作的可追溯时间轴 + CSV 导出,医疗合规审计必备
             </p>
           </Link>
+          <Link
+            href={`/t/${tenant.slug}/settings/knowledge`}
+            className="rounded-md border border-border bg-background p-4 hover:bg-muted/40"
+          >
+            <div className="mb-1 text-sm font-medium">知识库</div>
+            <p className="text-xs text-muted-foreground">
+              客户 md 知识库同步状态、派生数据(合规词库 / 医生 / 品牌词典)、立即重扫
+            </p>
+          </Link>
         </div>
       </section>
 
