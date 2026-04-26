@@ -86,6 +86,11 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
     },
   );
 
+  const sessionUrl =
+    typeof (result.meta as { session_url?: unknown } | undefined)?.session_url === 'string'
+      ? ((result.meta as { session_url: string }).session_url)
+      : null;
+
   if (result.status !== 'done') {
     await client
       .from('geo_snapshots')
@@ -94,6 +99,7 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
         failure_reason: result.failure_reason ?? null,
         raw_response: result.raw_response ?? null,
         citation_urls: result.citation_urls ?? [],
+        session_url: sessionUrl,
         asked_at: new Date().toISOString(),
       })
       .eq('id', snapshot_id);
@@ -110,6 +116,7 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
       status: 'done',
       raw_response: result.raw_response ?? '',
       citation_urls: result.citation_urls ?? [],
+      session_url: sessionUrl,
       asked_at: new Date().toISOString(),
     })
     .eq('id', snapshot_id);

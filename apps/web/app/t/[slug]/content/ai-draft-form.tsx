@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useState } from 'react';
+import { DOUBAO_PLATFORM_PRIORITY, TIER_LABEL } from '@geo/shared';
 import { createAiDraft, type CreateAiDraftInput } from './actions';
 
 const AUDIENCE_OPTIONS = [
@@ -15,13 +16,28 @@ const AUDIENCE_OPTIONS = [
   '上班族隐形矫正',
 ];
 
-const PLATFORM_OPTIONS: Array<{ value: CreateAiDraftInput['platform']; label: string }> = [
-  { value: 'xiaohongshu', label: '小红书(短文+痛点+列表)' },
-  { value: 'douyin_script', label: '抖音脚本(15s 钩子+视觉)' },
-  { value: 'wechat_mp', label: '公众号(故事化长文)' },
-  { value: 'zhihu', label: '知乎(权威长文+引用)' },
-  { value: 'toutiao_article', label: '头条号(资讯结构化)' },
-];
+// Order options by Doubao GEO priority (P0 first). Emoji + tier label inline
+// so the user immediately sees which platform pays off the most.
+const PLATFORM_OPTIONS: Array<{
+  value: CreateAiDraftInput['platform'];
+  label: string;
+  reason: string;
+}> = (
+  [
+    'douyin_script',
+    'toutiao_article',
+    'wechat_mp',
+    'zhihu',
+    'xiaohongshu',
+  ] as const
+).map((value) => {
+  const p = DOUBAO_PLATFORM_PRIORITY[value];
+  return {
+    value,
+    label: `${p.emoji} ${p.label} · 豆包优先级 ${TIER_LABEL[p.tier]}`,
+    reason: p.reason,
+  };
+});
 
 export function AiDraftForm({ tenantSlug }: { tenantSlug: string }) {
   const router = useRouter();
@@ -112,7 +128,7 @@ export function AiDraftForm({ tenantSlug }: { tenantSlug: string }) {
 
               <div>
                 <label className="mb-1 block text-xs font-medium" htmlFor="platform">
-                  目标平台
+                  目标平台 <span className="text-muted-foreground/80">(按豆包 GEO 权重排序)</span>
                 </label>
                 <select
                   id="platform"
@@ -122,11 +138,14 @@ export function AiDraftForm({ tenantSlug }: { tenantSlug: string }) {
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
                 >
                   {PLATFORM_OPTIONS.map((p) => (
-                    <option key={p.value} value={p.value}>
+                    <option key={p.value} value={p.value} title={p.reason}>
                       {p.label}
                     </option>
                   ))}
                 </select>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {PLATFORM_OPTIONS.find((p) => p.value === platform)?.reason}
+                </p>
               </div>
 
               {error ? (

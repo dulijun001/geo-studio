@@ -42,8 +42,8 @@ async function main() {
   console.log(`citation_urls (${result.citation_urls?.length ?? 0}):`);
   for (const u of result.citation_urls ?? []) console.log(`  ${u}`);
   console.log(`meta: ${JSON.stringify(result.meta, null, 2)}`);
-  console.log('\n─── first 400 chars of raw_response ───');
-  console.log((result.raw_response ?? '').slice(0, 400));
+  console.log('\n─── full raw_response ───');
+  console.log(result.raw_response ?? '');
   console.log(`\n[smoke] total elapsed: ${Date.now() - t0}ms`);
 }
 

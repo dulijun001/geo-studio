@@ -20,9 +20,11 @@ type QuestionRow = {
 
 type LatestSnapshot = {
   question_id: string;
+  snapshot_id: string;
   status: string;
   asked_at: string | null;
   created_at: string;
+  session_url: string | null;
   mention_count: number;
   own_count: number;
   comp_count: number;
@@ -76,7 +78,7 @@ export default async function TrackingPage({ params }: { params: { slug: string 
   if (questions.length > 0) {
     const { data: snapsRaw } = await supabase
       .from('geo_snapshots')
-      .select('id, question_id, status, asked_at, created_at')
+      .select('id, question_id, status, asked_at, created_at, session_url')
       .eq('tenant_id', tenant.id)
       .in('question_id', questions.map((q) => q.id))
       .order('created_at', { ascending: false })
@@ -88,6 +90,7 @@ export default async function TrackingPage({ params }: { params: { slug: string 
       status: string;
       asked_at: string | null;
       created_at: string;
+      session_url: string | null;
     };
     const snaps = (snapsRaw ?? []) as SnapRow[];
 
@@ -118,9 +121,11 @@ export default async function TrackingPage({ params }: { params: { slug: string 
       const c = countsBySnap.get(s.id) ?? { total: 0, own: 0, comp: 0 };
       latestByQuestion.set(qid, {
         question_id: qid,
+        snapshot_id: s.id,
         status: s.status,
         asked_at: s.asked_at,
         created_at: s.created_at,
+        session_url: s.session_url,
         mention_count: c.total,
         own_count: c.own,
         comp_count: c.comp,
@@ -221,7 +226,20 @@ export default async function TrackingPage({ params }: { params: { slug: string 
                       )}
                     </td>
                     <td className="px-4 py-2.5">
-                      <RunButton tenantSlug={tenant.slug} questionId={q.id} />
+                      <div className="flex items-center gap-2">
+                        <RunButton tenantSlug={tenant.slug} questionId={q.id} />
+                        {latest?.session_url ? (
+                          <a
+                            href={latest.session_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={`打开豆包原始对话 — ${latest.session_url}`}
+                            className="rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                          >
+                            豆包 ↗
+                          </a>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 );

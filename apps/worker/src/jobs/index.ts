@@ -2,6 +2,7 @@ import type PgBoss from 'pg-boss';
 import { handleComplianceReview, type ComplianceReviewJob } from './compliance-review';
 import { handleDailyReport, type DailyReportJob } from './daily-report';
 import { handleGeoSnapshot, type GeoSnapshotJob } from './geo-snapshot';
+import { handleGeoWeeklyBaseline, type GeoWeeklyBaselineJob } from './geo-weekly-baseline';
 import { handleKnowledgeSync, type KnowledgeSyncJob } from './knowledge-sync';
 import {
   handleWeeklyKnowledgeReport,
@@ -19,6 +20,7 @@ export const JOBS = {
   REPORTS_DAILY: 'reports.daily', // P1-10
   KNOWLEDGE_SYNC: 'knowledge.sync', // V1.5
   KNOWLEDGE_WEEKLY: 'knowledge.weekly_report', // V1.5-10
+  GEO_WEEKLY_BASELINE: 'geo.weekly_baseline', // V1.6-2
 } as const;
 
 export async function registerJobs(boss: PgBoss): Promise<void> {
@@ -59,6 +61,10 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
     await handleWeeklyKnowledgeReport(job?.data ?? {});
   });
 
+  await boss.work<GeoWeeklyBaselineJob>(JOBS.GEO_WEEKLY_BASELINE, async ([job]) => {
+    await handleGeoWeeklyBaseline(boss, job?.data ?? {});
+  });
+
   // Schedule the daily report at 09:00 Asia/Shanghai (= 01:00 UTC).
   // pg-boss schedule uses UTC cron; 0 1 * * * = 01:00 UTC = 09:00 Asia/Shanghai.
   await boss.schedule(JOBS.REPORTS_DAILY, '0 1 * * *', {});
@@ -69,6 +75,11 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
 
   // Weekly KB report — Mondays 09:00 Asia/Shanghai (= Mon 01:00 UTC).
   await boss.schedule(JOBS.KNOWLEDGE_WEEKLY, '0 1 * * 1', {});
+
+  // Weekly GEO baseline — Mondays 09:00 Asia/Shanghai. Re-runs Doubao on every
+  // priority>=7 question for every tenant, gives the customer a fresh SOV
+  // snapshot week over week without manual button-mashing.
+  await boss.schedule(JOBS.GEO_WEEKLY_BASELINE, '0 1 * * 1', {});
 
   // Placeholders for later weeks — log receipt so we can verify wiring.
   for (const job of [JOBS.HOOK_PROVISION]) {
