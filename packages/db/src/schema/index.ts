@@ -7,3 +7,4 @@ export * from './tracking';
 export * from './compliance';
 export * from './conversion';
 export * from './audit';
+export * from './knowledge';

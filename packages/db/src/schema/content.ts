@@ -29,6 +29,7 @@ export const contentSourceTypeEnum = pgEnum('content_source_type', [
 
 export const contentItemStatusEnum = pgEnum('content_item_status', [
   'draft',
+  'ai_drafted',
   'parsed',
   'variant_generated',
   'archived',

@@ -20,11 +20,18 @@ export const complianceKeywords = pgTable(
     category: text('category').notNull(), // guarantee | absolute | comparison | testimonial | ...
     variants: text('variants').array().notNull().default([]),
     context_exempt: text('context_exempt').array().notNull().default([]),
+    /**
+     * Knowledge base path this term was synced from, e.g.
+     * "合规/广告法/红线词库.md". Null for keywords seeded by admin or pre-V1.5.
+     * Used by the sync agent to know which rows to upsert vs leave alone.
+     */
+    source_path: text('source_path'),
     ...timestamps(),
   },
   (t) => ({
     tenant_term_idx: index('compliance_keywords_tenant_term_idx').on(t.tenant_id, t.term),
     level_idx: index('compliance_keywords_level_idx').on(t.level),
+    source_path_idx: index('compliance_keywords_source_path_idx').on(t.source_path),
   }),
 );
 

@@ -65,6 +65,12 @@ export const staffAccounts = pgTable(
     phone: text('phone'),
     /** Persona tags driving tone/specialty/avatar style for dispatching */
     persona: jsonb('persona').notNull().default({}),
+    /**
+     * Path inside the customer knowledge base pointing to this staff's bio,
+     * e.g. "团队/医生/周剑.md". Set by the sync agent when importing doctors
+     * from the KB. Null for staff created via admin UI.
+     */
+    bio_md_path: text('bio_md_path'),
     /** Platform account matrix: { toutiao: {...}, douyin: {...}, ... }. Never store login credentials. */
     platforms: jsonb('platforms').notNull().default({}),
     status: staffStatusEnum('status').notNull().default('active'),
