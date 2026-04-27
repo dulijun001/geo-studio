@@ -38,11 +38,20 @@ export const resolveTenantBySlug = cache(async (slug: string): Promise<ActiveTen
   const adminCookie = readAdminSession();
   const client = adminCookie ? getSupabaseServiceClient() : createSupabaseServerClient();
 
-  const { data: tenantRow, error: tenantErr } = await client
+  // 5s timeout protects against ECS PostgREST zombie state (TCP accept but
+  // no HTTP response). Without this, page render blocks forever.
+  const tenantQuery = client
     .from('tenants')
     .select('id, slug, name, industry')
     .eq('slug', slug)
     .maybeSingle();
+  const tenantResult = await Promise.race([
+    tenantQuery,
+    new Promise<{ data: null; error: Error }>((resolve) =>
+      setTimeout(() => resolve({ data: null, error: new Error('DB timeout (5s)') }), 5000),
+    ),
+  ]);
+  const { data: tenantRow, error: tenantErr } = tenantResult;
   if (tenantErr) {
     console.error('[resolveTenantBySlug] tenant query error:', tenantErr.message);
     return null;
@@ -129,14 +138,29 @@ export async function listMyTenants(): Promise<ActiveTenant[]> {
   const client = adminCookie ? getSupabaseServiceClient() : createSupabaseServerClient();
 
   // Super-admin: list all tenants directly, not filtered by membership.
+  // Race against a 5s timeout — when ECS PostgREST is in zombie state
+  // (TCP accept but no HTTP response), the default supabase fetch hangs
+  // indefinitely and blocks the whole page render. Empty list → /app
+  // shows onboarding instead of spinning forever.
   if (isSuperAdmin(adminCookie)) {
-    const { data: tenants, error } = await client
+    const query = client
       .from('tenants')
       .select('id, slug, name, industry')
       .is('deleted_at', null)
       .order('created_at', { ascending: true });
-    if (error || !tenants) return [];
-    return tenants.map((t) => ({
+
+    const result = await Promise.race([
+      query,
+      new Promise<{ data: null; error: Error }>((resolve) =>
+        setTimeout(() => resolve({ data: null, error: new Error('DB timeout (5s)') }), 5000),
+      ),
+    ]);
+
+    if (result.error || !result.data) {
+      console.warn('[listMyTenants] super-admin query failed:', result.error?.message);
+      return [];
+    }
+    return result.data.map((t) => ({
       id: t.id as string,
       slug: t.slug as string,
       name: t.name as string,

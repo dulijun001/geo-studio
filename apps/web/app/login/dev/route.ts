@@ -36,10 +36,12 @@ export async function GET(request: Request) {
   // If user_id wasn't in .env, look up the first 'owner' membership via
   // PostgREST. Skip silently if the DB is unreachable — we'll fall through
   // to the super-admin placeholder below, since this is dev-only.
+  // 3s timeout: ECS PostgREST in zombie state accepts TCP but never replies,
+  // and the supabase client has no default fetch timeout.
   if (!userId) {
     try {
       const service = getSupabaseServiceClient();
-      const { data, error } = await service
+      const query = service
         .from('tenant_memberships')
         .select('user_id')
         .eq('role', 'owner')
@@ -47,8 +49,14 @@ export async function GET(request: Request) {
         .order('created_at', { ascending: true })
         .limit(1)
         .maybeSingle();
-      if (error) throw error;
-      if (data?.user_id) userId = data.user_id as string;
+      const result = await Promise.race([
+        query,
+        new Promise<{ data: null; error: Error }>((resolve) =>
+          setTimeout(() => resolve({ data: null, error: new Error('DB timeout (3s)') }), 3000),
+        ),
+      ]);
+      if (result.error) throw result.error;
+      if (result.data?.user_id) userId = result.data.user_id as string;
     } catch (err) {
       console.warn('[login/dev] tenant_memberships lookup failed (DB likely down):', err);
     }
