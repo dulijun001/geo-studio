@@ -48,11 +48,17 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Admin HMAC cookie is an alternate auth path (lib/admin-session.ts) used
+  // by /login/dev when supabase-auth is unreachable. We only check presence
+  // here — the page's getCurrentUser() performs the actual HMAC verification.
+  const hasAdminCookie = !!request.cookies.get('geo_admin_session')?.value;
+  const isAuthed = !!user || hasAdminCookie;
+
   const pathname = request.nextUrl.pathname;
   const isProtected = pathname.startsWith('/app') || pathname.startsWith('/t/');
   const isLoginRoute = pathname === '/login';
 
-  if (!user && isProtected) {
+  if (!isAuthed && isProtected) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = '/login';
     redirectUrl.searchParams.set('next', pathname);
@@ -60,7 +66,7 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   }
 
   // Logged-in users on /login bounce to /app
-  if (user && isLoginRoute) {
+  if (isAuthed && isLoginRoute) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = '/app';
     redirectUrl.search = '';

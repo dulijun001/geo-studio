@@ -22,6 +22,19 @@ import { cookies } from 'next/headers';
 const COOKIE_NAME = 'geo_admin_session';
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+/**
+ * Sentinel UUID used by /login/dev when the DB is unreachable and we can't
+ * find a real user_id. lib/tenant.ts recognizes this and treats the holder
+ * as a "super admin" of any tenant, bypassing tenant_memberships entirely.
+ *
+ * NEVER use this in production — gated by NODE_ENV in /login/dev.
+ */
+export const SUPER_ADMIN_USER_ID = '00000000-0000-0000-0000-000000000001';
+
+export function isSuperAdmin(session: AdminSession | null): boolean {
+  return session?.user_id === SUPER_ADMIN_USER_ID;
+}
+
 export type AdminSession = {
   user_id: string;
   email: string;

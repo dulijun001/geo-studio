@@ -2,7 +2,7 @@ import { notFound, redirect } from 'next/navigation';
 import { cache } from 'react';
 import type { MemberRole } from '@geo/shared';
 import { getCurrentUser } from './current-user';
-import { readAdminSession } from './admin-session';
+import { readAdminSession, isSuperAdmin } from './admin-session';
 import { createSupabaseServerClient } from './supabase/server';
 import { getSupabaseServiceClient } from './supabase/service';
 
@@ -50,6 +50,18 @@ export const resolveTenantBySlug = cache(async (slug: string): Promise<ActiveTen
   if (!tenantRow) {
     console.log(`[resolveTenantBySlug] tenant slug=${slug} not readable by user=${user.id}`);
     return null;
+  }
+
+  // Super-admin (dev fallback when DB unreachable): skip membership lookup,
+  // grant 'owner' role on any tenant. Trust comes from the cookie HMAC.
+  if (isSuperAdmin(adminCookie)) {
+    return {
+      id: tenantRow.id,
+      slug: tenantRow.slug,
+      name: tenantRow.name,
+      industry: tenantRow.industry,
+      role: 'owner' as MemberRole,
+    };
   }
 
   const { data: memRow, error: memErr } = await client
@@ -115,6 +127,23 @@ export async function listMyTenants(): Promise<ActiveTenant[]> {
   // Admin cookie holders bypass RLS for read.
   const adminCookie = readAdminSession();
   const client = adminCookie ? getSupabaseServiceClient() : createSupabaseServerClient();
+
+  // Super-admin: list all tenants directly, not filtered by membership.
+  if (isSuperAdmin(adminCookie)) {
+    const { data: tenants, error } = await client
+      .from('tenants')
+      .select('id, slug, name, industry')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true });
+    if (error || !tenants) return [];
+    return tenants.map((t) => ({
+      id: t.id as string,
+      slug: t.slug as string,
+      name: t.name as string,
+      industry: t.industry as string,
+      role: 'owner' as MemberRole,
+    }));
+  }
 
   const { data, error } = await client
     .from('tenant_memberships')

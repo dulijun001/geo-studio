@@ -13,7 +13,7 @@
  *   3. Redirected to /app, signed in for 30 days
  */
 import { NextResponse } from 'next/server';
-import { issueAdminSession } from '@/lib/admin-session';
+import { issueAdminSession, SUPER_ADMIN_USER_ID } from '@/lib/admin-session';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 
 export const dynamic = 'force-dynamic';
@@ -33,10 +33,9 @@ export async function GET(request: Request) {
 
   let userId = process.env.DEV_ADMIN_USER_ID?.trim();
 
-  // If user_id wasn't in .env, look up the first 'owner' membership for any
-  // tenant — that's almost certainly the dev operator. Uses PostgREST, NOT
-  // the Supabase auth container, so this works even when supabase-auth is
-  // down (the very reason we built this bypass).
+  // If user_id wasn't in .env, look up the first 'owner' membership via
+  // PostgREST. Skip silently if the DB is unreachable — we'll fall through
+  // to the super-admin placeholder below, since this is dev-only.
   if (!userId) {
     try {
       const service = getSupabaseServiceClient();
@@ -51,15 +50,17 @@ export async function GET(request: Request) {
       if (error) throw error;
       if (data?.user_id) userId = data.user_id as string;
     } catch (err) {
-      console.error('[login/dev] tenant_memberships lookup failed:', err);
+      console.warn('[login/dev] tenant_memberships lookup failed (DB likely down):', err);
     }
   }
 
+  // Final fallback: a deterministic super-admin UUID. The admin-session
+  // cookie carries this; lib/tenant.ts treats SUPER_ADMIN_USER_ID as
+  // "owner of any tenant" without consulting the DB. Useful when ECS is
+  // mid-restart but you need to read pages.
   if (!userId) {
-    return new NextResponse(
-      `Couldn't find user_id for ${email}. Set DEV_ADMIN_USER_ID in .env (run on a terminal with ECS access:\n  docker exec supabase-db psql -U postgres -d postgres -tAc "SELECT id FROM auth.users WHERE email='${email}'"\n).`,
-      { status: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8' } },
-    );
+    userId = SUPER_ADMIN_USER_ID;
+    console.log('[login/dev] using SUPER_ADMIN_USER_ID placeholder (DB unreachable)');
   }
 
   issueAdminSession({ user_id: userId, email });
