@@ -34,6 +34,73 @@ export default async function TenantHomePage({ params }: { params: { slug: strin
     supabase.from('conversion_events').select('*', { count: 'exact', head: true }).eq('tenant_id', tenant.id).is('deleted_at', null),
   ]);
 
+  // ─────────────────────────────────────────────────────────────────
+  // Doubao GEO Health (V1.6-4) — 5-tier pyramid
+  // ─────────────────────────────────────────────────────────────────
+  const sevenDaysAgo = new Date(Date.now() - 7 * 86400 * 1000).toISOString();
+
+  // P2-P4: count published variants this week per platform tier
+  const { data: pubByPlatformRaw } = await supabase
+    .from('publish_tasks')
+    .select('variant_id')
+    .eq('tenant_id', tenant.id)
+    .eq('status', 'published')
+    .gte('published_at', sevenDaysAgo)
+    .is('deleted_at', null);
+  const pubVariantIds = ((pubByPlatformRaw ?? []) as Array<{ variant_id: string }>)
+    .map((r) => r.variant_id);
+  let pubPlatforms: string[] = [];
+  if (pubVariantIds.length > 0) {
+    const { data: variants } = await supabase
+      .from('content_variants')
+      .select('id, platform')
+      .in('id', pubVariantIds);
+    pubPlatforms = ((variants ?? []) as Array<{ platform: string }>).map((v) => v.platform);
+  }
+  const countPlatforms = (set: readonly string[]) =>
+    pubPlatforms.filter((p) => set.includes(p)).length;
+  const p2Done = countPlatforms(['wechat_mp', 'zhihu', 'toutiao_article']);
+  const p3Done = countPlatforms(['douyin_script']);
+  const p4Done = countPlatforms(['xiaohongshu', 'baijiahao', 'souhu']);
+
+  // SOV: latest done snapshot's brand-vs-competitor citation counts
+  const { data: latestSnap } = await supabase
+    .from('geo_snapshots')
+    .select('id, asked_at, session_url')
+    .eq('tenant_id', tenant.id)
+    .eq('status', 'done')
+    .order('asked_at', { ascending: false, nullsFirst: false })
+    .limit(1);
+  let sovOwn = 0;
+  let sovComp = 0;
+  let sovAskedAt: string | null = null;
+  let sovSessionUrl: string | null = null;
+  const latest = (latestSnap ?? [])[0];
+  if (latest) {
+    sovAskedAt = (latest.asked_at as string | null) ?? null;
+    sovSessionUrl = (latest.session_url as string | null) ?? null;
+    const { data: cits } = await supabase
+      .from('citations')
+      .select('term_type')
+      .eq('snapshot_id', latest.id);
+    for (const c of (cits ?? []) as Array<{ term_type: string | null }>) {
+      if (c.term_type === 'brand') sovOwn++;
+      if (c.term_type === 'competitor') sovComp++;
+    }
+  }
+
+  // P0/P1: read brand.location.geo_checklist (admin-curated)
+  const { data: brandRows } = await supabase
+    .from('brands')
+    .select('location')
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1);
+  const checklist =
+    (((brandRows ?? [])[0]?.location ?? {}) as { geo_checklist?: GeoChecklist }).geo_checklist ??
+    {};
+
   const contentCount = contentCountRes.count ?? 0;
   const pendingCompliance = pendingComplianceRes.count ?? 0;
   const approvedVariants = approvedVariantsRes.count ?? 0;
@@ -102,6 +169,14 @@ export default async function TenantHomePage({ params }: { params: { slug: strin
           href={`/t/${tenant.slug}/tracking`}
         />
       </section>
+
+      {/* Doubao GEO Health pyramid */}
+      <GeoHealthSection
+        slug={tenant.slug}
+        sov={{ own: sovOwn, comp: sovComp, askedAt: sovAskedAt, sessionUrl: sovSessionUrl }}
+        weekly={{ p2: p2Done, p3: p3Done, p4: p4Done }}
+        checklist={checklist}
+      />
 
       {/* Secondary metrics */}
       <section className="grid gap-4 md:grid-cols-3">
@@ -202,6 +277,227 @@ function MiniStat({ label, value, caption }: { label: string; value: number; cap
         <p className="text-xl font-semibold">{value}</p>
       </div>
       <p className="mt-0.5 text-xs text-muted-foreground/80">{caption}</p>
+    </div>
+  );
+}
+
+// ============================================================================
+// Doubao GEO Health pyramid (V1.6-4)
+// ============================================================================
+
+type GeoChecklist = {
+  baidu_baike?: boolean;
+  souguo_baike?: boolean;
+  amap_poi?: boolean;
+  baidu_map_poi?: boolean;
+  dianping_score?: number;
+  dianping_reviews?: number;
+};
+
+const WEEKLY_TARGETS = { p2: 5, p3: 3, p4: 14 } as const;
+
+function GeoHealthSection({
+  slug,
+  sov,
+  weekly,
+  checklist,
+}: {
+  slug: string;
+  sov: { own: number; comp: number; askedAt: string | null; sessionUrl: string | null };
+  weekly: { p2: number; p3: number; p4: number };
+  checklist: GeoChecklist;
+}) {
+  const sovTotal = sov.own + sov.comp;
+  const sovPct = sovTotal > 0 ? (sov.own / sovTotal) * 100 : null;
+
+  const p0Items = [
+    { label: '百度百科', done: !!checklist.baidu_baike },
+    { label: '搜狗百科', done: !!checklist.souguo_baike },
+    { label: '高德地图', done: !!checklist.amap_poi },
+    { label: '百度地图', done: !!checklist.baidu_map_poi },
+  ];
+  const p0Done = p0Items.filter((x) => x.done).length;
+
+  const p1Score = checklist.dianping_score ?? 0;
+  const p1Reviews = checklist.dianping_reviews ?? 0;
+  const p1Status =
+    p1Reviews === 0 ? 'missing' : p1Score < 4 || p1Reviews < 30 ? 'weak' : 'ok';
+
+  return (
+    <section className="card-surface space-y-4 p-5">
+      <header className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-medium">豆包 GEO 健康度</h2>
+          <p className="text-xs text-muted-foreground">
+            按豆包 AI 答案构成的优先级金字塔。P0 不达标,后面再多内容也进不了豆包。
+          </p>
+        </div>
+        <Link
+          href={`/t/${slug}/settings/geo-checklist`}
+          className="rounded-md border border-border bg-background px-2.5 py-1 text-xs hover:bg-muted"
+        >
+          维护 P0 / P1
+        </Link>
+      </header>
+
+      {/* SOV — top-line outcome */}
+      <div className="rounded-md border border-border bg-background px-4 py-3">
+        <div className="flex items-baseline justify-between">
+          <span className="text-xs uppercase tracking-wider text-muted-foreground">
+            豆包 SOV(最新)
+          </span>
+          <span className="text-2xl font-semibold tabular-nums">
+            {sovPct === null ? '—' : `${sovPct.toFixed(1)}%`}
+          </span>
+        </div>
+        <div className="mt-1 flex items-center gap-3 text-[11px] text-muted-foreground">
+          <span>本品牌 {sov.own} 次 vs 竞品 {sov.comp} 次</span>
+          {sov.askedAt ? (
+            <span>· {new Date(sov.askedAt).toLocaleString('zh-CN')}</span>
+          ) : (
+            <span>· 还没跑过追踪</span>
+          )}
+          {sov.sessionUrl ? (
+            <a
+              href={sov.sessionUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto text-indigo-600 hover:underline"
+            >
+              打开豆包 ↗
+            </a>
+          ) : null}
+        </div>
+      </div>
+
+      {/* P0-P4 tiers */}
+      <div className="space-y-2.5">
+        <PyramidRow
+          tier="P0"
+          label="实体认知"
+          desc="让豆包知道你存在"
+          state={p0Done === 0 ? 'critical' : p0Done < 3 ? 'weak' : 'ok'}
+          progress={`${p0Done} / ${p0Items.length}`}
+          progressPct={(p0Done / p0Items.length) * 100}
+          rightLabel={
+            p0Done === 0
+              ? '未配置 — 必做'
+              : p0Done < p0Items.length
+              ? `${p0Items.filter((x) => !x.done).map((x) => x.label).join(' · ')} 缺`
+              : '齐全'
+          }
+        />
+        <PyramidRow
+          tier="P1"
+          label="评价聚合"
+          desc="决定豆包给你排第几"
+          state={p1Status === 'missing' ? 'critical' : p1Status === 'weak' ? 'weak' : 'ok'}
+          progress={
+            p1Reviews === 0 ? '未录入' : `${p1Score.toFixed(1)}★ · ${p1Reviews} 评价`
+          }
+          progressPct={p1Status === 'missing' ? 0 : Math.min(100, (p1Reviews / 100) * 100)}
+          rightLabel={
+            p1Status === 'missing'
+              ? '入驻大众点评'
+              : p1Status === 'weak'
+              ? '评价数太少 (建议 ≥ 30)'
+              : '稳健'
+          }
+        />
+        <PyramidRow
+          tier="P2"
+          label="专业内容"
+          desc="本周公众号 / 知乎 / 头条"
+          state={
+            weekly.p2 >= WEEKLY_TARGETS.p2
+              ? 'ok'
+              : weekly.p2 >= WEEKLY_TARGETS.p2 / 2
+              ? 'weak'
+              : 'critical'
+          }
+          progress={`${weekly.p2} / ${WEEKLY_TARGETS.p2}`}
+          progressPct={Math.min(100, (weekly.p2 / WEEKLY_TARGETS.p2) * 100)}
+          rightLabel={`周目标 ${WEEKLY_TARGETS.p2} 篇`}
+        />
+        <PyramidRow
+          tier="P3"
+          label="视频内容"
+          desc="本周抖音(字节生态加分)"
+          state={
+            weekly.p3 >= WEEKLY_TARGETS.p3
+              ? 'ok'
+              : weekly.p3 >= 1
+              ? 'weak'
+              : 'critical'
+          }
+          progress={`${weekly.p3} / ${WEEKLY_TARGETS.p3}`}
+          progressPct={Math.min(100, (weekly.p3 / WEEKLY_TARGETS.p3) * 100)}
+          rightLabel={`周目标 ${WEEKLY_TARGETS.p3} 条`}
+        />
+        <PyramidRow
+          tier="P4"
+          label="个人化"
+          desc="本周小红书 / 百家号"
+          state={
+            weekly.p4 >= WEEKLY_TARGETS.p4
+              ? 'ok'
+              : weekly.p4 >= WEEKLY_TARGETS.p4 / 3
+              ? 'weak'
+              : 'critical'
+          }
+          progress={`${weekly.p4} / ${WEEKLY_TARGETS.p4}`}
+          progressPct={Math.min(100, (weekly.p4 / WEEKLY_TARGETS.p4) * 100)}
+          rightLabel={`周目标 ${WEEKLY_TARGETS.p4} 条`}
+        />
+      </div>
+    </section>
+  );
+}
+
+function PyramidRow({
+  tier,
+  label,
+  desc,
+  state,
+  progress,
+  progressPct,
+  rightLabel,
+}: {
+  tier: string;
+  label: string;
+  desc: string;
+  state: 'ok' | 'weak' | 'critical';
+  progress: string;
+  progressPct: number;
+  rightLabel: string;
+}) {
+  const stateColor = {
+    ok: 'bg-emerald-500',
+    weak: 'bg-amber-500',
+    critical: 'bg-rose-500',
+  }[state];
+  const tierBg = {
+    ok: 'bg-emerald-100 text-emerald-800',
+    weak: 'bg-amber-100 text-amber-800',
+    critical: 'bg-rose-100 text-rose-800',
+  }[state];
+
+  return (
+    <div className="grid grid-cols-[44px_1fr_120px_1fr] items-center gap-3 rounded-md border border-border bg-background px-3 py-2.5 text-sm">
+      <span className={`inline-flex h-7 w-9 items-center justify-center rounded-md text-xs font-bold ${tierBg}`}>
+        {tier}
+      </span>
+      <div>
+        <p className="font-medium">{label}</p>
+        <p className="text-xs text-muted-foreground">{desc}</p>
+      </div>
+      <div className="text-right">
+        <p className="text-sm font-semibold tabular-nums">{progress}</p>
+        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div className={`h-full ${stateColor}`} style={{ width: `${progressPct}%` }} />
+        </div>
+      </div>
+      <p className="text-right text-xs text-muted-foreground">{rightLabel}</p>
     </div>
   );
 }
