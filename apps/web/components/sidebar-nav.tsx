@@ -29,6 +29,7 @@ const Icon =
 
 export const ICONS: Record<string, IconType> = {
   overview: Icon(['M3 12l9-9 9 9', 'M5 10v10h4v-6h6v6h4V10']),
+  playbook: Icon(['M9 11l3 3L22 4', 'M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11']),
   content: Icon(['M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z', 'M14 2v6h6', 'M9 13h6', 'M9 17h6']),
   publish: Icon(['M22 2L11 13', 'M22 2l-7 20-4-9-9-4z']),
   tracking: Icon(['M12 2v4', 'M12 18v4', 'M4.93 4.93l2.83 2.83', 'M16.24 16.24l2.83 2.83', 'M2 12h4', 'M18 12h4', 'M4.93 19.07l2.83-2.83', 'M16.24 7.76l2.83-2.83']),

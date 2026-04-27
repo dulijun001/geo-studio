@@ -134,6 +134,7 @@ async function loadBadges(tenantId: string, role: string): Promise<Badges> {
 function buildMenu(role: string, badges: Badges): NavItem[] {
   const all: Array<NavItem & { allowed?: readonly string[] }> = [
     { href: '', label: '概览', iconKey: 'overview' },
+    { href: '/playbook', label: 'GEO 执行计划', iconKey: 'playbook' },
     { href: '/content', label: '内容', iconKey: 'content' },
     { href: '/publish', label: '派单', iconKey: 'publish' },
     { href: '/tracking', label: 'GEO 追踪', iconKey: 'tracking' },
