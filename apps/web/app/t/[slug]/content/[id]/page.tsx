@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireTenantMember } from '@/lib/tenant';
 import { GenerateVariantsForm } from './generate-variants-form';
+import { DeriveForm } from './derive-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,6 +108,12 @@ export default async function ContentDetailPage({
           </p>
         )}
       </section>
+
+      {canEdit && item.status === 'ai_drafted' && item.markdown ? (
+        <section className="space-y-3">
+          <DeriveForm tenantSlug={tenant.slug} contentItemId={item.id} />
+        </section>
+      ) : null}
 
       <section className="space-y-3">
         <h2 className="text-lg font-medium">生成平台变体</h2>

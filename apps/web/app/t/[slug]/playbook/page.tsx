@@ -25,7 +25,14 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
   const supabase = createSupabaseServerClient();
 
   // Pull all data we need to compute progress
-  const [{ data: brand }, { data: pubByPlatformRaw }, { data: snapshots }] = await Promise.all([
+  const [
+    { data: brand },
+    { data: pubByPlatformRaw },
+    { data: snapshots },
+    { data: questions },
+    { data: aiDraftsRaw },
+    { count: pendingCompliance },
+  ] = await Promise.all([
     supabase
       .from('brands')
       .select('location')
@@ -42,11 +49,30 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
       .is('deleted_at', null),
     supabase
       .from('geo_snapshots')
-      .select('id, asked_at')
+      .select('id, asked_at, question_id')
       .eq('tenant_id', tenant.id)
       .eq('status', 'done')
       .order('asked_at', { ascending: false, nullsFirst: false })
-      .limit(1),
+      .limit(50),
+    supabase
+      .from('questions')
+      .select('id, text')
+      .eq('tenant_id', tenant.id)
+      .eq('active', true)
+      .is('deleted_at', null),
+    supabase
+      .from('content_items')
+      .select('id, title, topics, status')
+      .eq('tenant_id', tenant.id)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(500),
+    supabase
+      .from('content_variants')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.id)
+      .eq('compliance_status', 'pending')
+      .is('deleted_at', null),
   ]);
 
   const checklist =
@@ -94,6 +120,82 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
 
   const latestSnap = (snapshots ?? [])[0];
 
+  // Compute SOV per question (latest done snapshot per question_id)
+  const latestSnapPerQuestion = new Map<string, { id: string; asked_at: string | null }>();
+  for (const s of (snapshots ?? []) as Array<{ id: string; asked_at: string | null; question_id: string }>) {
+    if (!latestSnapPerQuestion.has(s.question_id)) {
+      latestSnapPerQuestion.set(s.question_id, { id: s.id, asked_at: s.asked_at });
+    }
+  }
+
+  // Map question text → {own, comp, sessionId}
+  const questionByText = new Map<string, { id: string; latestSnapId: string | null }>();
+  for (const q of (questions ?? []) as Array<{ id: string; text: string }>) {
+    const latest = latestSnapPerQuestion.get(q.id);
+    questionByText.set(q.text, { id: q.id, latestSnapId: latest?.id ?? null });
+  }
+
+  // Pull citation counts for the latest snapshots in one batch
+  const allLatestSnapIds = Array.from(latestSnapPerQuestion.values())
+    .map((s) => s.id)
+    .slice(0, 20);
+  const sovBySnap = new Map<string, { own: number; comp: number }>();
+  if (allLatestSnapIds.length > 0) {
+    const { data: cits } = await supabase
+      .from('citations')
+      .select('snapshot_id, term_type')
+      .in('snapshot_id', allLatestSnapIds);
+    for (const c of (cits ?? []) as Array<{ snapshot_id: string; term_type: string | null }>) {
+      const cur = sovBySnap.get(c.snapshot_id) ?? { own: 0, comp: 0 };
+      if (c.term_type === 'brand') cur.own += 1;
+      if (c.term_type === 'competitor') cur.comp += 1;
+      sovBySnap.set(c.snapshot_id, cur);
+    }
+  }
+
+  // Build query progress map: query → { drafts, sov }
+  const queryProgress = new Map<string, { drafts: number; sovPct: number | null; latestSnapId: string | null }>();
+  const aiDrafts = (aiDraftsRaw ?? []) as Array<{ title: string; topics: string[] }>;
+  for (const phase of PHASES) {
+    if (!phase.coreQueries) continue;
+    for (const q of phase.coreQueries) {
+      // Heuristic: drafts whose title or topics contain the query string's
+      // most distinctive 2-3 char substrings (e.g. "种植", "正畸", "儿童"…)
+      const keywords = extractKeywords(q);
+      const drafts = aiDrafts.filter(
+        (d) =>
+          keywords.some((k) => d.title.includes(k)) ||
+          d.topics.some((t) => keywords.some((k) => t.includes(k))),
+      ).length;
+
+      const qInfo = questionByText.get(q);
+      const sov = qInfo?.latestSnapId ? sovBySnap.get(qInfo.latestSnapId) : null;
+      const sovPct =
+        sov && sov.own + sov.comp > 0 ? (sov.own / (sov.own + sov.comp)) * 100 : null;
+
+      queryProgress.set(q, {
+        drafts,
+        sovPct,
+        latestSnapId: qInfo?.latestSnapId ?? null,
+      });
+    }
+  }
+
+  // Compute next-baseline countdown (Mondays 09:00 Asia/Shanghai)
+  const nextBaselineDays = daysUntilNextMonday();
+
+  // Action items — "this week's 5 things"
+  const actions = computeWeeklyActions({
+    currentPhase,
+    checklistDone,
+    pubByPlatform,
+    queryProgress,
+    pendingCompliance: pendingCompliance ?? 0,
+    nextBaselineDays,
+    dianpingReviews: checklist.dianping_reviews ?? 0,
+    tenantSlug: tenant.slug,
+  });
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -112,22 +214,70 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
               {PHASES[currentPhase]!.weekRange} · {PHASES[currentPhase]!.title}
             </p>
           </div>
-          <div className="flex items-center gap-1.5">
-            {PHASES.map((p) => (
-              <PhaseDot
-                key={p.id}
-                label={p.weekRange.replace('Week ', 'W')}
-                state={
-                  p.id < currentPhase ? 'done' : p.id === currentPhase ? 'current' : 'locked'
-                }
-              />
-            ))}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              下次 baseline:{nextBaselineDays === 0 ? '今天' : `${nextBaselineDays} 天后`}
+            </span>
+            <span className="text-muted-foreground">·</span>
+            <div className="flex items-center gap-1.5">
+              {PHASES.map((p) => (
+                <PhaseDot
+                  key={p.id}
+                  label={p.weekRange.replace('Week ', 'W')}
+                  state={
+                    p.id < currentPhase ? 'done' : p.id === currentPhase ? 'current' : 'locked'
+                  }
+                />
+              ))}
+            </div>
           </div>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
           {PHASES[currentPhase]!.rationale}
         </p>
       </section>
+
+      {/* This week's 5 things — top action list */}
+      {actions.length > 0 ? (
+        <section className="space-y-2 rounded-lg border border-indigo-200 bg-indigo-50/40 p-5">
+          <header className="flex items-baseline justify-between">
+            <h2 className="text-base font-semibold">本周这 {actions.length} 件事最该做</h2>
+            <p className="text-xs text-muted-foreground">按优先级排序,从上往下</p>
+          </header>
+          <ol className="space-y-2">
+            {actions.map((a, i) => (
+              <li
+                key={i}
+                className={`flex items-start gap-3 rounded-md border bg-card px-3 py-2.5 ${
+                  a.tone === 'critical' ? 'border-rose-200' : a.tone === 'warning' ? 'border-amber-200' : 'border-border'
+                }`}
+              >
+                <span
+                  className={`mt-0.5 inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                    a.tone === 'critical'
+                      ? 'bg-rose-600 text-white'
+                      : a.tone === 'warning'
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-indigo-600 text-white'
+                  }`}
+                >
+                  {i + 1}
+                </span>
+                <div className="flex-1">
+                  <p className="text-sm font-medium">{a.title}</p>
+                  <p className="text-xs text-muted-foreground">{a.detail}</p>
+                </div>
+                <Link
+                  href={a.href}
+                  className="self-center rounded-md bg-foreground px-2.5 py-1 text-xs font-medium text-background hover:opacity-85"
+                >
+                  {a.cta} →
+                </Link>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
 
       {/* Phase sections */}
       {PHASES.map((phase) => (
@@ -138,6 +288,7 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
           isDone={phase.id < currentPhase}
           checklistDone={checklistDone}
           pubByPlatform={pubByPlatform}
+          queryProgress={queryProgress}
           tenantSlug={tenant.slug}
         />
       ))}
@@ -186,6 +337,7 @@ function PhaseSection({
   isDone,
   checklistDone,
   pubByPlatform,
+  queryProgress,
   tenantSlug,
 }: {
   phase: PhaseSpec;
@@ -193,6 +345,7 @@ function PhaseSection({
   isDone: boolean;
   checklistDone: Record<string, boolean>;
   pubByPlatform: Map<string, number>;
+  queryProgress: Map<string, { drafts: number; sovPct: number | null; latestSnapId: string | null }>;
   tenantSlug: string;
 }) {
   const stateBg = isDone
@@ -314,24 +467,50 @@ function PhaseSection({
       {phase.coreQueries ? (
         <div className="space-y-2">
           <h3 className="text-sm font-medium">10 个核心 query — 每个用「Query 矩阵」生成 6-7 条内容</h3>
-          <ul className="grid gap-1.5 md:grid-cols-2">
-            {phase.coreQueries.map((q) => (
-              <li
-                key={q}
-                className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 text-sm"
-              >
-                <span>{q}</span>
-                <Link
-                  href={`/t/${tenantSlug}/content`}
-                  className="rounded-md bg-indigo-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-indigo-700"
+          <ul className="space-y-1.5">
+            {phase.coreQueries.map((q) => {
+              const prog = queryProgress.get(q);
+              const sovBadge =
+                prog?.sovPct === null || prog?.sovPct === undefined
+                  ? null
+                  : prog.sovPct >= 5
+                  ? { label: `${prog.sovPct.toFixed(1)}%`, cls: 'bg-emerald-100 text-emerald-800' }
+                  : prog.sovPct > 0
+                  ? { label: `${prog.sovPct.toFixed(1)}%`, cls: 'bg-amber-100 text-amber-800' }
+                  : { label: '0%', cls: 'bg-rose-100 text-rose-800' };
+              return (
+                <li
+                  key={q}
+                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm"
                 >
-                  去生成 →
-                </Link>
-              </li>
-            ))}
+                  <span className="flex-1 truncate">{q}</span>
+                  <span className="flex items-center gap-2 text-xs">
+                    <span className="text-muted-foreground" title="已生成草稿数(标题/topics 含 query 关键词)">
+                      草稿 {prog?.drafts ?? 0}
+                    </span>
+                    {sovBadge ? (
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${sovBadge.cls}`}
+                        title="本品牌在该 query 豆包答案的 SOV"
+                      >
+                        SOV {sovBadge.label}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">未追踪</span>
+                    )}
+                  </span>
+                  <Link
+                    href={`/t/${tenantSlug}/content?prefill_query=${encodeURIComponent(q)}`}
+                    className="rounded-md bg-indigo-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-indigo-700"
+                  >
+                    去生成 →
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
           <p className="text-[11px] text-muted-foreground">
-            点「去生成」→ content 页 → 「Query 矩阵」按钮 → 输入这条 query → AI 给出 6-7 条建议 → 一键生成草稿。
+            草稿数 = 标题或 topics 命中关键词的 ai_drafted。SOV = 该 query 最近一次豆包答案里本品牌占比。
           </p>
         </div>
       ) : null}
@@ -368,4 +547,132 @@ function computePhaseProgress(phase: PhaseSpec, pubByPlatform: Map<string, numbe
     totalTarget += target ?? 0;
   }
   return totalTarget === 0 ? 0 : totalDone / totalTarget;
+}
+
+function extractKeywords(query: string): string[] {
+  // Pull notable Chinese substrings (3-grams) that distinguish queries.
+  // Hand-crafted — knows口腔行业 keywords; expand for other industries.
+  const KEYWORD_LIBRARY = [
+    '种植牙', '种植', '正畸', '隐形矫正', '矫正',
+    '儿童口腔', '儿童', '涂氟', '窝沟封闭',
+    '根管治疗', '根管', '牙周病', '牙周', '洁牙', '镶牙',
+    '糖尿病', '种牙', '拔牙', '美学', '修复',
+  ];
+  return KEYWORD_LIBRARY.filter((k) => query.includes(k));
+}
+
+function daysUntilNextMonday(): number {
+  const now = new Date();
+  const dow = now.getDay(); // 0=Sun, 1=Mon, ...
+  if (dow === 1 && now.getHours() < 9) return 0;
+  return (8 - dow) % 7;
+}
+
+type ActionItem = {
+  title: string;
+  detail: string;
+  cta: string;
+  href: string;
+  tone: 'critical' | 'warning' | 'normal';
+};
+
+function computeWeeklyActions(args: {
+  currentPhase: 0 | 1 | 2 | 3;
+  checklistDone: Record<string, boolean>;
+  pubByPlatform: Map<string, number>;
+  queryProgress: Map<string, { drafts: number; sovPct: number | null; latestSnapId: string | null }>;
+  pendingCompliance: number;
+  nextBaselineDays: number;
+  dianpingReviews: number;
+  tenantSlug: string;
+}): ActionItem[] {
+  const { currentPhase, checklistDone, pubByPlatform, queryProgress, pendingCompliance, dianpingReviews, tenantSlug } = args;
+  const items: ActionItem[] = [];
+
+  // 1. P0 missing items (highest priority always)
+  const p0Missing = Object.entries(checklistDone).filter(([, v]) => !v);
+  if (p0Missing.length > 0) {
+    items.push({
+      title: `补齐 P0 实体认知(还差 ${p0Missing.length} 项)`,
+      detail: 'P0 不达标,后面发再多内容豆包都不会引用你。优先做免费的:高德 / 百度地图 POI(今天就能完成)。百度百科代办 ¥800-2000,2 周审核',
+      cta: '维护 P0',
+      href: `/t/${tenantSlug}/settings/geo-checklist`,
+      tone: 'critical',
+    });
+  }
+
+  // 2. Pending compliance
+  if (pendingCompliance > 0) {
+    items.push({
+      title: `${pendingCompliance} 条变体待人工审`,
+      detail: '合规审是发布瓶颈。建议每天上午 30 分钟批量过完,不要堆到一周后',
+      cta: '去合规审',
+      href: `/t/${tenantSlug}/compliance?tab=pending`,
+      tone: 'warning',
+    });
+  }
+
+  // 3. Phase 2: queries with 0 drafts (Phase 2+ only)
+  if (currentPhase >= 1) {
+    const queriesWithoutDrafts: string[] = [];
+    for (const [q, p] of queryProgress.entries()) {
+      if (p.drafts === 0) queriesWithoutDrafts.push(q);
+    }
+    if (queriesWithoutDrafts.length > 0 && queriesWithoutDrafts[0]) {
+      items.push({
+        title: `还有 ${queriesWithoutDrafts.length} 个核心 query 没生成内容`,
+        detail: `先做最高优:「${queriesWithoutDrafts[0]}」— 用 Query 矩阵 5 分钟产 7 条草稿`,
+        cta: '去 Query 矩阵',
+        href: `/t/${tenantSlug}/content`,
+        tone: queriesWithoutDrafts.length >= 8 ? 'critical' : 'warning',
+      });
+    }
+  }
+
+  // 4. Phase 1+: low platform throughput
+  if (currentPhase >= 1) {
+    const wechat = pubByPlatform.get('wechat_mp') ?? 0;
+    const douyin = pubByPlatform.get('douyin_script') ?? 0;
+    if (wechat < 2) {
+      items.push({
+        title: `本阶段公众号才发了 ${wechat} 篇`,
+        detail: '公众号是 P2 主力,豆包高度信任。建议每周 2 篇深度文(医生 IP / 案例 / 数据)',
+        cta: '去 AI 草稿',
+        href: `/t/${tenantSlug}/content`,
+        tone: 'warning',
+      });
+    } else if (douyin < 3) {
+      items.push({
+        title: `抖音脚本只产了 ${douyin} 条`,
+        detail: '抖音是字节系,豆包加分最多。让医生本人出镜 60s 口播,3 个医生轮值',
+        cta: '去 AI 草稿',
+        href: `/t/${tenantSlug}/content`,
+        tone: 'warning',
+      });
+    }
+  }
+
+  // 5. P1 evaluation aggregation
+  if (dianpingReviews < 30) {
+    items.push({
+      title: `大众点评只有 ${dianpingReviews} 条评价`,
+      detail: '豆包看评价数排序你。让前台引导每位满意患者真实点评(不要刷),目标 ≥ 30 条',
+      cta: '维护 P0/P1',
+      href: `/t/${tenantSlug}/settings/geo-checklist`,
+      tone: dianpingReviews === 0 ? 'critical' : 'warning',
+    });
+  }
+
+  // 6. Baseline countdown nudge
+  if (args.nextBaselineDays === 0) {
+    items.push({
+      title: '今天 09:00 自动跑 GEO baseline',
+      detail: '看 10 个核心 query 的 SOV 周一变化,根据结果调下周策略',
+      cta: '去 GEO 追踪',
+      href: `/t/${tenantSlug}/tracking`,
+      tone: 'normal',
+    });
+  }
+
+  return items.slice(0, 6);
 }
