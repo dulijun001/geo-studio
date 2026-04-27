@@ -67,7 +67,11 @@ export const verifyInviteToken = verifyPasscode;
 // Password (V1.6-3) — PBKDF2-SHA256 for user-chosen long-lived passwords
 // ============================================================================
 
-const PWD_ITERS = 200_000;
+// 100k iterations: ~3-5s on a typical Mac, secure enough vs 200k that took 12s.
+// Tradeoff: lower iterations weaken offline brute-force resistance, but the
+// password also has 200-bit-equivalent salt + length min so the linear-time
+// attack budget is dominated by the password itself, not the KDF.
+const PWD_ITERS = 100_000;
 const PWD_KEYLEN = 32;
 
 export function hashPassword(plaintext: string): string {

@@ -52,53 +52,51 @@ export async function inspectSetupToken(token: string): Promise<
   };
 }
 
-/**
- * Consume a setup/reset token and set the staff member's password. On success
- * issues a session cookie and redirects to /staff.
- */
-export async function setupStaffPassword(form: FormData): Promise<void> {
-  const tokenRaw = form.get('token');
-  const passwordRaw = form.get('password');
-  const confirmRaw = form.get('confirm');
-  const token = typeof tokenRaw === 'string' ? tokenRaw : '';
-  const password = typeof passwordRaw === 'string' ? passwordRaw : '';
-  const confirm = typeof confirmRaw === 'string' ? confirmRaw : '';
+export type SetupResult = { ok: true } | { ok: false; error: string };
 
-  if (!token) redirect('/staff/login?error=missing_secret');
-  if (password !== confirm) {
-    redirect(`/staff/setup?token=${encodeURIComponent(token)}&error=mismatch`);
-  }
+/**
+ * Consume a setup/reset token and set the staff member's password. Returns a
+ * result object instead of throwing redirect — the client wraps this in
+ * useTransition + router.push so we don't depend on Next.js form-action
+ * redirect plumbing (which has been flaky in 14.2 dev).
+ */
+export async function setupStaffPassword(input: {
+  token: string;
+  password: string;
+  confirm: string;
+}): Promise<SetupResult> {
+  const { token, password, confirm } = input;
+
+  if (!token) return { ok: false, error: '链接缺失,请重新打开邀请链接' };
+  if (password !== confirm) return { ok: false, error: '两次输入的密码不一致' };
+
   const strength = validatePasswordStrength(password);
-  if (!strength.ok) {
-    redirect(
-      `/staff/setup?token=${encodeURIComponent(token)}&error=weak&detail=${encodeURIComponent(
-        strength.reason,
-      )}`,
-    );
-  }
+  if (!strength.ok) return { ok: false, error: strength.reason };
 
   if (!process.env.STAFF_SESSION_SECRET || process.env.STAFF_SESSION_SECRET.length < 32) {
-    redirect('/staff/login?error=missing_secret');
+    return { ok: false, error: '系统未配置 STAFF_SESSION_SECRET' };
   }
 
   const service = getSupabaseServiceClient();
-  const { data: invites } = await service
+  const { data: invites, error: invErr } = await service
     .from('staff_invites')
     .select('id, staff_account_id, passcode_hash, expires_at, consumed_at, kind, tenant_id')
     .in('kind', ['setup', 'reset'])
     .order('created_at', { ascending: false })
     .limit(50);
-
-  const match = (invites ?? []).find((inv) => verifyInviteToken(token, inv.passcode_hash));
-  if (!match) redirect('/staff/login?error=invalid');
-  if (match.consumed_at) redirect('/staff/login?error=consumed');
-  if (new Date(match.expires_at).getTime() <= Date.now()) {
-    redirect('/staff/login?error=expired');
+  if (invErr) {
+    console.error('[staff-setup] invite query failed:', invErr.message);
+    return { ok: false, error: `数据库查询失败: ${invErr.message}` };
   }
 
-  // Consume + set password atomically-ish: mark token first to prevent races,
-  // then write password_hash. If the second write fails the token is gone but
-  // admin can issue a new one — preferable to a token that lingers usable.
+  const match = (invites ?? []).find((inv) => verifyInviteToken(token, inv.passcode_hash));
+  if (!match) return { ok: false, error: '邀请链接不正确或已被替换' };
+  if (match.consumed_at) return { ok: false, error: '邀请链接已使用过' };
+  if (new Date(match.expires_at).getTime() <= Date.now()) {
+    return { ok: false, error: '邀请链接已过期(超过 24 小时)' };
+  }
+
+  console.log(`[staff-setup] step 1: consuming token ${match.id}`);
   const { error: cErr } = await service
     .from('staff_invites')
     .update({ consumed_at: new Date().toISOString() })
@@ -106,18 +104,22 @@ export async function setupStaffPassword(form: FormData): Promise<void> {
     .is('consumed_at', null);
   if (cErr) {
     console.error('[staff-setup] consume token failed:', cErr.message);
-    redirect('/staff/login?error=unknown');
+    return { ok: false, error: `保存失败: ${cErr.message}` };
   }
 
+  console.log(`[staff-setup] step 2: hashing + writing password`);
+  const newHash = hashPassword(password);
+  console.log(`[staff-setup] hash computed, length=${newHash.length}`);
   const { error: pErr } = await service
     .from('staff_accounts')
-    .update({ password_hash: hashPassword(password) })
+    .update({ password_hash: newHash })
     .eq('id', match.staff_account_id);
   if (pErr) {
     console.error('[staff-setup] set password failed:', pErr.message);
-    redirect('/staff/login?error=unknown');
+    return { ok: false, error: `保存密码失败: ${pErr.message}` };
   }
 
+  console.log(`[staff-setup] step 3: audit + session`);
   await service.from('audit_logs').insert({
     tenant_id: match.tenant_id,
     action: match.kind === 'reset' ? 'staff.password_reset_completed' : 'staff.password_setup',
@@ -126,6 +128,13 @@ export async function setupStaffPassword(form: FormData): Promise<void> {
     payload: {},
   });
 
-  issueStaffSession(match.staff_account_id, match.tenant_id);
-  redirect('/staff');
+  try {
+    issueStaffSession(match.staff_account_id, match.tenant_id);
+  } catch (err) {
+    console.error('[staff-setup] issueStaffSession threw:', err);
+    return { ok: false, error: '会话创建失败,请联系管理员' };
+  }
+
+  console.log(`[staff-setup] step 4: ok, client will redirect`);
+  return { ok: true };
 }
