@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/page-header';
 import { InlineGuide } from '@/components/inline-guide';
 import { UploadForm } from './upload-form';
 import { AiDraftForm } from './ai-draft-form';
+import { QueryMatrixForm } from './query-matrix-form';
 
 export const dynamic = 'force-dynamic'; // Always fresh status after uploads
 
@@ -31,6 +32,7 @@ export default async function ContentPage({ params }: { params: { slug: string }
         actions={
           canEdit ? (
             <div className="flex items-center gap-2">
+              <QueryMatrixForm tenantSlug={tenant.slug} />
               <AiDraftForm tenantSlug={tenant.slug} />
               <UploadForm tenantSlug={tenant.slug} />
             </div>

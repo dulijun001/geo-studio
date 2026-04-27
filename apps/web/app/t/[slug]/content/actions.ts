@@ -468,3 +468,153 @@ export async function createAiDraft(
   revalidatePath(`/t/${tenantSlug}/content`);
   return { content_item_id: created.id, cited_paths: citedSources.map((c) => c.source_path) };
 }
+
+// ============================================================================
+// Query → content matrix (V1.6-5)
+//
+// Reverse the workflow: instead of "I want to write topic X", ask "users on
+// Doubao are searching Q — what content matrix maximizes our chance of being
+// cited?". LLM proposes 5-7 ideas across the P2-P4 tiers, each with a
+// platform / title / angle / suggested doctor. Admin clicks "生成此条" on the
+// ones they like to spawn createAiDraft jobs.
+// ============================================================================
+
+export type MatrixIdea = {
+  platform: CreateAiDraftInput['platform'];
+  tier: 'P2' | 'P3' | 'P4';
+  title: string;
+  angle: string;
+  recommended_doctor: string | null;
+};
+
+export type ProposeMatrixResult = {
+  query: string;
+  audience: string;
+  ideas: MatrixIdea[];
+};
+
+const PLATFORM_TIER: Record<CreateAiDraftInput['platform'], 'P2' | 'P3' | 'P4'> = {
+  wechat_mp: 'P2',
+  zhihu: 'P2',
+  toutiao_article: 'P2',
+  douyin_script: 'P3',
+  xiaohongshu: 'P4',
+};
+
+const VALID_PLATFORMS: ReadonlyArray<CreateAiDraftInput['platform']> = [
+  'wechat_mp',
+  'zhihu',
+  'toutiao_article',
+  'douyin_script',
+  'xiaohongshu',
+];
+
+export type ProposeMatrixInput = {
+  query: string;
+  audience: string;
+};
+
+export async function proposeContentMatrix(
+  tenantSlug: string,
+  input: ProposeMatrixInput,
+): Promise<ProposeMatrixResult> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+
+  const query = input.query.trim();
+  const audience = input.audience.trim();
+  if (query.length < 4) throw new Error('查询语句至少 4 字');
+  if (audience.length === 0) throw new Error('请选择受众');
+
+  const supabase = createSupabaseServerClient();
+  // Load doctor names so LLM picks from real staff
+  const { data: doctors } = await supabase
+    .from('brand_vocab')
+    .select('term, aliases')
+    .eq('tenant_id', tenant.id)
+    .eq('term_type', 'doctor')
+    .is('deleted_at', null)
+    .limit(20);
+  const doctorNames = ((doctors ?? []) as Array<{ term: string }>).map((d) => d.term);
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content:
+        '你是 GEO(生成式引擎优化)内容策略专家。用户告诉你他们想"出现在豆包搜索某 query 的答案里",你设计内容矩阵。' +
+        '\n\n## 矩阵要求\n' +
+        '6-7 条内容,覆盖 P2-P4 三个层级:\n' +
+        '- P2(必有):公众号 wechat_mp 1 条 + 知乎 zhihu 1 条 + 头条号 toutiao_article 1 条 — 长文 + 权威 + 专业\n' +
+        '- P3(必有):抖音脚本 douyin_script 至少 2 条,不同医生分别口播 — 字节系强加分\n' +
+        '- P4(可选):小红书 xiaohongshu 1-2 条 — 痛点 + 个人化\n' +
+        '\n## 角度要求\n' +
+        '不同 platform 切入角度必须不同(避免雷同):权威数据 / 案例故事 / 视觉化 60s 钩子 / 患者痛点 / 价格透明度 / 医生 IP / ...' +
+        '\n\n## 输出格式\n' +
+        '严格 JSON: { "ideas": [ { "platform": "...", "title": "标题15字内", "angle": "切入角度1-2句", "recommended_doctor": "医生名" } ] }\n' +
+        'platform 必须是: wechat_mp / zhihu / toutiao_article / douyin_script / xiaohongshu' +
+        (doctorNames.length > 0
+          ? `\n推荐医生从以下选: ${doctorNames.join(', ')}`
+          : '\nrecommended_doctor 字段填 null'),
+    },
+    {
+      role: 'user' as const,
+      content:
+        `# 豆包搜索 query\n${query}\n\n` +
+        `# 目标受众\n${audience}\n\n` +
+        `请基于 query + 受众,设计内容矩阵。`,
+    },
+  ];
+
+  if (!llmAvailable()) {
+    // Stub matrix for dev without ARK_API_KEY
+    return {
+      query,
+      audience,
+      ideas: [
+        { platform: 'wechat_mp', tier: 'P2', title: `[STUB] ${query} 深度科普`, angle: '权威引用 + 数据', recommended_doctor: doctorNames[0] ?? null },
+        { platform: 'zhihu', tier: 'P2', title: `[STUB] ${query} 知乎回答`, angle: '专家长文 + 案例', recommended_doctor: doctorNames[1] ?? null },
+        { platform: 'douyin_script', tier: 'P3', title: `[STUB] 60s 视频`, angle: '钩子 + 视觉化', recommended_doctor: doctorNames[2] ?? null },
+      ],
+    };
+  }
+
+  let parsed: { ideas?: Array<Partial<MatrixIdea>> };
+  try {
+    const result = await chat({
+      messages,
+      temperature: 0.7,
+      max_tokens: 1500,
+      response_format: 'json_object',
+      timeout_ms: 90_000,
+    });
+    parsed = JSON.parse(result.content);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/abort/i.test(msg)) {
+      throw new Error('AI 超时未返回(>90s),请稍后重试');
+    }
+    throw new Error(`AI 调用失败: ${msg.slice(0, 100)}`);
+  }
+
+  const ideas: MatrixIdea[] = (parsed.ideas ?? [])
+    .filter(
+      (i): i is MatrixIdea =>
+        typeof i.platform === 'string' &&
+        (VALID_PLATFORMS as readonly string[]).includes(i.platform) &&
+        typeof i.title === 'string' &&
+        i.title.length > 0,
+    )
+    .map((i) => ({
+      platform: i.platform,
+      tier: PLATFORM_TIER[i.platform],
+      title: i.title.slice(0, 50),
+      angle: (i.angle ?? '').slice(0, 200),
+      recommended_doctor: i.recommended_doctor ?? null,
+    }));
+
+  if (ideas.length === 0) {
+    throw new Error('AI 没产出有效建议,请尝试更具体的 query');
+  }
+
+  console.log(`[matrix] tenant=${tenant.slug} query="${query}" ideas=${ideas.length}`);
+  return { query, audience, ideas };
+}
