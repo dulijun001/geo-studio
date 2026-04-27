@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { getCurrentUser } from '@/lib/current-user';
 import { listMyTenants } from '@/lib/tenant';
 import { CreateTenantForm } from './create-tenant-form';
 
@@ -12,9 +13,7 @@ import { CreateTenantForm } from './create-tenant-form';
  */
 export default async function AppHomePage() {
   const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) redirect('/login');
 
   const tenants = await listMyTenants();

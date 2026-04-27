@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { dispatchDaily, type DispatchInput } from '@geo/geo-core';
 import { requireRole } from '@/lib/tenant';
+import { getCurrentUser } from '@/lib/current-user';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 
@@ -35,9 +36,7 @@ export async function cancelDispatch(
 ): Promise<void> {
   const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
   const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) throw new Error('Unauthenticated');
 
   const service = getSupabaseServiceClient();
@@ -115,9 +114,7 @@ export async function dispatchToday(
   // requireRole already verified the user is authenticated; reuse the id via a
   // cheap call on the already-warm server client.
   const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) throw new Error('Unauthenticated');
 
   const service = getSupabaseServiceClient();

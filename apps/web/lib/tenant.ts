@@ -1,7 +1,10 @@
 import { notFound, redirect } from 'next/navigation';
 import { cache } from 'react';
 import type { MemberRole } from '@geo/shared';
+import { getCurrentUser } from './current-user';
+import { readAdminSession } from './admin-session';
 import { createSupabaseServerClient } from './supabase/server';
+import { getSupabaseServiceClient } from './supabase/service';
 
 export type ActiveTenant = {
   id: string;
@@ -14,28 +17,28 @@ export type ActiveTenant = {
 /**
  * Resolve the current user's membership for a tenant slug.
  *
- * Relies on RLS: if the authenticated user isn't a member, the SELECT returns
- * zero rows (not an error). We treat that as a 404 to avoid leaking existence.
+ * Two paths:
+ *   - Admin HMAC cookie present (dev-bypass / future password flow): use
+ *     service-role client to bypass RLS. Trust comes from cookie HMAC.
+ *   - Otherwise: Supabase auth → RLS-scoped SELECT (legacy magic-link).
  *
- * Returns null if user not authenticated OR slug not found OR user not a member.
- * Use `requireTenantMember()` in route handlers / pages that must fail loudly.
+ * Returns null when no user, slug not found, or user not a member.
  *
- * `cache()` dedupes identical calls within one request, so a layout + page + client boundary
- * can all call this without N round trips.
+ * `cache()` dedupes identical calls within one request.
  */
 export const resolveTenantBySlug = cache(async (slug: string): Promise<ActiveTenant | null> => {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) {
     console.log('[resolveTenantBySlug] no user in session');
     return null;
   }
 
-  // Two-step query avoids the PostgREST embedded-filter quirk where
-  // `.eq('tenants.slug', slug)` silently returns null when the join expands.
-  const { data: tenantRow, error: tenantErr } = await supabase
+  // Admin cookie holders bypass RLS — they're the operator, trust the HMAC.
+  // Supabase-auth users go through RLS as before.
+  const adminCookie = readAdminSession();
+  const client = adminCookie ? getSupabaseServiceClient() : createSupabaseServerClient();
+
+  const { data: tenantRow, error: tenantErr } = await client
     .from('tenants')
     .select('id, slug, name, industry')
     .eq('slug', slug)
@@ -49,7 +52,7 @@ export const resolveTenantBySlug = cache(async (slug: string): Promise<ActiveTen
     return null;
   }
 
-  const { data: memRow, error: memErr } = await supabase
+  const { data: memRow, error: memErr } = await client
     .from('tenant_memberships')
     .select('role')
     .eq('tenant_id', tenantRow.id)
@@ -78,10 +81,7 @@ export const resolveTenantBySlug = cache(async (slug: string): Promise<ActiveTen
  * 404 if tenant doesn't exist or user is not a member.
  */
 export async function requireTenantMember(slug: string): Promise<ActiveTenant> {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) {
     redirect(`/login?next=${encodeURIComponent(`/t/${slug}`)}`);
   }
@@ -109,13 +109,14 @@ export async function requireRole(
  * Used by /app to render the tenant switcher / onboarding state.
  */
 export async function listMyTenants(): Promise<ActiveTenant[]> {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) return [];
 
-  const { data, error } = await supabase
+  // Admin cookie holders bypass RLS for read.
+  const adminCookie = readAdminSession();
+  const client = adminCookie ? getSupabaseServiceClient() : createSupabaseServerClient();
+
+  const { data, error } = await client
     .from('tenant_memberships')
     .select('role, tenant:tenants!inner(id, slug, name, industry)')
     .eq('user_id', user.id);

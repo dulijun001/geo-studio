@@ -6,6 +6,7 @@ import PgBoss from 'pg-boss';
 import { revalidatePath } from 'next/cache';
 import { chat, isAvailable as llmAvailable } from '@geo/geo-core';
 import { requireRole } from '@/lib/tenant';
+import { getCurrentUser } from '@/lib/current-user';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 
@@ -44,9 +45,7 @@ export async function enqueueVariantGenerate(
   }
 
   const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) throw new Error('Unauthenticated');
 
   // Verify the content item belongs to this tenant and is actually parsed.

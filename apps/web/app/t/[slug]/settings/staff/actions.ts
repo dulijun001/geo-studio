@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireRole } from '@/lib/tenant';
+import { getCurrentUser } from '@/lib/current-user';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 import {
@@ -49,9 +50,7 @@ export async function createStaffAccount(
   if (!STAFF_ROLES.includes(input.role)) throw new Error('请选择岗位');
 
   const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) throw new Error('Unauthenticated');
 
   const service = getSupabaseServiceClient();
@@ -138,9 +137,7 @@ export async function generateStaffInvite(
   const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
 
   const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) throw new Error('Unauthenticated');
 
   const service = getSupabaseServiceClient();
@@ -210,9 +207,7 @@ export async function generateStaffSetupLink(
   const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
 
   const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) throw new Error('Unauthenticated');
 
   const service = getSupabaseServiceClient();

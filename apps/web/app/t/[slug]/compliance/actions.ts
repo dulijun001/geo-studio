@@ -4,6 +4,7 @@ import PgBoss from 'pg-boss';
 import { revalidatePath } from 'next/cache';
 import { chat, isAvailable as llmAvailable } from '@geo/geo-core';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { getCurrentUser } from '@/lib/current-user';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 import { requireRole } from '@/lib/tenant';
 
@@ -144,9 +145,7 @@ async function transition(
 ): Promise<void> {
   const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'auditor']);
   const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) throw new Error('Unauthenticated');
 
   // Reload variant to verify it belongs to this tenant AND hasn't already been finalized by someone else.
@@ -337,9 +336,7 @@ export async function aiRewriteVariant(
   }
 
   const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   // Update variant: replace body + reset compliance state
   const { error: upErr } = await service
