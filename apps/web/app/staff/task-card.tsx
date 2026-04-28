@@ -136,25 +136,51 @@ export function TaskCard({ task }: { task: TaskProps }) {
 
     // navigator.clipboard requires a secure context (HTTPS or localhost). When
     // the staff PWA is reached over plain HTTP via a tunnel/IP, clipboard is
-    // undefined and the modern API throws — fall back to a hidden-textarea +
-    // execCommand('copy') trick. Deprecated but works on every browser that
-    // matters for this product (WeChat browser, Safari iOS, Chrome Android).
+    // undefined — fall back to a textarea + execCommand('copy'). The textarea
+    // must be on-screen (not display:none / opacity:0 / off-screen) for some
+    // browsers to actually copy the FULL value rather than only what was
+    // visually selected — iOS Safari and WeChat in particular care. We
+    // mitigate by placing it within the viewport but visually neutral, and we
+    // explicitly focus + select before issuing the copy command.
     const writeFallback = (s: string): boolean => {
+      const ta = document.createElement('textarea');
+      ta.value = s;
+      // contentEditable=true on iOS allows full-range selection
+      ta.contentEditable = 'true';
+      ta.readOnly = false;
+      // visible-but-invisible: in viewport (so iOS doesn't ignore selection),
+      // but 1px and zero opacity so user doesn't see the flash
+      ta.style.position = 'fixed';
+      ta.style.left = '0';
+      ta.style.top = '0';
+      ta.style.width = '1px';
+      ta.style.height = '1px';
+      ta.style.padding = '0';
+      ta.style.border = 'none';
+      ta.style.outline = 'none';
+      ta.style.boxShadow = 'none';
+      ta.style.background = 'transparent';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      const previousActive = document.activeElement as HTMLElement | null;
       try {
-        const ta = document.createElement('textarea');
-        ta.value = s;
-        ta.setAttribute('readonly', '');
-        ta.style.position = 'fixed';
-        ta.style.top = '-1000px';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
+        ta.focus({ preventScroll: true });
+        // iOS needs an explicit Range over a contentEditable element
+        const range = document.createRange();
+        range.selectNodeContents(ta);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        // Also do the input-style selection as a redundant guard
         ta.setSelectionRange(0, s.length);
         const ok = document.execCommand('copy');
-        document.body.removeChild(ta);
+        sel?.removeAllRanges();
         return ok;
       } catch {
         return false;
+      } finally {
+        document.body.removeChild(ta);
+        previousActive?.focus?.();
       }
     };
 
