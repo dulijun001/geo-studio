@@ -1,4 +1,3 @@
-import { readStaffSession, clearStaffSession } from '@/lib/staff-session';
 import { inspectSetupToken } from './actions';
 import { SetupForm } from './setup-form';
 
@@ -9,13 +8,11 @@ export default async function StaffSetupPage({
 }: {
   searchParams: { token?: string };
 }) {
-  // Invite/reset links are authoritative — they identify the target account
-  // by a one-time token, which is more specific than whatever session cookie
-  // the browser happens to carry. Clear any leftover staff session so the
-  // operator (or staff member testing on a shared device) sees the password
-  // form rather than getting silently sent to the previous user's dashboard.
-  if (readStaffSession()) clearStaffSession();
-
+  // No session check here — invite/reset tokens are authoritative. If a stale
+  // staff session cookie is set (e.g. operator testing the link from a logged-in
+  // browser), we still want to render the password form. The setUpPassword
+  // server action below issues a fresh session that overwrites the old one,
+  // so the user ends up logged in as the invited account either way.
   const token = searchParams.token ?? '';
   const inspection = await inspectSetupToken(token);
 
