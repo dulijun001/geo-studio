@@ -169,23 +169,37 @@ export async function listMyTenants(): Promise<ActiveTenant[]> {
     }));
   }
 
-  const { data, error } = await client
+  // Two-step query instead of PostgREST embed: tenant_memberships → tenants
+  // FK is missing from the live schema (a migration we'll patch separately),
+  // so embed selects fail with PGRST200. Two queries are cheap enough.
+  const { data: memberships, error: memErr } = await client
     .from('tenant_memberships')
-    .select('role, tenant:tenants!inner(id, slug, name, industry)')
-    .eq('user_id', user.id);
+    .select('role, tenant_id')
+    .eq('user_id', user.id)
+    .is('deleted_at', null);
 
-  if (error || !data) return [];
+  if (memErr || !memberships?.length) return [];
 
-  return data
-    .map((row): ActiveTenant | null => {
-      const tenant = Array.isArray(row.tenant) ? row.tenant[0] : row.tenant;
-      if (!tenant) return null;
+  const tenantIds = memberships.map((m) => m.tenant_id);
+  const { data: tenantRows, error: tenantErr } = await client
+    .from('tenants')
+    .select('id, slug, name, industry')
+    .in('id', tenantIds)
+    .is('deleted_at', null);
+
+  if (tenantErr || !tenantRows) return [];
+
+  const byId = new Map(tenantRows.map((t) => [t.id, t]));
+  return memberships
+    .map((m): ActiveTenant | null => {
+      const t = byId.get(m.tenant_id);
+      if (!t) return null;
       return {
-        id: tenant.id,
-        slug: tenant.slug,
-        name: tenant.name,
-        industry: tenant.industry,
-        role: row.role as MemberRole,
+        id: t.id as string,
+        slug: t.slug as string,
+        name: t.name as string,
+        industry: t.industry as string,
+        role: m.role as MemberRole,
       };
     })
     .filter((t): t is ActiveTenant => t !== null);
