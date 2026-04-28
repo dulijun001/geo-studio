@@ -39,52 +39,80 @@ const PLATFORM_SCHEME: Record<string, string> = {
 };
 
 /**
- * Strip markdown so pasted text displays correctly on Chinese social platforms.
+ * Convert markdown into platform-appropriate plain text.
  *
- * Generators (Doubao, AI draft) write markdown by default. 小红书 / 抖音 / 头条 /
- * 知乎 paste boxes are plain text — they show "### 标题" verbatim, "**bold**"
- * with literal asterisks, etc. This converter:
+ * Generators write markdown by default. Chinese social platforms paste boxes
+ * are plain text — "### 标题" shows verbatim, "**bold**" leaves literal
+ * asterisks. We restyle by platform, since one size doesn't fit:
  *
- *   - drops ATX header markers (## #), keeps the title text
- *   - drops emphasis markers (** _ *) but keeps the inner words
- *   - drops link syntax [text](url), keeping just `text` (or text + url if external)
- *   - turns "- " / "* " bullets into "• "
- *   - strips inline code backticks and code-fence lines
- *   - leaves numbered lists (1.) and emoji intact
+ *   - 小红书 / 百家号: emoji-driven, conversational → 🔸 prefix on H2/H3 headings
+ *   - 抖音脚本: step-by-step, numbered → 1️⃣ 2️⃣ 3️⃣ for sequential headings
+ *   - 头条 / 知乎 / 公众号 / 搜狐: long-form, professional → ▍ prefix on headings
  *
- * Idempotent: running twice produces the same output.
+ * Body paragraph rules are platform-agnostic:
+ *   - drops bold/italic/code markers but keeps text
+ *   - dashes and asterisk bullets become •
+ *   - link syntax [text](url) → "text(url)" if external, else just text
+ *   - drops blockquotes, horizontal rules, code fences
+ *   - collapses 3+ blank lines to 2, trims edges
+ *
+ * Idempotent on already-plain text.
  */
-function stripMarkdown(input: string): string {
+function stripMarkdown(input: string, platform?: string): string {
+  const headingPrefix = headingPrefixFor(platform);
+  let stepNum = 0; // for 抖音 numbered sections
   return input
     .split('\n')
     .map((line) => {
-      // strip code fences entirely
       if (/^\s*```/.test(line)) return '';
-      // strip ATX heading markers (#, ##, ###...) keep the rest
-      let s = line.replace(/^\s{0,3}#{1,6}\s+/, '');
-      // bullet list: "- foo" / "* foo" / "+ foo" → "• foo"
-      s = s.replace(/^(\s*)[-*+]\s+/, '$1• ');
-      // bold/italic markers — keep text, drop markers
-      s = s.replace(/\*\*([^*]+)\*\*/g, '$1');
-      s = s.replace(/__([^_]+)__/g, '$1');
-      s = s.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '$1');
-      s = s.replace(/(?<!_)_([^_\n]+)_(?!_)/g, '$1');
-      // inline code: drop backticks, keep code text
-      s = s.replace(/`([^`]+)`/g, '$1');
-      // links: [text](url) → text (only keep URL if it looks external)
-      s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
-        return /^https?:\/\//.test(url) ? `${text}(${url})` : text;
-      });
-      // blockquote prefix
+
+      // Heading line — replace ATX markers with platform-specific prefix.
+      const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+      if (heading) {
+        const text = stripInline(heading[2]!);
+        if (headingPrefix === 'numbered') {
+          stepNum += 1;
+          const digit = '0123456789'[stepNum] ?? String(stepNum);
+          const emoji = stepNum <= 9 ? `${digit}⃣` : `${stepNum}.`;
+          return `${emoji} ${text}`;
+        }
+        return `${headingPrefix} ${text}`;
+      }
+
+      let s = line.replace(/^(\s*)[-*+]\s+/, '$1• ');
+      s = stripInline(s);
       s = s.replace(/^\s{0,3}>\s?/, '');
-      // horizontal rule
       if (/^\s*([-*_]\s*){3,}$/.test(s)) return '';
       return s;
     })
     .join('\n')
-    // collapse 3+ blank lines down to 2 (preserve paragraph breaks)
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+function headingPrefixFor(platform?: string): string {
+  switch (platform) {
+    case 'xiaohongshu':
+    case 'baijiahao':
+      return '🔸';
+    case 'douyin_script':
+      return 'numbered'; // sentinel — handled inline
+    default:
+      // 头条 / 知乎 / 公众号 / 搜狐 / unknown: vertical bar feels professional
+      return '▍';
+  }
+}
+
+function stripInline(s: string): string {
+  return s
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '$1')
+    .replace(/(?<!_)_([^_\n]+)_(?!_)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) =>
+      /^https?:\/\//.test(url) ? `${text}(${url})` : text,
+    );
 }
 
 export function TaskCard({ task }: { task: TaskProps }) {
@@ -104,7 +132,7 @@ export function TaskCard({ task }: { task: TaskProps }) {
     const cta = task.activity_code
       ? `\n\n— 到院请说「${task.doctor_name ?? ''}医生 ${task.activity_code}」,我会知道你是看了这条来的。`
       : '';
-    const text = stripMarkdown(`${task.title}\n\n${task.body}${cta}`);
+    const text = stripMarkdown(`${task.title}\n\n${task.body}${cta}`, task.platform);
 
     // navigator.clipboard requires a secure context (HTTPS or localhost). When
     // the staff PWA is reached over plain HTTP via a tunnel/IP, clipboard is
