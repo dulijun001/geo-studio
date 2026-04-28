@@ -56,12 +56,42 @@ export function TaskCard({ task }: { task: TaskProps }) {
       ? `\n\n— 到院请说「${task.doctor_name ?? ''}医生 ${task.activity_code}」,我会知道你是看了这条来的。`
       : '';
     const text = `${task.title}\n\n${task.body}${cta}`;
+
+    // navigator.clipboard requires a secure context (HTTPS or localhost). When
+    // the staff PWA is reached over plain HTTP via a tunnel/IP, clipboard is
+    // undefined and the modern API throws — fall back to a hidden-textarea +
+    // execCommand('copy') trick. Deprecated but works on every browser that
+    // matters for this product (WeChat browser, Safari iOS, Chrome Android).
+    const writeFallback = (s: string): boolean => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = s;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '-1000px';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, s.length);
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch {
+        return false;
+      }
+    };
+
+    setErr(null);
     try {
-      await navigator.clipboard.writeText(text);
+      if (window.isSecureContext && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else if (!writeFallback(text)) {
+        throw new Error('execCommand copy failed');
+      }
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      setErr('复制失败,请长按选中手动复制。');
+      setErr('复制失败,请长按选中文案手动复制。');
     }
   };
 
