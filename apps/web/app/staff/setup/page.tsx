@@ -1,5 +1,4 @@
-import { redirect } from 'next/navigation';
-import { readStaffSession } from '@/lib/staff-session';
+import { readStaffSession, clearStaffSession } from '@/lib/staff-session';
 import { inspectSetupToken } from './actions';
 import { SetupForm } from './setup-form';
 
@@ -10,7 +9,12 @@ export default async function StaffSetupPage({
 }: {
   searchParams: { token?: string };
 }) {
-  if (readStaffSession()) redirect('/staff');
+  // Invite/reset links are authoritative — they identify the target account
+  // by a one-time token, which is more specific than whatever session cookie
+  // the browser happens to carry. Clear any leftover staff session so the
+  // operator (or staff member testing on a shared device) sees the password
+  // form rather than getting silently sent to the previous user's dashboard.
+  if (readStaffSession()) clearStaffSession();
 
   const token = searchParams.token ?? '';
   const inspection = await inspectSetupToken(token);
