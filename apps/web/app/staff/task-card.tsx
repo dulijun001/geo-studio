@@ -38,6 +38,55 @@ const PLATFORM_SCHEME: Record<string, string> = {
   xiaohongshu: 'xhsdiscover://',
 };
 
+/**
+ * Strip markdown so pasted text displays correctly on Chinese social platforms.
+ *
+ * Generators (Doubao, AI draft) write markdown by default. 小红书 / 抖音 / 头条 /
+ * 知乎 paste boxes are plain text — they show "### 标题" verbatim, "**bold**"
+ * with literal asterisks, etc. This converter:
+ *
+ *   - drops ATX header markers (## #), keeps the title text
+ *   - drops emphasis markers (** _ *) but keeps the inner words
+ *   - drops link syntax [text](url), keeping just `text` (or text + url if external)
+ *   - turns "- " / "* " bullets into "• "
+ *   - strips inline code backticks and code-fence lines
+ *   - leaves numbered lists (1.) and emoji intact
+ *
+ * Idempotent: running twice produces the same output.
+ */
+function stripMarkdown(input: string): string {
+  return input
+    .split('\n')
+    .map((line) => {
+      // strip code fences entirely
+      if (/^\s*```/.test(line)) return '';
+      // strip ATX heading markers (#, ##, ###...) keep the rest
+      let s = line.replace(/^\s{0,3}#{1,6}\s+/, '');
+      // bullet list: "- foo" / "* foo" / "+ foo" → "• foo"
+      s = s.replace(/^(\s*)[-*+]\s+/, '$1• ');
+      // bold/italic markers — keep text, drop markers
+      s = s.replace(/\*\*([^*]+)\*\*/g, '$1');
+      s = s.replace(/__([^_]+)__/g, '$1');
+      s = s.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '$1');
+      s = s.replace(/(?<!_)_([^_\n]+)_(?!_)/g, '$1');
+      // inline code: drop backticks, keep code text
+      s = s.replace(/`([^`]+)`/g, '$1');
+      // links: [text](url) → text (only keep URL if it looks external)
+      s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, text, url) => {
+        return /^https?:\/\//.test(url) ? `${text}(${url})` : text;
+      });
+      // blockquote prefix
+      s = s.replace(/^\s{0,3}>\s?/, '');
+      // horizontal rule
+      if (/^\s*([-*_]\s*){3,}$/.test(s)) return '';
+      return s;
+    })
+    .join('\n')
+    // collapse 3+ blank lines down to 2 (preserve paragraph breaks)
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 export function TaskCard({ task }: { task: TaskProps }) {
   const [isPending, startTransition] = useTransition();
   const [copied, setCopied] = useState(false);
@@ -55,7 +104,7 @@ export function TaskCard({ task }: { task: TaskProps }) {
     const cta = task.activity_code
       ? `\n\n— 到院请说「${task.doctor_name ?? ''}医生 ${task.activity_code}」,我会知道你是看了这条来的。`
       : '';
-    const text = `${task.title}\n\n${task.body}${cta}`;
+    const text = stripMarkdown(`${task.title}\n\n${task.body}${cta}`);
 
     // navigator.clipboard requires a secure context (HTTPS or localhost). When
     // the staff PWA is reached over plain HTTP via a tunnel/IP, clipboard is
