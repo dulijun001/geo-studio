@@ -136,6 +136,7 @@ function buildMenu(role: string, badges: Badges): NavItem[] {
     { href: '', label: '概览', iconKey: 'overview' },
     { href: '/playbook', label: 'GEO 执行计划', iconKey: 'playbook' },
     { href: '/content', label: '内容', iconKey: 'content' },
+    { href: '/content/rescue', label: '老内容救援', iconKey: 'content', allowed: ['owner', 'admin', 'operator'] },
     { href: '/publish', label: '派单', iconKey: 'publish' },
     { href: '/tracking', label: 'GEO 追踪', iconKey: 'tracking' },
     { href: '/sov', label: 'SOV 战况图', iconKey: 'tracking' },
