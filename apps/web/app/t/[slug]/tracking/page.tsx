@@ -143,12 +143,27 @@ export default async function TrackingPage({ params }: { params: { slug: string 
     questionsWithData += 1;
   }
 
+  // 抓最近 30 条 snapshot 看豆包追踪健康度。
+  // 关键信号:连续 failure_reason 含 "login required" → cookie 失效,提醒重登录。
+  const { data: recentSnapsRaw } = await supabase
+    .from('geo_snapshots')
+    .select('status, failure_reason, asked_at, created_at')
+    .eq('tenant_id', tenant.id)
+    .eq('engine', 'doubao')
+    .order('created_at', { ascending: false })
+    .limit(30);
+  type SnapHealth = { status: string; failure_reason: string | null; asked_at: string | null; created_at: string };
+  const recentSnaps = (recentSnapsRaw ?? []) as SnapHealth[];
+  const trackerHealth = computeHealth(recentSnaps);
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="GEO 追踪"
         subtitle="模拟真人在豆包 Web 提问,品牌词典 NER 解析答复(ADR-002)· 单次约 60-90s,V1 手动触发"
       />
+
+      <TrackerHealthBanner health={trackerHealth} />
 
       <InlineGuide
         storageKey={`guide:tracking:${tenant.slug}`}
@@ -252,6 +267,89 @@ export default async function TrackingPage({ params }: { params: { slug: string 
       <p className="text-xs text-muted-foreground">
         提示:同 IP 短时高频跑同一问题会被豆包静默限流,SOV 趋势看起来异常时先静一会儿再试。
       </p>
+    </div>
+  );
+}
+
+type TrackerHealth = {
+  level: 'healthy' | 'degraded' | 'login_required' | 'no_data';
+  successRate: number;
+  total: number;
+  loginFailures: number;
+  lastSuccessAt: string | null;
+};
+
+function computeHealth(
+  snaps: Array<{ status: string; failure_reason: string | null; asked_at: string | null; created_at: string }>,
+): TrackerHealth {
+  if (snaps.length === 0) {
+    return { level: 'no_data', successRate: 0, total: 0, loginFailures: 0, lastSuccessAt: null };
+  }
+  const total = snaps.length;
+  const ok = snaps.filter((s) => s.status === 'done').length;
+  const successRate = total > 0 ? Math.round((ok / total) * 100) : 0;
+  const loginFailures = snaps.filter(
+    (s) => s.status === 'failed' && /login required|chat URL never advanced/i.test(s.failure_reason ?? ''),
+  ).length;
+  const lastSuccess = snaps.find((s) => s.status === 'done');
+  const lastSuccessAt = lastSuccess?.asked_at ?? lastSuccess?.created_at ?? null;
+  // Recent 5 snapshots all login-required = cookie expired
+  const recent5 = snaps.slice(0, 5);
+  const recent5LoginFails = recent5.filter(
+    (s) => s.status === 'failed' && /login required/i.test(s.failure_reason ?? ''),
+  ).length;
+  if (recent5.length >= 3 && recent5LoginFails === recent5.length) {
+    return { level: 'login_required', successRate, total, loginFailures, lastSuccessAt };
+  }
+  if (successRate >= 80) {
+    return { level: 'healthy', successRate, total, loginFailures, lastSuccessAt };
+  }
+  return { level: 'degraded', successRate, total, loginFailures, lastSuccessAt };
+}
+
+function TrackerHealthBanner({ health }: { health: TrackerHealth }) {
+  if (health.level === 'no_data') return null;
+  if (health.level === 'healthy') {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900">
+        <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+        <span className="font-medium">豆包追踪健康</span>
+        <span className="text-xs text-emerald-800/70">
+          最近 {health.total} 次成功率 {health.successRate}%
+          {health.lastSuccessAt && ` · 最后成功 ${new Date(health.lastSuccessAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`}
+        </span>
+      </div>
+    );
+  }
+  if (health.level === 'login_required') {
+    return (
+      <div className="space-y-2 rounded-md border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+        <div className="flex items-center gap-2 font-medium">
+          <span className="inline-block h-2 w-2 rounded-full bg-rose-500" />
+          豆包登录态过期,追踪已全部失败
+        </div>
+        <p className="text-xs text-rose-900/80">
+          最近 5 次 snapshot 都失败在「login required」。豆包要求登录用户才能提问,
+          cookie 失效需重新登录(通常 30-90 天一次)。
+        </p>
+        <div className="rounded-sm bg-rose-100 px-3 py-2 font-mono text-[11px] text-rose-900">
+          # 在你 Mac 终端跑这个命令(打开 Chrome 让你扫码登录){'\n'}
+          cd apps/worker && pnpm doubao:login
+        </div>
+      </div>
+    );
+  }
+  // degraded
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+      <span className="mt-1 inline-block h-2 w-2 rounded-full bg-amber-500" />
+      <div className="space-y-0.5">
+        <div className="font-medium">追踪部分失败</div>
+        <div className="text-xs text-amber-900/80">
+          最近 {health.total} 次成功率 {health.successRate}%(健康阈值 80%)。
+          {health.loginFailures > 0 && ` 其中 ${health.loginFailures} 次因登录态过期失败,可能要重新跑 pnpm doubao:login。`}
+        </div>
+      </div>
     </div>
   );
 }
