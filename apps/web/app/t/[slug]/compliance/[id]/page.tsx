@@ -42,7 +42,7 @@ export default async function ComplianceDetailPage({
   const { data: variant } = await supabase
     .from('content_variants')
     .select(
-      'id, title, body, platform, status, compliance_status, compliance_review_id, created_at, content_item_id',
+      'id, title, body, platform, status, compliance_status, compliance_review_id, created_at, content_item_id, geo_score, citation_check',
     )
     .eq('id', params.id)
     .eq('tenant_id', tenant.id)
@@ -117,6 +117,8 @@ export default async function ComplianceDetailPage({
         </section>
 
         <aside className="space-y-5">
+          <GeoScorePanel score={variant.geo_score} />
+          <CitationCheckPanel check={variant.citation_check} />
           <ReviewTimeline reviews={reviewRows} reviewerEmails={reviewerEmails} />
           {canAct ? (
             <ReviewActions tenantSlug={tenant.slug} variantId={variant.id} />
@@ -225,5 +227,133 @@ function VerdictChip({ verdict, risk }: { verdict: string; risk: string }) {
     <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${style[verdict] ?? 'bg-muted'}`}>
       {label[verdict] ?? verdict} · {risk}
     </span>
+  );
+}
+
+// ─── GEO 9 法评分面板 ───────────────────────────────────────────────────
+type GeoScore = {
+  total: number;
+  version: number;
+  scored_at: string;
+  rewrite_count?: number;
+  breakdown: Record<string, { score: number; max: number; evidence?: string[]; note?: string }>;
+};
+
+const TACTIC_LABEL_ZH: Record<string, string> = {
+  statistics: '数据统计',
+  quotation: '权威引语',
+  citation: '引用来源',
+  fluency: '流畅度',
+  readability: '易理解',
+  keyword_freq: '关键词密度',
+  position: '关键词位置',
+  unique: '独特表达',
+  authority: '权威语调',
+};
+
+function GeoScorePanel({ score }: { score: GeoScore | null | undefined }) {
+  if (!score || typeof score.total !== 'number') {
+    return (
+      <div className="rounded-md border border-dashed border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+        <p className="font-medium text-foreground">GEO 9 法评分</p>
+        <p className="mt-1">这条变体未评分(可能是迁移前生成的旧数据)。</p>
+      </div>
+    );
+  }
+  const total = score.total;
+  const tone =
+    total >= 80 ? 'emerald' : total >= 70 ? 'sky' : total >= 60 ? 'amber' : 'rose';
+  const toneClass = {
+    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+    sky: 'border-sky-200 bg-sky-50 text-sky-900',
+    amber: 'border-amber-200 bg-amber-50 text-amber-900',
+    rose: 'border-rose-200 bg-rose-50 text-rose-900',
+  }[tone];
+  return (
+    <div className={`rounded-md border p-3 text-xs ${toneClass}`}>
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="font-medium">GEO 9 法评分</span>
+        <span className="text-2xl font-semibold leading-none">{total}<span className="text-xs font-normal opacity-60">/100</span></span>
+      </div>
+      <ul className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+        {Object.entries(score.breakdown ?? {}).map(([key, t]) => {
+          const pct = t.max > 0 ? Math.round((t.score / t.max) * 100) : 0;
+          const dot = pct >= 70 ? 'bg-emerald-500' : pct >= 40 ? 'bg-amber-500' : 'bg-rose-500';
+          return (
+            <li key={key} className="flex items-center gap-1.5">
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot}`} />
+              <span className="flex-1 truncate">{TACTIC_LABEL_ZH[key] ?? key}</span>
+              <span className="font-mono opacity-70">{t.score}/{t.max}</span>
+            </li>
+          );
+        })}
+      </ul>
+      {total < 70 && (
+        <p className="mt-2 text-[11px] opacity-80">
+          ⚠️ 低于 70 分阈值,建议从最低分项补强(数据/引用/精简句式),或用「AI 改写」按钮触发重写。
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Citation hallucination check 面板 ─────────────────────────────────
+type CitationCheck = {
+  scanned_at: string;
+  whitelist_size: number;
+  matches: Array<{ needle: string; verified_id: string; matched_form: string }>;
+  unmatched: Array<{ needle: string; context_snippet: string }>;
+  verdict: 'ok' | 'suspected_hallucination' | 'whitelist_empty';
+};
+
+function CitationCheckPanel({ check }: { check: CitationCheck | null | undefined }) {
+  if (!check) return null;
+  if (check.verdict === 'whitelist_empty') {
+    return (
+      <div className="rounded-md border border-dashed border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+        <p className="font-medium text-foreground">引用核实</p>
+        <p className="mt-1">租户没有维护可引用文献白名单(请在设置 → 引用来源添加),无法做幻觉检查。</p>
+      </div>
+    );
+  }
+  if (check.verdict === 'ok') {
+    return (
+      <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+        <p className="font-medium">引用核实 ✓</p>
+        <p className="mt-1">
+          全部 {check.matches.length} 条引用都来自白名单(共 {check.whitelist_size} 条可引用文献)。
+        </p>
+        {check.matches.length > 0 && (
+          <ul className="mt-1.5 space-y-0.5 text-[11px] opacity-90">
+            {check.matches.slice(0, 4).map((m, i) => (
+              <li key={i}>• {m.needle} → 匹配「{m.matched_form}」</li>
+            ))}
+            {check.matches.length > 4 && <li>… 还有 {check.matches.length - 4} 条</li>}
+          </ul>
+        )}
+      </div>
+    );
+  }
+  // suspected_hallucination
+  return (
+    <div className="rounded-md border-2 border-rose-300 bg-rose-50 p-3 text-xs text-rose-900">
+      <p className="font-medium">⚠️ 引用核实 — {check.unmatched.length} 条疑似 AI 编造</p>
+      <p className="mt-1 opacity-90">
+        以下引用在租户的白名单({check.whitelist_size} 条)里**找不到**,可能是模型幻觉。请人工核实后再放行,或在「设置 → 引用来源」补到白名单里。
+      </p>
+      <ul className="mt-2 space-y-1.5">
+        {check.unmatched.map((u, i) => (
+          <li key={i} className="rounded-sm bg-rose-100/60 p-1.5">
+            <div className="font-mono font-medium">{u.needle}</div>
+            <div className="mt-0.5 text-[11px] opacity-80">…{u.context_snippet}…</div>
+          </li>
+        ))}
+      </ul>
+      {check.matches.length > 0 && (
+        <p className="mt-2 text-[11px] opacity-70">
+          (另有 {check.matches.length} 条引用核实通过)
+        </p>
+      )}
+    </div>
   );
 }

@@ -151,7 +151,7 @@ async function transition(
   // Reload variant to verify it belongs to this tenant AND hasn't already been finalized by someone else.
   const { data: variant, error: vErr } = await supabase
     .from('content_variants')
-    .select('id, tenant_id, compliance_status')
+    .select('id, tenant_id, compliance_status, citation_check')
     .eq('id', variantId)
     .single();
   if (vErr || !variant) throw new Error(`Variant not found: ${vErr?.message}`);
@@ -161,6 +161,26 @@ async function transition(
     variant.compliance_status === 'rejected'
   ) {
     throw new Error(`变体已经处于终态 (${variant.compliance_status}),不能再改。`);
+  }
+
+  // Hallucination gate: variants with verdict=suspected_hallucination need
+  // explicit acknowledgement. We allow approval anyway (operator might have
+  // verified them out-of-band — e.g. they're real but missing from the
+  // whitelist), but the rationale must explicitly say so so we keep audit
+  // trail.
+  if (verb === 'approve') {
+    const cc = variant.citation_check as
+      | { verdict?: string; unmatched?: Array<{ needle: string }> }
+      | null;
+    if (cc?.verdict === 'suspected_hallucination' && (cc.unmatched?.length ?? 0) > 0) {
+      const acknowledged = /核实|verified|手工|手动|确认/.test(rationale);
+      if (!acknowledged) {
+        const sample = cc.unmatched!.slice(0, 3).map((u) => u.needle).join('、');
+        throw new Error(
+          `这条变体有 ${cc.unmatched!.length} 处可疑引用(${sample}…)未通过白名单核实。要批准请在审批理由里说明已**手工核实**这些引用真实存在(包含「核实/确认」字样),或者先去「设置 → 引用来源」补到白名单后再批。`,
+        );
+      }
+    }
   }
 
   const verdict = verb === 'approve' ? 'pass' : 'reject';
