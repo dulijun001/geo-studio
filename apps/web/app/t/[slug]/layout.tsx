@@ -138,6 +138,7 @@ function buildMenu(role: string, badges: Badges): NavItem[] {
     { href: '/content', label: '内容', iconKey: 'content' },
     { href: '/publish', label: '派单', iconKey: 'publish' },
     { href: '/tracking', label: 'GEO 追踪', iconKey: 'tracking' },
+    { href: '/sov', label: 'SOV 战况图', iconKey: 'tracking' },
     {
       href: '/compliance',
       label: '合规审核',
