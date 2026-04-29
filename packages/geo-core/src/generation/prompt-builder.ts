@@ -21,6 +21,20 @@ export type PromptContext = {
   industry?: string;
   /** Hints the model should weave in (city, signature treatments, doctor mentions). Optional. */
   topic_hints?: string[];
+  /**
+   * Whitelist of citable references. Pulled from verified_citations table.
+   * The model gets explicit instruction: "this is the ONLY pool of named
+   * guidelines/studies you may reference; if your point isn't covered here,
+   * use a qualitative description instead of inventing one."
+   *
+   * Each entry includes the canonical title + aliases — the model is told
+   * it can use any of those forms in the body, and post-hoc validation
+   * matches against the same list.
+   *
+   * Empty array = no whitelist; model falls back to "only mention what's in
+   * source_markdown" (legacy behavior).
+   */
+  verified_citations?: Array<{ title: string; aliases: string[] }>;
 };
 
 const PLATFORM_SPEC: Record<VariantPlatform, { label: string; format_hint: string; length_hint: string }> = {
@@ -115,13 +129,30 @@ export function buildVariantPrompt(ctx: PromptContext): ChatMessage[] {
       ? `\n所属品牌: ${ctx.brand_name ?? '-'}${ctx.industry ? ` (行业: ${ctx.industry})` : ''}`
       : '';
 
+  // verified_citations 白名单注入。LLM 引用文献只能从这个池子里挑;不在池子里
+  // 的指南/共识/研究就用定性描述代替,生成后扫描 + 校验。
+  const citationsBlock =
+    ctx.verified_citations && ctx.verified_citations.length > 0
+      ? `
+
+━━━ 可引用文献白名单(只能引这些,**禁止引用列表外**任何具名指南/研究/统计文档) ━━━
+${ctx.verified_citations
+  .map((c) => `• ${c.title}${c.aliases.length > 0 ? `(可写作: ${c.aliases.join(' / ')})` : ''}`)
+  .join('\n')}
+
+注意:
+- 如果你的论点找不到上面任何一条来源,请改用定性表达("相关临床指南建议..."、"专业医师指出..."),**不要**编造具名引用。
+- 引用时使用《...》或不加书名号都可,但**文字必须严格来自上方列表**。
+- 提到机构(中华XX学会、卫健委、WHO 等)时同样限定:除非该机构在上方列表里出现过,否则不要写。`
+      : '';
+
   const userContent = `
 请把下面这份【源素材】改写成【${spec.label}】,严格应用下列 GEO 技法,返回严格 JSON。
 
 特别注意 tactics_applied 字段: 只能从下面这些 id 里选 (英文,带下划线): ${allowedTacticIds}。禁止返回中文、禁止新造 id。
 
 目标平台格式: ${spec.format_hint}
-目标长度: ${spec.length_hint}${brandLine}${hintLine}
+目标长度: ${spec.length_hint}${brandLine}${hintLine}${citationsBlock}
 
 必须应用的 GEO 技法(每一条都要在正文中体现):
 ${tacticBlock}

@@ -31,6 +31,13 @@ export type GenerateInput = {
   brand_name?: string;
   industry?: string;
   topic_hints?: string[];
+  /**
+   * Verified-citation whitelist injected into the prompt — model is told to
+   * only reference items from this list, and the generated body is checked
+   * against the same list post-hoc. Empty / undefined falls back to the
+   * legacy "only mention what's in source_markdown" behavior.
+   */
+  verified_citations?: Array<{ title: string; aliases: string[] }>;
   /** Max tokens for this generation. Default 2500 — enough for 1500字 with headroom. */
   max_tokens?: number;
 };
@@ -51,6 +58,7 @@ export async function generateVariant(input: GenerateInput): Promise<GenerateRes
     brand_name: input.brand_name,
     industry: input.industry,
     topic_hints: input.topic_hints,
+    verified_citations: input.verified_citations,
   };
   const messages = buildVariantPrompt(ctx);
 

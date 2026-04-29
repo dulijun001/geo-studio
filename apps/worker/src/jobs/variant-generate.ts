@@ -16,7 +16,7 @@
  *     in audit_logs and carry on. Partial success is better than all-or-nothing
  *     because running this again would re-burn LLM tokens.
  */
-import { generateVariant, scoreGeo } from '@geo/geo-core';
+import { generateVariant, scoreGeo, checkCitations, type VerifiedCitation } from '@geo/geo-core';
 import { RECOMMENDED_COMBO, type GeoTacticId, type VariantPlatform } from '@geo/shared';
 import PgBoss from 'pg-boss';
 import { getServiceClient } from '../lib/supabase';
@@ -83,6 +83,21 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
 
   const chosenTactics: GeoTacticId[] = tactics && tactics.length > 0 ? tactics : RECOMMENDED_COMBO;
 
+  // Load tenant's verified-citations whitelist once. Used both for prompt
+  // injection (LLM can only cite these) and post-hoc validation (flag any
+  // citation in body that isn't in the list as suspected hallucination).
+  const { data: verifiedRows } = await client
+    .from('verified_citations')
+    .select('id, title, title_aliases')
+    .eq('tenant_id', tenant_id)
+    .eq('active', true)
+    .is('deleted_at', null);
+  const verifiedCitations: VerifiedCitation[] = (verifiedRows ?? []).map((r) => ({
+    id: r.id as string,
+    title: r.title as string,
+    aliases: (r.title_aliases as string[] | null) ?? [],
+  }));
+
   // 2–4. Per-platform generate + insert + enqueue
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL not set');
@@ -110,6 +125,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
         brand_name: tenant?.name,
         industry: tenant?.industry,
         topic_hints: item!.topics?.length ? item!.topics : undefined,
+        verified_citations: verifiedCitations.map((c) => ({ title: c.title, aliases: c.aliases })),
       });
       const elapsed = Date.now() - t0;
 
@@ -134,6 +150,11 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
       const primaryKeyword = item!.topics?.[0]?.trim() ?? v.title.slice(0, 8);
       const geoScore = scoreGeo({ title: v.title, body: v.body, primary_keyword: primaryKeyword });
 
+      // Hallucination check — every 《...》 / 指南 / 学会 mention in the body
+      // must trace to verified_citations. Flagged citations land in the
+      // citation_check column; downstream compliance UI surfaces them red.
+      const citationCheck = checkCitations(v.body, verifiedCitations);
+
       const { data: inserted, error: insErr } = await client
         .from('content_variants')
         .insert({
@@ -145,6 +166,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
           geo_tactics: v.tactics_applied,
           extra_assets: { notes: v.notes, llm_provider: v.provider, llm_usage: v.usage ?? null },
           geo_score: geoScore,
+          citation_check: citationCheck,
           compliance_status: 'pending',
           status: 'draft',
         })
@@ -175,8 +197,11 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
         triggered_by,
       });
 
+      const cite = citationCheck.unmatched.length > 0
+        ? `cite=⚠️${citationCheck.unmatched.length}suspect`
+        : `cite=✓${citationCheck.matches.length}`;
       console.log(
-        `[variant-generate] ${platform} → variant=${inserted.id} geo=${geoScore.total}/100 (${v.provider}, ${elapsed}ms)`,
+        `[variant-generate] ${platform} → variant=${inserted.id} geo=${geoScore.total}/100 ${cite} (${v.provider}, ${elapsed}ms)`,
       );
       return true;
     }
