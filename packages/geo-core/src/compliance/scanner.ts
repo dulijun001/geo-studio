@@ -21,6 +21,17 @@ export type KeywordRow = {
   level: 'A' | 'B';
   category: string;
   variants: string[];
+  /**
+   * Optional platform restriction. When set + non-empty, this keyword only
+   * applies to variants targeting these platforms. null/undefined/empty =
+   * applies to all platforms (the default).
+   *
+   * Used for platform-specific red lines:
+   *   抖音    医美/瘦脸针/水光针 类硬禁
+   *   小红书  销售类话术(私信/购买/限时优惠)硬禁
+   *   头条号  夸大宣传容忍度高,但医师身份审查严
+   */
+  platforms?: string[];
 };
 
 export type KeywordHit = {
@@ -50,14 +61,27 @@ export type ScanResult = {
 /**
  * Scan text against a keyword dictionary.
  * Pass the keywords pre-loaded from `compliance_keywords`.
+ *
+ * `targetPlatform` filters keywords whose `platforms` field doesn't include
+ * it. Pass undefined/null to disable filtering (= scan everything).
  */
-export function scanKeywords(text: string, keywords: KeywordRow[]): ScanResult {
+export function scanKeywords(
+  text: string,
+  keywords: KeywordRow[],
+  targetPlatform?: string | null,
+): ScanResult {
   const started = Date.now();
   const normalized = normalize(text);
   const hits: KeywordHit[] = [];
   const seen = new Set<string>(); // dedupe (keyword_id + offset)
 
-  for (const kw of keywords) {
+  const applicable = targetPlatform
+    ? keywords.filter(
+        (kw) => !kw.platforms || kw.platforms.length === 0 || kw.platforms.includes(targetPlatform),
+      )
+    : keywords;
+
+  for (const kw of applicable) {
     const needles = [kw.term, ...kw.variants].map(normalize).filter((s) => s.length > 0);
     for (const needle of needles) {
       let from = 0;

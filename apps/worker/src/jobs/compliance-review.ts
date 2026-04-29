@@ -74,7 +74,7 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   // 2. Load applicable keywords: global (tenant_id IS NULL) + this tenant
   const { data: kwRows, error: kwErr } = await client
     .from('compliance_keywords')
-    .select('id, term, level, category, variants, tenant_id')
+    .select('id, term, level, category, variants, platforms, tenant_id')
     .or(`tenant_id.is.null,tenant_id.eq.${tenant_id}`);
   if (kwErr || !kwRows) {
     console.error(`[compliance-review] keyword load failed: ${kwErr?.message}`);
@@ -86,11 +86,15 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
     level: r.level as 'A' | 'B',
     category: r.category as string,
     variants: (r.variants as string[]) ?? [],
+    platforms: (r.platforms as string[] | null) ?? [],
   }));
 
-  // 3. Stage 1 — keyword scan on (title + body)
+  // 3. Stage 1 — keyword scan on (title + body), filtered to this platform.
+  // Platform-specific keywords (抖音瘦脸针/小红书私信/头条标题党 etc) only
+  // apply when variant.platform matches; global keywords (no platforms set)
+  // apply always.
   const scanInput = `${variant.title}\n\n${variant.body}`;
-  const scan = scanKeywords(scanInput, keywords);
+  const scan = scanKeywords(scanInput, keywords, variant.platform);
 
   // 3a. Historical case match — separate from keyword scan, no fail-stop.
   // Findings persist as content_variants.case_match for the compliance UI to
