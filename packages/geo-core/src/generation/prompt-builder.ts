@@ -35,6 +35,14 @@ export type PromptContext = {
    * source_markdown" (legacy behavior).
    */
   verified_citations?: Array<{ title: string; aliases: string[] }>;
+  /**
+   * Optional hint for a rewrite pass. When the first generation came back
+   * with a low GEO score, the worker injects this hint listing the weakest
+   * tactics so the model knows what to improve. Format:
+   *   "上一版 GEO 评分 58/100,弱项: readability=2/10(句子过长), authority=0/5。重写时重点补强这两项。"
+   * Absent on the first pass.
+   */
+  rewrite_hint?: string;
 };
 
 const PLATFORM_SPEC: Record<VariantPlatform, { label: string; format_hint: string; length_hint: string }> = {
@@ -146,8 +154,12 @@ ${ctx.verified_citations
 - 提到机构(中华XX学会、卫健委、WHO 等)时同样限定:除非该机构在上方列表里出现过,否则不要写。`
       : '';
 
+  const rewriteBlock = ctx.rewrite_hint
+    ? `\n\n━━━ 重写指导(上一轮分低,本轮请改进) ━━━\n${ctx.rewrite_hint}`
+    : '';
+
   const userContent = `
-请把下面这份【源素材】改写成【${spec.label}】,严格应用下列 GEO 技法,返回严格 JSON。
+请把下面这份【源素材】改写成【${spec.label}】,严格应用下列 GEO 技法,返回严格 JSON。${rewriteBlock}
 
 特别注意 tactics_applied 字段: 只能从下面这些 id 里选 (英文,带下划线): ${allowedTacticIds}。禁止返回中文、禁止新造 id。
 

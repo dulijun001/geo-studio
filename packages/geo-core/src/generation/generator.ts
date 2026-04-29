@@ -38,6 +38,8 @@ export type GenerateInput = {
    * legacy "only mention what's in source_markdown" behavior.
    */
   verified_citations?: Array<{ title: string; aliases: string[] }>;
+  /** Optional hint when this call is a rewrite of a low-scoring previous draft. */
+  rewrite_hint?: string;
   /** Max tokens for this generation. Default 2500 — enough for 1500字 with headroom. */
   max_tokens?: number;
 };
@@ -59,6 +61,7 @@ export async function generateVariant(input: GenerateInput): Promise<GenerateRes
     industry: input.industry,
     topic_hints: input.topic_hints,
     verified_citations: input.verified_citations,
+    rewrite_hint: input.rewrite_hint,
   };
   const messages = buildVariantPrompt(ctx);
 

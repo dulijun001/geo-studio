@@ -16,7 +16,13 @@
  *     in audit_logs and carry on. Partial success is better than all-or-nothing
  *     because running this again would re-burn LLM tokens.
  */
-import { generateVariant, scoreGeo, checkCitations, type VerifiedCitation } from '@geo/geo-core';
+import {
+  generateVariant,
+  scoreGeo,
+  checkCitations,
+  buildRewriteHint,
+  type VerifiedCitation,
+} from '@geo/geo-core';
 import { RECOMMENDED_COMBO, type GeoTacticId, type VariantPlatform } from '@geo/shared';
 import PgBoss from 'pg-boss';
 import { getServiceClient } from '../lib/supabase';
@@ -118,7 +124,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
 
     async function processPlatform(platform: VariantPlatform): Promise<boolean> {
       const t0 = Date.now();
-      const result = await generateVariant({
+      const baseInput = {
         source_markdown: item!.markdown,
         platform,
         tactics: chosenTactics,
@@ -126,7 +132,8 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
         industry: tenant?.industry,
         topic_hints: item!.topics?.length ? item!.topics : undefined,
         verified_citations: verifiedCitations.map((c) => ({ title: c.title, aliases: c.aliases })),
-      });
+      };
+      const result = await generateVariant(baseInput);
       const elapsed = Date.now() - t0;
 
       if (!result.ok) {
@@ -141,14 +148,42 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
         return false;
       }
 
-      const v = result.variant;
       // GEO 9-tactic scoring runs before insert so the row carries it from
-      // birth — UI / compliance reviewers see the breakdown immediately,
-      // and downstream auto-rewrite can detect total < 70.
-      // Use the content_item's primary topic (or first 8 chars of title as
-      // safety net) as the keyword anchor for keyword_freq + position.
-      const primaryKeyword = item!.topics?.[0]?.trim() ?? v.title.slice(0, 8);
-      const geoScore = scoreGeo({ title: v.title, body: v.body, primary_keyword: primaryKeyword });
+      // birth — UI / compliance reviewers see the breakdown immediately.
+      // Auto-rewrite kicks in if total < REWRITE_THRESHOLD: re-call LLM with
+      // a hint focused on the weakest tactics, score the result, keep the
+      // higher of the two. Capped at 1 retry per variant to avoid runaway
+      // cost (Doubao Pro single call ~ ¥0.05-0.2, 2 calls fine, 5+ wasteful).
+      const REWRITE_THRESHOLD = 70;
+      const primaryKeyword = item!.topics?.[0]?.trim() ?? result.variant.title.slice(0, 8);
+      let v = result.variant;
+      let geoScore = scoreGeo({ title: v.title, body: v.body, primary_keyword: primaryKeyword });
+      const initialTotal = geoScore.total;
+
+      if (geoScore.total < REWRITE_THRESHOLD && result.variant.provider !== 'stub') {
+        const hint = buildRewriteHint(geoScore);
+        const t1 = Date.now();
+        const retry = await generateVariant({ ...baseInput, rewrite_hint: hint });
+        if (retry.ok) {
+          const retryScore = scoreGeo({
+            title: retry.variant.title,
+            body: retry.variant.body,
+            primary_keyword: primaryKeyword,
+            rewrite_count: 1,
+          });
+          if (retryScore.total > geoScore.total) {
+            v = retry.variant;
+            geoScore = retryScore;
+            console.log(
+              `[variant-generate] ${platform} rewrite improved ${initialTotal}→${retryScore.total} (+${retryScore.total - initialTotal}) in ${Date.now() - t1}ms`,
+            );
+          } else {
+            console.log(
+              `[variant-generate] ${platform} rewrite kept original (${initialTotal} >= ${retryScore.total})`,
+            );
+          }
+        }
+      }
 
       // Hallucination check — every 《...》 / 指南 / 学会 mention in the body
       // must trace to verified_citations. Flagged citations land in the

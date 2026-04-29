@@ -56,6 +56,54 @@ export type GeoScore = {
 
 const VERSION = 1;
 
+/**
+ * Build a human-readable hint listing the weakest tactics, suitable for
+ * injection into a rewrite-pass prompt via PromptContext.rewrite_hint.
+ *
+ * Picks tactics where score / max < 0.6 and sorts by absolute gap. Returns
+ * up to 3 priority items so the model isn't overwhelmed.
+ */
+export function buildRewriteHint(score: GeoScore): string {
+  type Item = { id: string; gap: number; score: number; max: number; ratio: number; advice: string };
+  const advisor: Record<string, string> = {
+    statistics: '加入更多具体数字(年限、百分比、价格区间、样本量等),不要泛泛而谈',
+    quotation: '加入 1-2 处「直接引语」(医生原话、文献金句),用 「...」 引号包裹',
+    citation: '加入至少 1 条具名权威来源(《XX 指南》/中华医学会/国家卫健委)',
+    fluency: '增加段落数(至少 3 段),让句子长短交替,不要一直长句或一直短句',
+    readability: '把超过 35 字的长句拆成 2-3 句,每段控制在 80 字内',
+    keyword_freq: '主题关键词在正文里至少出现 2-5 次,不要只在标题',
+    position: '把主题关键词放进开头 100 字以内,首句最好就出现',
+    unique: '避开「众所周知」「随着...的发展」「为大家详细介绍」这种模板套话',
+    authority: '使用 "临床数据显示"/"医生建议"/"研究表明" 这类权威短语,避免主观夸张',
+  };
+  const items: Item[] = [];
+  for (const [id, t] of Object.entries(score.breakdown)) {
+    const ratio = t.max > 0 ? t.score / t.max : 1;
+    if (ratio < 0.6) {
+      items.push({
+        id,
+        gap: t.max - t.score,
+        score: t.score,
+        max: t.max,
+        ratio,
+        advice: advisor[id] ?? '提升此维度',
+      });
+    }
+  }
+  if (items.length === 0) {
+    return `上一版 GEO 综合评分 ${score.total}/100,大部分维度尚可,只是综合分仍低于 70 阈值,请整体精修语言,提升信息密度。`;
+  }
+  // Sort by gap desc — biggest deficit first
+  items.sort((a, b) => b.gap - a.gap);
+  const top = items.slice(0, 3);
+  const lines = top.map((it) => `  • ${it.id}=${it.score}/${it.max} → ${it.advice}`);
+  return [
+    `上一版 GEO 综合评分 ${score.total}/100,以下 ${top.length} 项最弱,本轮请重点补强:`,
+    ...lines,
+    `不要做大幅改动,保留原标题和主体结构,只针对上述弱项做精修。`,
+  ].join('\n');
+}
+
 export function scoreGeo(input: {
   title: string;
   body: string;
