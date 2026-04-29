@@ -20,7 +20,7 @@
 import { scanBrandMentions, type VocabRow } from '@geo/geo-core';
 import { reportError, type Engine } from '@geo/shared';
 import { getServiceClient } from '../lib/supabase';
-import { doubaoWebAdapter } from '../trackers/doubao-web';
+import { getAdapter } from '../trackers/registry';
 
 export type GeoSnapshotJob = {
   snapshot_id: string;
@@ -66,21 +66,19 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
     aliases: (r.aliases as string[]) ?? [],
   }));
 
-  if (engine !== 'doubao') {
-    await markFailed(snapshot_id, `no adapter for engine=${engine} (V1 only ships doubao)`);
-    return;
-  }
-
-  const result = await doubaoWebAdapter.query(
+  // Engine is now dispatched through the registry (apps/worker/src/trackers/
+  // registry.ts). doubao + yuanbao are implemented; others return a clear
+  // "not implemented" failure so the UI can mark them 扩展中 instead of red.
+  const adapter = getAdapter(engine);
+  const result = await adapter.query(
     { engine, question: q.text, city: q.city ?? undefined, snapshot_id },
     {
       account_id: 'guest',
-      // V1 default: headful. The W6.0 probe established that Doubao Web hard-
-      // blocks bundled-Chromium headless (ERR_CONNECTION_CLOSED) and silently
-      // drops responses to headful-Chromium-with-default-fingerprint. The
-      // doubao-web adapter mitigates by using system Chrome + stealth tweaks,
-      // but headful + system Chrome is still the safest combo. Set
-      // PLAYWRIGHT_HEADLESS=true on the (eventual) Xvfb-equipped Linux worker.
+      // V1 default: headful. Bundled-Chromium headless gets hard-blocked by
+      // both doubao + yuanbao (ERR_CONNECTION_CLOSED / silent reject). Each
+      // adapter uses system Chrome + persistent userDataDir so the login
+      // cookie survives. Set PLAYWRIGHT_HEADLESS=true on the eventual
+      // Xvfb-equipped Linux worker.
       headless: process.env.PLAYWRIGHT_HEADLESS === 'true',
       timeout_ms: 120_000,
     },

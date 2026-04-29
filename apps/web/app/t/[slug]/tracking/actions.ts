@@ -13,11 +13,23 @@ import { getSupabaseServiceClient } from '@/lib/supabase/service';
  * progresses. We use the service-role client because the snapshot is owned by
  * the tenant, not the operator's user account.
  */
+/**
+ * Engines we currently know how to scrape. Extending this lets the run-button
+ * dropdown offer the new engine; the worker side dispatches via
+ * apps/worker/src/trackers/registry.ts.
+ */
+export const SUPPORTED_ENGINES = ['doubao', 'yuanbao'] as const;
+type SupportedEngine = (typeof SUPPORTED_ENGINES)[number];
+
 export async function enqueueGeoSnapshot(
   tenantSlug: string,
   questionId: string,
+  engine: SupportedEngine = 'doubao',
 ): Promise<{ snapshot_id: string }> {
   const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+  if (!(SUPPORTED_ENGINES as readonly string[]).includes(engine)) {
+    throw new Error(`不支持的引擎:${engine}`);
+  }
 
   const service = getSupabaseServiceClient();
 
@@ -36,7 +48,7 @@ export async function enqueueGeoSnapshot(
     .insert({
       tenant_id: tenant.id,
       question_id: questionId,
-      engine: 'doubao',
+      engine,
       status: 'pending',
     })
     .select('id')
@@ -54,7 +66,7 @@ export async function enqueueGeoSnapshot(
       snapshot_id: snapshotId,
       tenant_id: tenant.id,
       question_id: questionId,
-      engine: 'doubao',
+      engine,
     });
   } finally {
     await boss.stop({ graceful: true, timeout: 5000 });

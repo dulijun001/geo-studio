@@ -2,7 +2,14 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { enqueueGeoSnapshot } from './actions';
+import { enqueueGeoSnapshot, SUPPORTED_ENGINES } from './actions';
+
+const ENGINE_LABEL: Record<string, string> = {
+  doubao: '豆包',
+  yuanbao: '元宝',
+};
+
+type Engine = (typeof SUPPORTED_ENGINES)[number];
 
 export function RunButton({
   tenantSlug,
@@ -14,12 +21,13 @@ export function RunButton({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [err, setErr] = useState<string | null>(null);
+  const [engine, setEngine] = useState<Engine>('doubao');
 
   const onClick = () => {
     setErr(null);
     start(async () => {
       try {
-        await enqueueGeoSnapshot(tenantSlug, questionId);
+        await enqueueGeoSnapshot(tenantSlug, questionId, engine);
         router.refresh();
       } catch (e) {
         setErr(e instanceof Error ? e.message : '触发失败');
@@ -28,7 +36,19 @@ export function RunButton({
   };
 
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="inline-flex items-center gap-1.5">
+      <select
+        value={engine}
+        onChange={(e) => setEngine(e.target.value as Engine)}
+        disabled={pending}
+        className="rounded-md border border-border bg-background px-1.5 py-1 text-xs disabled:opacity-50"
+      >
+        {SUPPORTED_ENGINES.map((e) => (
+          <option key={e} value={e}>
+            {ENGINE_LABEL[e] ?? e}
+          </option>
+        ))}
+      </select>
       <button
         type="button"
         onClick={onClick}

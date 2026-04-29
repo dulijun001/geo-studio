@@ -9,6 +9,7 @@
     "dev-smoke-tracker": "tsx src/trackers/dev-smoke.ts",
     "doubao:login": "tsx src/trackers/dev-doubao-login.ts",
     "doubao:probe": "tsx src/trackers/dev-probe-dom.ts",
+    "yuanbao:login": "tsx src/trackers/dev-yuanbao-login.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"
