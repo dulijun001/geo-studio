@@ -12,6 +12,7 @@ const STAGES = [
 export function CheckinForm({ slug }: { slug: string }) {
   const [code, setCode] = useState('');
   const [doctor, setDoctor] = useState('');
+  const [identityKey, setIdentityKey] = useState('');
   const [stage, setStage] = useState<typeof STAGES[number]['value']>('arrived');
   const [pending, start] = useTransition();
   const [done, setDone] = useState<{ stage: string } | null>(null);
@@ -21,7 +22,7 @@ export function CheckinForm({ slug }: { slug: string }) {
     e.preventDefault();
     setErr(null);
     start(async () => {
-      const r = await submitCheckin(slug, code, stage, doctor);
+      const r = await submitCheckin(slug, code, stage, doctor, identityKey);
       if (r.ok) setDone({ stage: r.stage });
       else setErr(r.error);
     });
@@ -69,6 +70,25 @@ export function CheckinForm({ slug }: { slug: string }) {
           placeholder="忘了暗号也可以填这里"
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-base"
         />
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="identity" className="text-sm font-medium">
+          您的手机号后 4 位(可选)
+        </label>
+        <input
+          id="identity"
+          autoComplete="off"
+          inputMode="numeric"
+          maxLength={11}
+          value={identityKey}
+          onChange={(e) => setIdentityKey(e.target.value)}
+          placeholder="便于关联您之前的咨询和接触,不强制"
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-base"
+        />
+        <p className="text-xs text-muted-foreground">
+          填了系统会把您之前看过的内容串成完整旅程,没填也能登记。
+        </p>
       </div>
 
       <div className="space-y-1.5">

@@ -31,11 +31,19 @@ export type CheckinResult =
  *     prior timestamp. This prevents accidental double-submits without
  *     blocking legitimate stage progression.
  */
+/**
+ * Optional identity hint — patient_ref or phone last 4. When present, the
+ * conversion event is linked to a customer_identities row so the
+ * /attribution/journey/[id] page can render the multi-touch journey + 3
+ * attribution models. When absent, behavior is unchanged from V1 (single-
+ * touch, hook-only attribution still works).
+ */
 export async function submitCheckin(
   slug: string,
   activityCode: string,
   stage: string,
   doctorName?: string,
+  identityKey?: string,
 ): Promise<CheckinResult> {
   const code = activityCode.trim().toUpperCase();
   if (!/^[A-Z2-9]{4,8}$/.test(code)) {
@@ -86,9 +94,53 @@ export async function submitCheckin(
     return { ok: true, stage, doctor_name: doctorName?.trim() || null };
   }
 
+  // Upsert customer identity if the operator provided a stable key (patient
+  // ref / phone last 4). Without an identityKey we still write the
+  // conversion_event but skip the multi-touch path — single-touch hook
+  // attribution still works for those rows.
+  let identityId: string | null = null;
+  if (identityKey?.trim()) {
+    const patientRef = identityKey.trim();
+    // Look up existing identity for this tenant + ref
+    const { data: existingId } = await service
+      .from('customer_identities')
+      .select('id')
+      .eq('tenant_id', tenant.id)
+      .eq('patient_ref', patientRef)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (existingId) {
+      identityId = existingId.id as string;
+    } else {
+      const { data: newId } = await service
+        .from('customer_identities')
+        .insert({
+          tenant_id: tenant.id,
+          patient_ref: patientRef,
+          first_hook_value: code,
+          notes: doctorName?.trim() ? `首次自报医生: ${doctorName.trim()}` : null,
+        })
+        .select('id')
+        .single();
+      identityId = (newId?.id as string | undefined) ?? null;
+    }
+
+    // Record this check-in as a touchpoint
+    if (identityId && valid.publish_task_id) {
+      await service.from('journey_touchpoints').insert({
+        tenant_id: tenant.id,
+        identity_id: identityId,
+        publish_task_id: valid.publish_task_id,
+        touchpoint_type: stage === 'arrived' ? 'arrived' : 'follow_up',
+        payload: { activity_code: code, stage, self_reported_doctor: doctorName?.trim() ?? null },
+      });
+    }
+  }
+
   const { error: insErr } = await service.from('conversion_events').insert({
     tenant_id: tenant.id,
     hook_id: valid.id,
+    identity_id: identityId,
     stage,
     stage_at: new Date().toISOString(),
     notes: doctorName?.trim() ? `自报医生: ${doctorName.trim()}` : null,

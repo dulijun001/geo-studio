@@ -201,6 +201,8 @@ export default async function AttributionPage({ params }: { params: { slug: stri
         <FunnelChart steps={funnelSteps} />
       </section>
 
+      <JourneysList tenantSlug={tenant.slug} tenantId={tenant.id} />
+
       {events.length > 0 ? (
         <section>
           <h2 className="mb-3 text-sm font-medium text-muted-foreground">最近转化事件(点击查看完整溯源)</h2>
@@ -314,5 +316,93 @@ function Stat({
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className={`mt-0.5 text-2xl font-semibold ${accentClass}`}>{value}</div>
     </div>
+  );
+}
+
+// ─── Journeys list — links to per-customer multi-touch attribution detail ──
+async function JourneysList({
+  tenantSlug,
+  tenantId,
+}: {
+  tenantSlug: string;
+  tenantId: string;
+}) {
+  const supabase = createSupabaseServerClient();
+  const { data: identitiesRaw } = await supabase
+    .from('customer_identities')
+    .select('id, patient_ref, first_hook_value, created_at')
+    .eq('tenant_id', tenantId)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  type Id = { id: string; patient_ref: string | null; first_hook_value: string | null; created_at: string };
+  const identities = (identitiesRaw ?? []) as Id[];
+
+  if (identities.length === 0) {
+    return (
+      <section className="card-surface space-y-2 p-5">
+        <h2 className="text-sm font-medium">客户旅程归因(多触点)</h2>
+        <p className="text-xs text-muted-foreground">
+          还没有任何客户身份记录。在 <code className="font-mono">/c/{tenantSlug}/checkin</code> 着陆页登记时,
+          填手机号后 4 位即可触发多触点归因 — 系统会把这位客户之前看过的内容串起来,
+          然后用 3 种归因模型分别计算每条内容的功劳。
+        </p>
+      </section>
+    );
+  }
+
+  // For each identity get touchpoint count (cheap aggregate)
+  const ids = identities.map((i) => i.id);
+  const { data: tpsRaw } = await supabase
+    .from('journey_touchpoints')
+    .select('identity_id')
+    .in('identity_id', ids)
+    .is('deleted_at', null);
+  type Tp = { identity_id: string };
+  const tpCount = new Map<string, number>();
+  for (const r of (tpsRaw ?? []) as Tp[]) {
+    tpCount.set(r.identity_id, (tpCount.get(r.identity_id) ?? 0) + 1);
+  }
+
+  return (
+    <section className="card-surface space-y-3 p-5">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-sm font-medium">客户旅程归因(多触点)</h2>
+        <span className="text-xs text-muted-foreground">最近 {identities.length} 位客户</span>
+      </div>
+      <div className="overflow-hidden rounded-md border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
+            <tr>
+              <th className="px-4 py-2 font-medium">患者标识</th>
+              <th className="px-4 py-2 font-medium">首次暗号</th>
+              <th className="px-4 py-2 font-medium">触点数</th>
+              <th className="px-4 py-2 font-medium">建立时间</th>
+              <th className="px-4 py-2 font-medium" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {identities.map((id) => (
+              <tr key={id.id} className="hover:bg-muted/30">
+                <td className="px-4 py-2.5 font-mono">{id.patient_ref ?? '(未填)'}</td>
+                <td className="px-4 py-2.5 font-mono text-xs">{id.first_hook_value ?? '—'}</td>
+                <td className="px-4 py-2.5">{tpCount.get(id.id) ?? 0}</td>
+                <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                  {new Date(id.created_at).toLocaleString('zh-CN')}
+                </td>
+                <td className="px-4 py-2.5 text-right">
+                  <Link
+                    href={`/t/${tenantSlug}/attribution/journey/${id.id}`}
+                    className="text-xs text-foreground hover:underline"
+                  >
+                    查看旅程 →
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
