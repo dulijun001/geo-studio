@@ -16,7 +16,7 @@
  *     in audit_logs and carry on. Partial success is better than all-or-nothing
  *     because running this again would re-burn LLM tokens.
  */
-import { generateVariant } from '@geo/geo-core';
+import { generateVariant, scoreGeo } from '@geo/geo-core';
 import { RECOMMENDED_COMBO, type GeoTacticId, type VariantPlatform } from '@geo/shared';
 import PgBoss from 'pg-boss';
 import { getServiceClient } from '../lib/supabase';
@@ -126,6 +126,14 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
       }
 
       const v = result.variant;
+      // GEO 9-tactic scoring runs before insert so the row carries it from
+      // birth — UI / compliance reviewers see the breakdown immediately,
+      // and downstream auto-rewrite can detect total < 70.
+      // Use the content_item's primary topic (or first 8 chars of title as
+      // safety net) as the keyword anchor for keyword_freq + position.
+      const primaryKeyword = item!.topics?.[0]?.trim() ?? v.title.slice(0, 8);
+      const geoScore = scoreGeo({ title: v.title, body: v.body, primary_keyword: primaryKeyword });
+
       const { data: inserted, error: insErr } = await client
         .from('content_variants')
         .insert({
@@ -136,6 +144,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
           body: v.body,
           geo_tactics: v.tactics_applied,
           extra_assets: { notes: v.notes, llm_provider: v.provider, llm_usage: v.usage ?? null },
+          geo_score: geoScore,
           compliance_status: 'pending',
           status: 'draft',
         })
@@ -167,7 +176,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
       });
 
       console.log(
-        `[variant-generate] ${platform} → variant=${inserted.id} (${v.provider}, ${elapsed}ms)`,
+        `[variant-generate] ${platform} → variant=${inserted.id} geo=${geoScore.total}/100 (${v.provider}, ${elapsed}ms)`,
       );
       return true;
     }
