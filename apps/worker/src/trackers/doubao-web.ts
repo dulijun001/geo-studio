@@ -14,15 +14,39 @@
  * tracking accounts + proxies land.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type BrowserContext } from 'playwright';
 import type { TrackerAdapter, TrackerContext, TrackerQuery, TrackerResult } from '@geo/geo-core';
 
 const CHAT_URL = 'https://www.doubao.com/chat/';
 const INPUT_SELECTOR = 'textarea[placeholder*="发消息"]';
-const MESSAGE_LIST_SELECTOR = '[class*="message-list"]';
+// Doubao currently renders the conversation tree as nested <main> divs; CSS
+// modules rename frequently. Probe candidates (in order) and pick the first
+// that holds the answer text. Update via `pnpm doubao:probe` when this rots.
+const MESSAGE_CANDIDATES = [
+  '[data-testid="receive-message"]',
+  '[class*="receive-message"]',
+  '[class*="message-content-wrapper"]',
+  '[class*="messageContent"]',
+  '[class*="message-list"]',
+  '[class*="conversation-list"]',
+  'main',
+];
+// Hint that the conversation has actually started (URL flips, OR a "thinking"
+// indicator appears, OR the welcome cards disappear).
+const WELCOME_HINT_SELECTOR = '[class*="welcome"], [data-testid="welcome"], [class*="banner-card"]';
+
+/**
+ * Persistent Chrome user-data dir. Holds the doubao login cookie so the
+ * tracker doesn't ask for a captcha every run. Override via env
+ * GEO_DOUBAO_USERDATA for test isolation. Run `pnpm doubao:login` once
+ * to populate this directory.
+ */
+function getUserDataDir(): string {
+  return process.env.GEO_DOUBAO_USERDATA || join(homedir(), '.cache', 'geo-tracker', 'doubao');
+}
 
 /**
  * Wait until the answer stops growing. We poll the message-list text length;
@@ -43,17 +67,15 @@ class DoubaoWebAdapter implements TrackerAdapter {
 
     const started = Date.now();
     let context: BrowserContext | undefined;
-    let userDataDir: string | undefined;
 
     try {
-      // launchPersistentContext with an isolated tmp userDataDir avoids the
-      // Chrome single-instance trap: if the user already has Chrome open,
-      // chromium.launch({ channel: 'chrome' }) hands control to that running
-      // process and our newPage call returns a page that's never wired up to
-      // doubao's auth/session — observed as raw_response_len=0 timeouts in
-      // the W6.2 first run. Persistent context = its own Chrome process tree
-      // tied to a throwaway profile directory.
-      userDataDir = await mkdtemp(join(tmpdir(), 'geo-tracker-'));
+      // PERSISTENT user-data dir (was mkdtemp before). Doubao now requires a
+      // logged-in account to actually answer questions — guests get the
+      // welcome screen with recommendation cards but submit is silently
+      // dropped. Run `pnpm doubao:login` once to seed the cookie; this
+      // tracker reuses it on every subsequent call.
+      const userDataDir = getUserDataDir();
+      await mkdir(userDataDir, { recursive: true });
       context = await chromium.launchPersistentContext(userDataDir, {
         headless: ctx.headless,
         channel: 'chrome',
@@ -98,25 +120,68 @@ class DoubaoWebAdapter implements TrackerAdapter {
 
       await input.click();
       await input.fill(q.question);
-      await page.keyboard.press('Enter');
+
+      // Try to submit. Enter alone is unreliable since 2026-04 (intercepted
+      // by IME / promo overlay). Click the send button as primary path; fall
+      // back to Enter, then Cmd+Enter, in that order.
+      const sendBtnSelectors = [
+        '[class*="send-btn-wrapper"] button:not([disabled])',
+        'button[class*="send-msg-btn"]:not([disabled])',
+        '[class*="send-btn-wrapper"]:not([disabled])',
+      ];
+      let submitted = false;
+      for (const sel of sendBtnSelectors) {
+        const btn = await page.$(sel).catch(() => null);
+        if (btn && (await btn.isEnabled().catch(() => false))) {
+          await btn.click().catch(() => undefined);
+          submitted = true;
+          break;
+        }
+      }
+      if (!submitted) {
+        await page.keyboard.press('Enter').catch(() => undefined);
+        await page.waitForTimeout(300);
+        await page.keyboard.press('Meta+Enter').catch(() => undefined);
+      }
 
       // The URL flips to /chat/<session-id> once the message is accepted.
-      await page
+      // If it never flips after 15s, we're not logged in (Doubao silently
+      // drops guest submits). Bail with a clear "needs login" reason.
+      const flipped = await page
         .waitForURL(/\/chat\/[^/]+$/, { timeout: Math.min(remaining(), 15_000) })
-        .catch(() => undefined);
+        .then(() => true)
+        .catch(() => false);
+      if (!flipped) {
+        return {
+          status: 'failed',
+          failure_reason:
+            'login required — chat URL never advanced past welcome page. Run `pnpm doubao:login` to seed the cookie.',
+          meta: { elapsed_ms: Date.now() - started },
+        };
+      }
 
-      // Poll the message-list until it's stable.
+      // Poll candidate selectors until one of them stabilizes. Picking via
+      // probe each tick is cheap and tolerant of CSS module renames.
       let lastLen = -1;
       let idleCount = 0;
+      let lastWinner: string | null = null;
       while (remaining() > 0) {
         await page.waitForTimeout(POLL_INTERVAL_MS);
 
-        const len = await page
-          .evaluate((sel) => {
-            const el = document.querySelector(sel);
-            return el ? (el.textContent || '').length : 0;
-          }, MESSAGE_LIST_SELECTOR)
-          .catch(() => 0);
+        const probe = await page
+          .evaluate((selectors) => {
+            for (const s of selectors) {
+              const els = Array.from(document.querySelectorAll(s));
+              if (!els.length) continue;
+              let chars = 0;
+              for (const el of els) chars += (el.textContent || '').length;
+              if (chars > 0) return { sel: s, len: chars };
+            }
+            return { sel: null as string | null, len: 0 };
+          }, MESSAGE_CANDIDATES)
+          .catch(() => ({ sel: null as string | null, len: 0 }));
+        const len = probe.len;
+        if (probe.sel) lastWinner = probe.sel;
 
         if (len >= MIN_RESPONSE_CHARS && len === lastLen) {
           idleCount += 1;
@@ -126,6 +191,8 @@ class DoubaoWebAdapter implements TrackerAdapter {
         }
         lastLen = len;
       }
+      // Stash the winning selector for #extract to reuse.
+      (this as { _lastWinner?: string | null })._lastWinner = lastWinner;
 
       if (idleCount < STABLE_REQUIRED_IDLES) {
         // Timed out — still extract whatever text we have; upstream can decide
@@ -161,10 +228,9 @@ class DoubaoWebAdapter implements TrackerAdapter {
         meta: { elapsed_ms: Date.now() - started },
       };
     } finally {
+      // Persistent userDataDir is intentionally NOT removed — we want the
+      // login cookie to survive between tracker runs.
       await context?.close().catch(() => undefined);
-      if (userDataDir) {
-        await rm(userDataDir, { recursive: true, force: true }).catch(() => undefined);
-      }
     }
   }
 
@@ -172,18 +238,31 @@ class DoubaoWebAdapter implements TrackerAdapter {
     raw_response: string;
     citation_urls: string[];
   }> {
-    return page.evaluate((sel) => {
-      const list = document.querySelector(sel);
-      if (!list) return { raw_response: '', citation_urls: [] };
-      const raw_response = (list.textContent || '').trim();
-      const urls = new Set<string>();
-      for (const a of Array.from(list.querySelectorAll('a[href]'))) {
-        const href = (a as HTMLAnchorElement).href;
-        if (href.startsWith('http')) urls.add(href);
+    const lastWinner = (this as { _lastWinner?: string | null })._lastWinner ?? null;
+    const selectors = lastWinner ? [lastWinner, ...MESSAGE_CANDIDATES] : MESSAGE_CANDIDATES;
+    return page.evaluate((sels) => {
+      for (const s of sels) {
+        const els = Array.from(document.querySelectorAll(s));
+        if (!els.length) continue;
+        let raw_response = '';
+        const urls = new Set<string>();
+        for (const el of els) {
+          raw_response += (el.textContent || '');
+          for (const a of Array.from(el.querySelectorAll('a[href]'))) {
+            const href = (a as HTMLAnchorElement).href;
+            if (href.startsWith('http')) urls.add(href);
+          }
+        }
+        raw_response = raw_response.trim();
+        if (raw_response.length > 0) return { raw_response, citation_urls: [...urls] };
       }
-      return { raw_response, citation_urls: [...urls] };
-    }, MESSAGE_LIST_SELECTOR);
+      return { raw_response: '', citation_urls: [] };
+    }, selectors);
   }
 }
+
+// WELCOME_HINT_SELECTOR exported for the login helper to detect "are we still
+// on the welcome screen, i.e. not logged in yet"
+export { WELCOME_HINT_SELECTOR, getUserDataDir };
 
 export const doubaoWebAdapter: TrackerAdapter = new DoubaoWebAdapter();
