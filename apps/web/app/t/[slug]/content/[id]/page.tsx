@@ -109,12 +109,6 @@ export default async function ContentDetailPage({
         )}
       </section>
 
-      {canEdit && item.status === 'ai_drafted' && item.markdown ? (
-        <section className="space-y-3">
-          <DeriveForm tenantSlug={tenant.slug} contentItemId={item.id} />
-        </section>
-      ) : null}
-
       <section className="space-y-3">
         <h2 className="text-lg font-medium">生成平台变体</h2>
         <GenerateVariantsForm
@@ -133,11 +127,29 @@ export default async function ContentDetailPage({
         {variantRows.length > 0 ? (
           <VariantsTable variants={variantRows} tenantSlug={tenant.slug} />
         ) : (
-          <p className="rounded-md border border-dashed border-border bg-muted/20 p-5 text-sm text-muted-foreground">
-            还没生成过变体。上面选目标平台点"生成"即可。
-          </p>
+          <div className="rounded-md border border-dashed border-border bg-muted/20 p-5 text-sm text-muted-foreground">
+            <p>还没生成过变体,或者刚刚提交的还在 Worker 队列里(每条 30-60 秒)。</p>
+            <p className="mt-1.5 text-xs">
+              👆 上面选好平台点「生成 N 条」,1-3 分钟后刷新此页面就能看到。
+            </p>
+          </div>
         )}
       </section>
+
+      {canEdit && item.status === 'ai_drafted' && item.markdown ? (
+        <details className="rounded-md border border-border bg-muted/10 p-4">
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
+            高级:基于这篇再写一组(派生新主题)
+          </summary>
+          <div className="mt-3 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              和上面「生成平台变体」不同 —— 派生会基于本篇重新跑一次 RAG 检索,
+              产生 <strong>独立的新内容条目</strong>(不属于这篇)。适合从一篇热门文章扩展出多篇衍生选题。
+            </p>
+            <DeriveForm tenantSlug={tenant.slug} contentItemId={item.id} />
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }

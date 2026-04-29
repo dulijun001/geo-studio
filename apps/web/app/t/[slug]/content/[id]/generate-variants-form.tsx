@@ -5,14 +5,18 @@ import { useRouter } from 'next/navigation';
 import { enqueueVariantGenerate } from './actions';
 
 const PLATFORMS = [
-  { id: 'toutiao_article', label: '今日头条号' },
-  { id: 'douyin_script', label: '抖音脚本' },
-  { id: 'wechat_mp', label: '公众号' },
-  { id: 'zhihu', label: '知乎' },
-  { id: 'xiaohongshu', label: '小红书' },
-  { id: 'baijiahao', label: '百家号' },
+  { id: 'toutiao_article', label: '今日头条号', defaultOn: true },
+  { id: 'xiaohongshu', label: '小红书', defaultOn: true },
+  { id: 'douyin_script', label: '抖音脚本', defaultOn: true },
+  { id: 'zhihu', label: '知乎', defaultOn: true },
+  { id: 'wechat_mp', label: '公众号', defaultOn: true },
+  { id: 'baijiahao', label: '百家号', defaultOn: false },
 ] as const;
 type Platform = (typeof PLATFORMS)[number]['id'];
+
+const DEFAULT_PLATFORMS = new Set<Platform>(
+  PLATFORMS.filter((p) => p.defaultOn).map((p) => p.id),
+);
 
 export function GenerateVariantsForm({
   tenantSlug,
@@ -26,7 +30,9 @@ export function GenerateVariantsForm({
   disabledReason?: string;
 }) {
   const router = useRouter();
-  const [selected, setSelected] = useState<Set<Platform>>(new Set());
+  // Default-select the 5 common platforms — operator usually wants all of
+  // them, and an empty default forces an extra click that surprises new users.
+  const [selected, setSelected] = useState<Set<Platform>>(new Set(DEFAULT_PLATFORMS));
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,16 +80,17 @@ export function GenerateVariantsForm({
         <div className="space-y-1">
           <p className="text-sm font-medium">生成平台变体</p>
           <p className="text-xs text-muted-foreground">
-            选择目标平台,Worker 会按 GEO 9 法(统计+引用+流畅度+权威引语)改写,并自动过合规三道门。
+            勾选要发布的平台 → 点生成 → AI 按 GEO 9 法改写并自动过合规。每条 30-60 秒,
+            生成完会出现在下方「已生成变体」(可能需要刷新页面)。
           </p>
         </div>
         <button
           type="button"
           onClick={submit}
           disabled={pending || selected.size === 0}
-          className="rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background hover:opacity-90 disabled:opacity-50"
+          className="shrink-0 rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background hover:opacity-90 disabled:opacity-50"
         >
-          {pending ? '入队中…' : `生成 ${selected.size} 个变体`}
+          {pending ? '入队中…' : `生成 ${selected.size} 条`}
         </button>
       </div>
       <div className="flex flex-wrap gap-2">
