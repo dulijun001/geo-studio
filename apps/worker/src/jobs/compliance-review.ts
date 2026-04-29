@@ -22,8 +22,10 @@ import {
   llmReviewAvailable,
   runLlmReview as runDoubaoReview,
   scanKeywords,
+  matchCases,
   type KeywordHit,
   type KeywordRow,
+  type ComplianceCase,
 } from '@geo/geo-core';
 import { getServiceClient } from '../lib/supabase';
 
@@ -89,6 +91,37 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   // 3. Stage 1 — keyword scan on (title + body)
   const scanInput = `${variant.title}\n\n${variant.body}`;
   const scan = scanKeywords(scanInput, keywords);
+
+  // 3a. Historical case match — separate from keyword scan, no fail-stop.
+  // Findings persist as content_variants.case_match for the compliance UI to
+  // surface; doesn't block here because LLM and human reviewers should
+  // weigh the case similarity in context.
+  const { data: caseRows } = await client
+    .from('compliance_cases')
+    .select('id, title, violation_patterns, violation_category, jurisdiction, fine_yuan, case_url, active')
+    .eq('active', true)
+    .is('deleted_at', null);
+  const cases: ComplianceCase[] = (caseRows ?? []).map((c) => ({
+    id: c.id as string,
+    title: c.title as string,
+    violation_patterns: (c.violation_patterns as string[]) ?? [],
+    violation_category: c.violation_category as string,
+    jurisdiction: (c.jurisdiction as string | null) ?? null,
+    fine_yuan: (c.fine_yuan as number | null) ?? null,
+    case_url: (c.case_url as string | null) ?? null,
+  }));
+  const caseMatch = matchCases(scanInput, cases);
+  if (cases.length > 0) {
+    await client
+      .from('content_variants')
+      .update({ case_match: caseMatch })
+      .eq('id', variant_id);
+    if (caseMatch.matches.length > 0) {
+      console.log(
+        `[compliance-review] case-match hit ${caseMatch.matches.length} of ${cases.length} cases (top: ${caseMatch.matches[0]!.title.slice(0, 30)} sim=${caseMatch.matches[0]!.similarity})`,
+      );
+    }
+  }
 
   const { data: kwReview, error: krErr } = await client
     .from('compliance_reviews')

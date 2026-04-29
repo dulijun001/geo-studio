@@ -42,7 +42,7 @@ export default async function ComplianceDetailPage({
   const { data: variant } = await supabase
     .from('content_variants')
     .select(
-      'id, title, body, platform, status, compliance_status, compliance_review_id, created_at, content_item_id, geo_score, citation_check',
+      'id, title, body, platform, status, compliance_status, compliance_review_id, created_at, content_item_id, geo_score, citation_check, case_match',
     )
     .eq('id', params.id)
     .eq('tenant_id', tenant.id)
@@ -117,6 +117,7 @@ export default async function ComplianceDetailPage({
         </section>
 
         <aside className="space-y-5">
+          <CaseMatchPanel match={variant.case_match} />
           <GeoScorePanel score={variant.geo_score} />
           <CitationCheckPanel check={variant.citation_check} />
           <ReviewTimeline reviews={reviewRows} reviewerEmails={reviewerEmails} />
@@ -305,6 +306,73 @@ type CitationCheck = {
   unmatched: Array<{ needle: string; context_snippet: string }>;
   verdict: 'ok' | 'suspected_hallucination' | 'whitelist_empty';
 };
+
+// ─── 历史合规案例比对面板 ────────────────────────────────────────────
+type CaseMatch = {
+  scanned_at: string;
+  cases_evaluated: number;
+  matches: Array<{
+    case_id: string;
+    title: string;
+    category: string;
+    jurisdiction: string | null;
+    fine_yuan: number | null;
+    case_url: string | null;
+    similarity: number;
+    matched_patterns: string[];
+    total_patterns: number;
+  }>;
+};
+
+function CaseMatchPanel({ match }: { match: CaseMatch | null | undefined }) {
+  if (!match) return null;
+  if (match.matches.length === 0) {
+    return (
+      <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+        <p className="font-medium">历史案例比对 ✓</p>
+        <p className="mt-1">扫描了 {match.cases_evaluated} 条公开处罚案例,本文与所有案例都 ≤ 50% 重合。</p>
+      </div>
+    );
+  }
+  const top = match.matches[0]!;
+  const totalFineYuan = match.matches.reduce((sum, m) => sum + (m.fine_yuan ?? 0), 0);
+  return (
+    <div className="rounded-md border-2 border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+      <p className="font-medium">⚠️ 历史案例比对 — {match.matches.length} 个相似案例</p>
+      <p className="mt-1 opacity-90">
+        本文跟历史处罚案例有 ≥ 50% 违规要素重合。**不是直接判违规**,但建议参考案例做调整 — 如果发布后被举报或被监管比对,容易被判定相似行为。
+      </p>
+      {totalFineYuan > 0 && (
+        <p className="mt-1 text-[11px] opacity-80">
+          相关案例累计罚款金额:¥{(totalFineYuan / 10000).toFixed(1)} 万
+        </p>
+      )}
+      <ul className="mt-2 space-y-2">
+        {match.matches.slice(0, 3).map((m) => (
+          <li key={m.case_id} className="rounded-sm bg-amber-100/70 p-2">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="font-medium">{m.title}</span>
+              <span className="shrink-0 font-mono text-[10px] opacity-70">
+                {Math.round(m.similarity * 100)}% 重合
+              </span>
+            </div>
+            <div className="mt-0.5 text-[11px] opacity-80">
+              {m.category}
+              {m.jurisdiction && ` · ${m.jurisdiction}`}
+              {m.fine_yuan && ` · 罚 ¥${(m.fine_yuan / 10000).toFixed(0)} 万`}
+            </div>
+            <div className="mt-1 text-[10px] opacity-75">
+              命中要素: {m.matched_patterns.join('、')}
+            </div>
+          </li>
+        ))}
+        {match.matches.length > 3 && (
+          <li className="text-[11px] opacity-70">…还有 {match.matches.length - 3} 条相似案例</li>
+        )}
+      </ul>
+    </div>
+  );
+}
 
 function CitationCheckPanel({ check }: { check: CitationCheck | null | undefined }) {
   if (!check) return null;
