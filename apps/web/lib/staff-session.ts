@@ -80,7 +80,8 @@ export function issueStaffSession(staffId: string, tenantId: string): void {
   };
   cookies().set(COOKIE_NAME, encode(session), {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    // Honour actual public URL scheme — see admin-session.ts for why.
+    secure: process.env.NEXT_PUBLIC_APP_URL?.startsWith('https://') ?? false,
     sameSite: 'lax',
     path: '/staff',
     maxAge: Math.floor(SESSION_DURATION_MS / 1000),

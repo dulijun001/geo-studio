@@ -89,7 +89,11 @@ export function issueAdminSession(input: { user_id: string; email: string }): vo
   };
   cookies().set(COOKIE_NAME, encode(session), {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    // Secure cookies require HTTPS. We honour the actual public URL scheme
+    // rather than NODE_ENV so the IP-only HTTP demo phase (备案前) doesn't
+    // silently drop the cookie. Once dulijun.icu beian clears and we flip
+    // NEXT_PUBLIC_APP_URL to https, this auto-flips to true.
+    secure: process.env.NEXT_PUBLIC_APP_URL?.startsWith('https://') ?? false,
     sameSite: 'lax',
     path: '/',
     maxAge: Math.floor(SESSION_DURATION_MS / 1000),
