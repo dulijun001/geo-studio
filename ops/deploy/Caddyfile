@@ -1,0 +1,99 @@
+###############################################################################
+# Caddyfile — GEO Studio 反向代理 + 自动 HTTPS
+#
+# 部署在 ECS 上,放到 /etc/caddy/Caddyfile
+# 重载: sudo systemctl reload caddy
+#
+# 两阶段:
+#   1) 备案前 — IP + 8443 端口 + 自签证书(浏览器警告但能用)
+#   2) 备案后 — 切到下面的 dulijun.icu 块,Caddy 自动签 Let's Encrypt
+###############################################################################
+
+{
+    # 全局选项
+    email lnian7914@gmail.com   # Let's Encrypt 注册邮箱(备案后启用)
+    admin off                    # 关闭 :2019 admin API 端口
+    persist_config off
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 阶段 1:备案前 — IP + 8443 + 自签证书
+# 访问方式:https://47.98.131.138:8443
+# 浏览器会提示「不安全」,点继续即可。手机加 hosts 把 47.98.131.138 dulijun.icu
+# 也能用,但仍是自签证书提示。
+# ─────────────────────────────────────────────────────────────────────────────
+:8443 {
+    tls internal     # Caddy 内置自签 CA,90 天自动续
+
+    encode zstd gzip
+    request_body { max_size 10MB }   # 与 next.config bodySizeLimit 对齐
+
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 50MiB
+            roll_keep 7
+        }
+        format json
+    }
+
+    # Next.js standalone 监听 127.0.0.1:3000
+    reverse_proxy 127.0.0.1:3000 {
+        # 把真实客户端 IP 透传给 Next(中间件需要)
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+
+        # 健康检查 — server.js 启动后才认为可路由
+        health_uri /api/health
+        health_interval 10s
+        health_timeout 3s
+    }
+
+    # /api 路径稍微放长超时,合规 LLM 调用最长 ~60s
+    @apilong path /api/compliance/* /api/content/draft/*
+    handle @apilong {
+        reverse_proxy 127.0.0.1:3000 {
+            transport http {
+                read_timeout 90s
+                write_timeout 90s
+            }
+        }
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 阶段 2:备案下来后取消注释这块,把上面 :8443 那块注释/删除
+# DNS 把 dulijun.icu A 记录指到 ECS 公网 IP 后,Caddy 会自动签 Let's Encrypt 证书
+# ─────────────────────────────────────────────────────────────────────────────
+# dulijun.icu, www.dulijun.icu {
+#     encode zstd gzip
+#     request_body { max_size 10MB }
+#
+#     log {
+#         output file /var/log/caddy/access.log {
+#             roll_size 50MiB
+#             roll_keep 7
+#         }
+#         format json
+#     }
+#
+#     reverse_proxy 127.0.0.1:3000 {
+#         header_up X-Real-IP {remote_host}
+#         header_up X-Forwarded-For {remote_host}
+#         header_up X-Forwarded-Proto {scheme}
+#
+#         health_uri /api/health
+#         health_interval 10s
+#         health_timeout 3s
+#     }
+#
+#     @apilong path /api/compliance/* /api/content/draft/*
+#     handle @apilong {
+#         reverse_proxy 127.0.0.1:3000 {
+#             transport http {
+#                 read_timeout 90s
+#                 write_timeout 90s
+#             }
+#         }
+#     }
+# }

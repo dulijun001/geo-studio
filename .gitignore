@@ -15,7 +15,10 @@ out/
 .env.local
 .env.*.local
 .env.*.bak
+.env.bak*
+.env.production
 !.env.example
+!ops/deploy/.env.production.example
 
 # local-only secrets / scratch notes
 *.local.md
@@ -51,3 +54,6 @@ supabase/seed.local.sql
 *.local
 tmp/
 .cache/
+
+# Claude Code local state (per-project handoffs, never share via git)
+.claude/
