@@ -5,12 +5,14 @@
  * implementing the TrackerAdapter contract and registering it. Static
  * map at module load — no side-effect imports needed.
  *
- * Implementation status (2026-04-29):
+ * Implementation status (2026-04-30):
  *   doubao    ✅ live, login + cookie persistence working, tested
- *   yuanbao   🟡 scaffolded, login command shipped — first run may need
- *             selector tuning via `pnpm yuanbao:probe`
+ *   yuanbao   🟡 full adapter implemented, selectors un-validated against
+ *             real DOM — run `pnpm yuanbao:login` then a smoke query;
+ *             tune MESSAGE_CANDIDATES in yuanbao-web.ts if raw_response_len=0
+ *   deepseek  🟡 full adapter implemented + web-search toggle + login/probe
+ *             helpers, selectors un-validated — same drill as yuanbao
  *   quark     ⚪ stub (阿里夸克)
- *   deepseek  ⚪ stub (chat.deepseek.com)
  *   wenxin    ⚪ stub (百度文心一言;yiyan.baidu.com)
  *   kimi      ⚪ stub (kimi.com)
  *   qwen      ⚪ stub (chat.qwen.ai)
@@ -22,6 +24,7 @@
  */
 import type { TrackerAdapter } from '@geo/geo-core';
 import type { Engine } from '@geo/shared';
+import { deepseekWebAdapter } from './deepseek-web';
 import { doubaoWebAdapter } from './doubao-web';
 import { yuanbaoWebAdapter } from './yuanbao-web';
 
@@ -41,8 +44,8 @@ function makeStub(engine: Engine): TrackerAdapter {
 const REGISTRY: Record<Engine, TrackerAdapter> = {
   doubao: doubaoWebAdapter,
   yuanbao: yuanbaoWebAdapter,
+  deepseek: deepseekWebAdapter,
   quark: makeStub('quark'),
-  deepseek: makeStub('deepseek'),
   wenxin: makeStub('wenxin'),
   kimi: makeStub('kimi'),
   qwen: makeStub('qwen'),
@@ -50,7 +53,7 @@ const REGISTRY: Record<Engine, TrackerAdapter> = {
   perplexity: makeStub('perplexity'),
 };
 
-const IMPLEMENTED: Engine[] = ['doubao', 'yuanbao'];
+const IMPLEMENTED: Engine[] = ['doubao', 'yuanbao', 'deepseek'];
 
 /**
  * Manual registration kept for back-compat with any code that still calls

@@ -10,6 +10,8 @@
     "doubao:login": "tsx src/trackers/_dev/doubao-login.ts",
     "doubao:probe": "tsx src/trackers/_dev/probe-dom.ts",
     "yuanbao:login": "tsx src/trackers/_dev/yuanbao-login.ts",
+    "deepseek:login": "tsx src/trackers/_dev/deepseek-login.ts",
+    "deepseek:probe": "tsx src/trackers/_dev/probe-deepseek.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"
