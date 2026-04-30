@@ -33,18 +33,20 @@ export default async function StaffLayout({ children }: { children: ReactNode })
           <Link href="/staff" className="text-sm font-semibold">
             GEO Studio · 员工端
           </Link>
-          {ctx ? (
-            <form action={logoutStaff}>
-              <button
-                type="submit"
-                className="text-xs text-muted-foreground hover:text-foreground"
-              >
-                {ctx.staff_name} · 退出
-              </button>
-            </form>
-          ) : (
-            <span className="text-xs text-muted-foreground">未登录</span>
-          )}
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <Link href="/staff/help" className="hover:text-foreground">
+              使用手册
+            </Link>
+            {ctx ? (
+              <form action={logoutStaff}>
+                <button type="submit" className="hover:text-foreground">
+                  {ctx.staff_name} · 退出
+                </button>
+              </form>
+            ) : (
+              <span>未登录</span>
+            )}
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-md px-4 py-6">{children}</main>
