@@ -38,7 +38,7 @@ ECS 国内单机部署。架构、决策见 [`docs/05-deployment.md`](../../docs
    ```
    或者先 `git clone` 再 `bash ops/deploy/install.sh`。
 4. 第一次跑会停在「填 `.env.production`」处。`nano /opt/geo-studio/.env.production` 把所有 `<...>` 占位填上,保存,**再跑一次** install.sh。
-5. 看到 `[install] DONE` + 健康检查 OK,浏览器开 `https://47.98.131.138:8443`(自签证书提示点继续)。
+5. 看到 `[install] DONE` + 健康检查 OK,浏览器开 `https://47.98.131.138:9443`(自签证书提示点继续)。
 
 ### 后续更新
 
@@ -52,7 +52,7 @@ ssh <user>@47.98.131.138 'bash /opt/geo-studio/ops/deploy/deploy.sh'
 
 1. 阿里云 DNS 控制台:`dulijun.icu` 加 A 记录 → `47.98.131.138`,等 5-10 分钟生效
 2. SSH 进 ECS,编辑 `/etc/caddy/Caddyfile`:
-   - 注释/删除 `:8443` 块
+   - 注释/删除 `:9443` 块
    - 取消注释 `dulijun.icu` 块
 3. `sudo systemctl reload caddy`(Caddy 会自动签 Let's Encrypt 证书,首次 30s)
 4. 把 `/opt/geo-studio/.env.production` 的 `NEXT_PUBLIC_APP_URL` 改成 `https://dulijun.icu`
@@ -76,14 +76,14 @@ pm2 restart geo-web
 pm2 restart geo-worker
 
 # 健康
-curl -k https://127.0.0.1:8443/api/health
+curl -k https://127.0.0.1:9443/api/health
 curl http://127.0.0.1:3000/api/health
 ```
 
 ## 安全 baseline
 
 - Postgres / Auth / Storage **只监听 127.0.0.1**(Supabase Docker 默认),走 Caddy 反代到外部
-- ECS 安全组只开 `22(SSH)`、`8443(IP 阶段)` 或 `80+443(域名阶段)`,关闭其余端口
+- ECS 安全组只开 `22(SSH)`、`9443(IP 阶段)` 或 `80+443(域名阶段)`,关闭其余端口
 - `.env.production` 文件权限 `600`,只 owner 可读
 - `pm2` 注册成 systemd unit(`pm2 startup` 输出的命令),开机自启
 - 数据库每日 dump 到对象存储,保留 7 天(后续脚本,见 `ops/deploy/backup.sh` TODO)
