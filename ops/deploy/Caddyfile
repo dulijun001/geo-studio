@@ -40,9 +40,22 @@ http://:9443 {
 
     # Next.js standalone 监听 127.0.0.1:3000
     reverse_proxy 127.0.0.1:3000 {
+        # 让 upstream 看到客户端真实 host(含 port)。Caddy `{host}` 不含 port,
+        # 用 `{hostport}` 才完整。
+        header_up Host {hostport}
         header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-Proto {scheme}
 
-        # 健康检查 — server.js 启动后才认为可路由
+        # ╭─ Next.js standalone 已知问题(2026-04 14.2.x) ────────────────────╮
+        # │ Next standalone server 用 process.env.HOSTNAME (= 127.0.0.1) 来 │
+        # │ 构造 NextResponse.redirect() 的 absolute URL,即使 trustHostHeader│
+        # │ + X-Forwarded-Host 都设了也会失效(router-utils/resolve-routes.js │
+        # │ 的代码路径不读这些)。结果浏览器跳到 http://localhost:3000/login。│
+        # │ 不动 Next 内部,在 Caddy 出口处把 Location header 重写过来。     │
+        # │ 备案后切到域名 dulijun.icu 时记得同步改这两个 regex。           │
+        # ╰────────────────────────────────────────────────────────────────╯
+        header_down Location "https?://(localhost|127\.0\.0\.1)(:[0-9]+)?" "http://47.98.131.138:9443"
+
         health_uri /api/health
         health_interval 10s
         health_timeout 3s
