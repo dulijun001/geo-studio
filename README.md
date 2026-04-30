@@ -55,4 +55,8 @@ geo-studio/
 
 ## Status
 
-**V0 — skeleton** (2026-04-23). See [`docs/04-roadmap.md`](./docs/04-roadmap.md).
+**V1.6 wrap-up / V2 ramp-up** (2026-04-30).
+
+- V1 W1-W7 主体 + V1.5 KB 内容工厂 + V1.6 合规四道门、Doubao playbook、内容反向工作流、admin HMAC、SOV 8 周热力图、低分变体 rescue 页 — 已上线
+- V2:多引擎 dispatcher 骨架已搭(豆包 + 元宝 scaffold),账号池 / 代理 / 指纹隔离 / 4 个额外引擎 / 500 题轮询 — 待开工
+- 详见 [`CLAUDE.md`](./CLAUDE.md) 第九节、[`docs/04-roadmap.md`](./docs/04-roadmap.md)
