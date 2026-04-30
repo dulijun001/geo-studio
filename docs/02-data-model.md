@@ -330,3 +330,35 @@ pending(入队)
 - 内容的版本历史(`content_item_revisions`)——V2 加
 - 员工之间的内容共享/点赞(V2+,先避免社交向偏离)
 - 计费相关表(`plans` / `subscriptions` / `invoices`)——V3 商业化时加
+
+---
+
+## 附录:Migration 索引
+
+> 每条 migration 的范围 + 引入物。回看时按这张表定位,不要一个个 `head` 文件。
+> 命名约定:`NNNN_<scope>.sql`,scope 用语义化短语(`w5_dispatch` / `compliance_cases`)而非时间戳。
+
+| # | 文件 | 范围 | 引入 / 修改 |
+|---|---|---|---|
+| 0000 | `0000_initial.sql` | V1 W1 baseline | 17 张核心表:`tenants`、`tenant_memberships`、`brands`、`staff_accounts`、`brand_vocab`、`content_items`、`content_variants`、`publish_tasks`、`citations`、`geo_snapshots`、`questions`、`tracking_accounts`、`compliance_keywords`、`compliance_reviews`、`conversion_events`、`hooks`、`audit_logs` + 全套基础 index |
+| 0001 | `0001_rls_policies.sql` | V1 W1 RLS | 上述 17 表全部 `ENABLE` + `FORCE` row-level security + 多租户隔离策略(详见 ADR 001) |
+| 0002 | `0002_tenant_bootstrap.sql` | V1 W2 注册流 | RPC `create_tenant_as_owner(slug, name, owner_user_id)` — 一次事务内创建 tenant + 写 owner membership,绕开 RLS 鸡蛋问题 |
+| 0003 | `0003_content_storage.sql` | V1 W3 文件上传 | Storage bucket `content-uploads`(私有,50MB,docx/pdf/md/txt)+ 路径规约 `<tenant_id>/<content_item_id>.<ext>` + RLS |
+| 0004 | `0004_w5_dispatch.sql` | V1 W5 派单 + 员工端 | `staff_invites` 表(phone passcode + HMAC,见 D11)+ `staff_accounts` 加 `phone`/`status` + `publish_tasks` 加 staff×scheduled 复合 index |
+| 0005 | `0005_w6_tracking.sql` | V1 W6 GEO 解析升级 | `citations` 加 `mention_term`/`mention_type`/`vocab_id` 字段 + 配套 index(对齐 ADR 002 — 主信号改成品牌提及而非 URL) |
+| 0006 | `0006_knowledge_base.sql` | V1.5 KB 内容工厂 | `knowledge_sources`(文件级 KB 索引)+ `content_citations`(变体↔KB 来源关联)+ `staff_accounts.platform_style` + `compliance_keywords.source_path` |
+| 0007 | `0007_geo_snapshot_session_url.sql` | V1.6-2 追踪审计 | `geo_snapshots.session_url` — 追踪结果回链豆包会话,人工抽检用 |
+| 0008 | `0008_staff_password.sql` | V1.6-3 自助设密 | `staff_accounts.password_hash` + `staff_invites.kind`(invite/reset)+ kind index |
+| 0009 | `0009_geo_score.sql` | V1.6 9 法评分 | `content_variants.geo_score_total`/`geo_score_breakdown`(jsonb)+ score 排序 index |
+| 0010 | `0010_verified_citations.sql` | V1.6 引用幻觉防护 | `verified_citations` 白名单表(每租户的可信引用源)+ `content_variants.citation_check_status` |
+| 0011 | `0011_customer_journey.sql` | V1.6 多触点归因 | `customer_identities`(指纹/电话尾号合并身份)+ `journey_touchpoints`(每次接触事件)+ `conversion_events.identity_id` |
+| 0012 | `0012_compliance_cases.sql` | V1.6 合规第三道门 | `compliance_cases`(历史违规罚单库,带向量)+ `content_variants.case_match_id`(命中追溯)— 实现 D12 第三道门 |
+| 0013 | `0013_platform_specific_compliance.sql` | V1.6 合规作用域 | `compliance_keywords.platforms` text[](按平台限定关键词作用域)+ GIN index — 实现 D12 平台特定门 |
+
+### Migration 编写约束
+
+1. 改 `packages/db/src/schema/*.ts` 必同步 `pnpm db:generate`,**不在生产手改 schema**(D10)
+2. 文件名前缀编号严格自增,Drizzle journal 自动维护
+3. 加表必同步在 `0001_rls_policies.sql` 思路下补 RLS(已加表的后续 migration 自带 ENABLE + FORCE,不能漏)
+4. 破坏性改动(rename/drop column)走两步走:先加新字段双写、灰度后再删,**不允许**单 migration 直接 drop
+5. seed 脚本属一次性 dev tooling,放 `packages/db/src/_dev/`,不混入 migrations
