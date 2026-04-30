@@ -2,18 +2,18 @@
  * Dev-only smoke for the Doubao Web tracker.
  *
  * Usage:
- *   pnpm --filter @geo/worker exec tsx src/trackers/dev-smoke.ts "南京正畸推荐哪家?" [--headful]
+ *   pnpm --filter @geo/worker exec tsx src/trackers/_dev/smoke.ts "南京正畸推荐哪家?" [--headful]
  *
  * Prints the adapter's result (status, text length, citation URLs, first 400
  * chars of the answer). Useful for eyeballing whether a question triggers
  * RAG-mode or knowledge-card mode, and for debugging selector rot.
  */
-import { doubaoWebAdapter } from './doubao-web';
+import { doubaoWebAdapter } from '../doubao-web';
 
 async function main() {
   const question = process.argv[2];
   if (!question) {
-    console.error('Usage: tsx src/trackers/dev-smoke.ts <question> [--headful]');
+    console.error('Usage: tsx src/trackers/_dev/smoke.ts <question> [--headful]');
     process.exit(1);
   }
   const headful = process.argv.includes('--headful');

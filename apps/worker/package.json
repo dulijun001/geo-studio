@@ -6,10 +6,10 @@
   "main": "./dist/index.js",
   "scripts": {
     "dev": "tsx watch --env-file=../../.env src/index.ts",
-    "dev-smoke-tracker": "tsx src/trackers/dev-smoke.ts",
-    "doubao:login": "tsx src/trackers/dev-doubao-login.ts",
-    "doubao:probe": "tsx src/trackers/dev-probe-dom.ts",
-    "yuanbao:login": "tsx src/trackers/dev-yuanbao-login.ts",
+    "dev-smoke-tracker": "tsx src/trackers/_dev/smoke.ts",
+    "doubao:login": "tsx src/trackers/_dev/doubao-login.ts",
+    "doubao:probe": "tsx src/trackers/_dev/probe-dom.ts",
+    "yuanbao:login": "tsx src/trackers/_dev/yuanbao-login.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"

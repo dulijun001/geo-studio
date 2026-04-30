@@ -5,7 +5,7 @@
  * tends to rename CSS modules every few weeks). Outputs go to /tmp/doubao-probe.
  *
  * Usage:
- *   pnpm --filter @geo/worker exec tsx src/trackers/dev-probe-dom.ts
+ *   pnpm --filter @geo/worker exec tsx src/trackers/_dev/probe-dom.ts
  */
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

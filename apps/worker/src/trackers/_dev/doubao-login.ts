@@ -9,7 +9,7 @@
  * screen, we declare success and let the user close the window.
  *
  * Usage:
- *   pnpm --filter @geo/worker exec tsx src/trackers/dev-doubao-login.ts
+ *   pnpm --filter @geo/worker exec tsx src/trackers/_dev/doubao-login.ts
  *
  * The login state survives across runs because Chrome writes its
  * cookies/localStorage into userDataDir = ~/.cache/geo-tracker/doubao/.
@@ -87,7 +87,7 @@ async function main() {
     console.log('\n✓ 登录态检测成功!cookie 已保存到:');
     console.log(`  ${userDataDir}`);
     console.log('\n  追踪 worker 会自动复用这个登录态。可以关闭浏览器了。');
-    console.log('  如需验证,运行:pnpm --filter @geo/worker exec tsx src/trackers/dev-smoke.ts "测试问题"');
+    console.log('  如需验证,运行:pnpm --filter @geo/worker exec tsx src/trackers/_dev/smoke.ts "测试问题"');
   } else {
     console.log('\n✗ 6 分钟内没检测到登录。再次运行此脚本重试。');
   }

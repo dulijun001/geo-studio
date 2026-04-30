@@ -8,8 +8,8 @@
  *   - 失败/超时不抛,返回 TrackerResult 让 worker 决定
  *   - selector 用 candidate list,DOM 改名只降效不死翘
  *
- * Login: pnpm --filter @geo/worker exec tsx src/trackers/dev-yuanbao-login.ts
- * Probe: pnpm --filter @geo/worker exec tsx src/trackers/dev-probe-yuanbao.ts
+ * Login: pnpm --filter @geo/worker exec tsx src/trackers/_dev/yuanbao-login.ts
+ * Probe: pnpm --filter @geo/worker exec tsx src/trackers/_dev/probe-yuanbao.ts (TODO)
  *
  * V1 的 selector 集合是 2026-04-29 第一次写的初值,**首次跑可能没命中**
  * (元宝改 CSS 比豆包频繁)。如果 raw_response_len=0,先跑 probe 命令看

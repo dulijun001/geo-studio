@@ -9,17 +9,17 @@
  *   5. Reports SOV
  *
  * Usage:
- *   pnpm exec tsx src/trackers/dev-baseline.ts <tenant_slug> "<question>"
+ *   pnpm exec tsx src/trackers/_dev/baseline.ts <tenant_slug> "<question>"
  */
-import { doubaoWebAdapter } from './doubao-web';
+import { doubaoWebAdapter } from '../doubao-web';
 import { scanBrandMentions } from '@geo/geo-core';
-import { getServiceClient } from '../lib/supabase';
+import { getServiceClient } from '../../lib/supabase';
 
 async function main() {
   const tenantSlug = process.argv[2];
   const question = process.argv[3];
   if (!tenantSlug || !question) {
-    console.error('Usage: tsx dev-baseline.ts <tenant_slug> "<question>"');
+    console.error('Usage: tsx src/trackers/_dev/baseline.ts <tenant_slug> "<question>"');
     process.exit(1);
   }
 

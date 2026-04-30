@@ -1,12 +1,12 @@
 /**
- * Headful Yuanbao login helper. Same approach as dev-doubao-login.ts
+ * Headful Yuanbao login helper. Same approach as _dev/doubao-login.ts
  * but for yuanbao.tencent.com.
  *
- * Usage: pnpm --filter @geo/worker exec tsx src/trackers/dev-yuanbao-login.ts
+ * Usage: pnpm --filter @geo/worker exec tsx src/trackers/_dev/yuanbao-login.ts
  */
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
-import { getYuanbaoUserDataDir } from './yuanbao-web';
+import { getYuanbaoUserDataDir } from '../yuanbao-web';
 
 const CHAT_URL = 'https://yuanbao.tencent.com/chat';
 
