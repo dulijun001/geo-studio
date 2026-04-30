@@ -27,21 +27,28 @@ import type { TrackerAdapter, TrackerContext, TrackerQuery, TrackerResult } from
 const CHAT_URL = 'https://chat.deepseek.com/';
 
 const INPUT_SELECTOR_CANDIDATES = [
-  'textarea[placeholder*="问"]',
+  // Probed 2026-04-30: "给 DeepSeek 发送消息" placeholder
   'textarea[placeholder*="发送"]',
   'textarea[placeholder*="DeepSeek"]',
+  'textarea[placeholder*="问"]',
   'textarea#chat-input',
   'textarea',
   '[contenteditable="true"][role="textbox"]',
 ];
 
-// "联网搜索" toggle. Most likely a button with text "联网搜索" or icon button
-// with aria-label. We click it once to flip on; idempotent guard checks
-// aria-pressed / class containing "active" before clicking again.
+// "智能搜索" toggle (DeepSeek's branding for web-search RAG). Probed
+// 2026-04-30: actual control is a <div role=button class="ds-atom-button
+// ds-toggle-button"> labelled "智能搜索"; selected state lives on
+// `ds-toggle-button--selected`. As of 2026-04 it's on by default but we
+// guard anyway in case the default flips.
 const SEARCH_TOGGLE_CANDIDATES = [
+  '.ds-toggle-button:has-text("智能搜索")',
+  '[class*="ds-toggle-button"]:has-text("智能搜索")',
+  'button:has-text("智能搜索")',
+  '[role="button"]:has-text("智能搜索")',
+  // Fallbacks if DeepSeek renames again
   'button:has-text("联网搜索")',
   'button[aria-label*="联网"]',
-  '[role="button"]:has-text("联网搜索")',
   'button:has-text("Web Search")',
 ];
 
@@ -53,11 +60,17 @@ const SEND_BUTTON_CANDIDATES = [
   'button:has(svg) ~ *', // last resort: any button with svg adjacent to textarea
 ];
 
-// Answer container candidates. DeepSeek usually wraps each turn in a div
-// with role="article" or a chat-message class. The whole conversation lives
-// in a scroll container.
+// Answer container candidates.
+//
+// Probed 2026-04-30: DeepSeek wraps the answer in `.ds-markdown` (the
+// top-level container, count=1 per turn). Avoid the wildcard `[class*=
+// "ds-markdown"]` — that ALSO matches `ds-markdown-paragraph` and
+// `ds-markdown-cite` children, so textContent gets concat'd twice (parent
+// + each child) and the answer doubles. Use the exact class first; the
+// wildcard stays as a last-resort fallback if DeepSeek renames.
 const MESSAGE_CANDIDATES = [
-  '[class*="ds-markdown"]',          // observed: DeepSeek markdown wrapper
+  '.ds-markdown',
+  '[class*="ds-markdown"]:not([class*="paragraph"]):not([class*="cite"])',
   '[class*="markdown-body"]',
   '[role="article"]',
   '[class*="message-content"]',
@@ -227,7 +240,8 @@ class DeepseekWebAdapter implements TrackerAdapter {
           const aria = el.getAttribute('aria-pressed');
           if (aria === 'true') return true;
           const cls = (el as HTMLElement).className || '';
-          return /active|enabled|on\b|selected/i.test(typeof cls === 'string' ? cls : '');
+          // DeepSeek concrete: ds-toggle-button--selected (probed 2026-04-30)
+          return /--selected|active|enabled|on\b/i.test(typeof cls === 'string' ? cls : '');
         })
         .catch(() => false);
       if (!alreadyOn) await btn.click().catch(() => undefined);

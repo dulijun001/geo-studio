@@ -1,30 +1,42 @@
 /**
- * Dev-only smoke for the Doubao Web tracker.
+ * Dev-only smoke for any registered tracker engine.
  *
  * Usage:
- *   pnpm --filter @geo/worker exec tsx src/trackers/_dev/smoke.ts "南京正畸推荐哪家?" [--headful]
+ *   pnpm --filter @geo/worker exec tsx src/trackers/_dev/smoke.ts <engine> "<question>" [--headful]
  *
- * Prints the adapter's result (status, text length, citation URLs, first 400
- * chars of the answer). Useful for eyeballing whether a question triggers
- * RAG-mode or knowledge-card mode, and for debugging selector rot.
+ * engine ∈ doubao | yuanbao | deepseek (others are stubs)
+ *
+ * Prints status, text length, citation URLs, and full raw_response. Useful
+ * for eyeballing whether a question triggers RAG-mode and for debugging
+ * selector rot.
  */
-import { doubaoWebAdapter } from '../doubao-web';
+import type { Engine } from '@geo/shared';
+import { getAdapter, isImplemented } from '../registry';
 
 async function main() {
-  const question = process.argv[2];
-  if (!question) {
-    console.error('Usage: tsx src/trackers/_dev/smoke.ts <question> [--headful]');
-    process.exit(1);
-  }
+  const engine = process.argv[2] as Engine | undefined;
+  const question = process.argv[3];
   const headful = process.argv.includes('--headful');
 
+  if (!engine || !question) {
+    console.error('Usage: tsx src/trackers/_dev/smoke.ts <engine> "<question>" [--headful]');
+    console.error('  engine ∈ doubao | yuanbao | deepseek');
+    process.exit(1);
+  }
+  if (!isImplemented(engine)) {
+    console.error(`engine "${engine}" has no real adapter (stub only). Aborting.`);
+    process.exit(1);
+  }
+
+  const adapter = getAdapter(engine);
+  console.log(`[smoke] engine:   ${engine}`);
   console.log(`[smoke] question: ${question}`);
   console.log(`[smoke] headless: ${!headful}`);
   const t0 = Date.now();
 
-  const result = await doubaoWebAdapter.query(
+  const result = await adapter.query(
     {
-      engine: 'doubao',
+      engine,
       question,
       snapshot_id: 'smoke',
     },
