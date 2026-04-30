@@ -22,15 +22,22 @@ import { chromium, type BrowserContext } from 'playwright';
 import type { TrackerAdapter, TrackerContext, TrackerQuery, TrackerResult } from '@geo/geo-core';
 
 const CHAT_URL = 'https://yuanbao.tencent.com/chat';
+// Probed 2026-04-30: Yuanbao uses a Quill rich-text editor (ql-editor)
+// instead of a plain <textarea>. ql-blank class disappears once typed.
 const INPUT_SELECTOR_CANDIDATES = [
+  '.ql-editor',
+  'div[contenteditable="true"].ql-editor',
+  '[class*="agent-input"] [contenteditable="true"]',
+  '[contenteditable="true"][role="textbox"]',
   'textarea[placeholder*="问元宝"]',
   'textarea[placeholder*="发送给元宝"]',
   'textarea[placeholder*="发消息"]',
-  '[contenteditable="true"][role="textbox"]',
+  '[contenteditable="true"]',
   'textarea',
 ];
 // Yuanbao 把消息内容渲染在多个嵌套 div,这些是 2026-04 时的一些常见类前缀
 const MESSAGE_CANDIDATES = [
+  '[class*="hyc-content-md"]',
   '[class*="agent-chat__bubble"]',
   '[class*="chat-message-ai"]',
   '[class*="ai-message"]',
@@ -40,7 +47,13 @@ const MESSAGE_CANDIDATES = [
   '[data-testid*="message"]',
   'main',
 ];
+// Probed 2026-04-30: send icon class is `iconfont icon-send` inside the
+// composer toolbar. The clickable ancestor is the icon's container span/div,
+// not a <button>. Generic `button:has(svg)` previously misfired onto an
+// unrelated header icon and left the message in the composer.
 const SEND_BUTTON_CANDIDATES = [
+  '[class*="icon-send"]',
+  '[class*="agent-chat__input"] [class*="icon-send"]',
   'button[aria-label*="发送"]',
   'button[class*="send-button"]',
   'button[class*="submit"]',
