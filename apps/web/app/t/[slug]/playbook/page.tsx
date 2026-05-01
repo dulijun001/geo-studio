@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { requireTenantMember } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { InlineGuide } from '@/components/inline-guide';
 import { PageHeader } from '@/components/page-header';
 import { fmtDateTime } from '@/lib/format';
 import {
@@ -202,6 +203,18 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
       <PageHeader
         title="GEO 执行计划"
         subtitle="豆包 GEO 8 周冷启动路线图。每个阶段有目标 / 内容主题 / 推荐节奏 + 自动算的进度。强执行,按部就班。"
+      />
+
+      <InlineGuide
+        storageKey={`guide:playbook:${tenant.slug}`}
+        title="这页是干嘛的"
+        body={'8 周冷启动 GEO 的"军令状"——每周做什么、产出多少、看哪些数据,系统帮你算到哪了。新接入客户从这里开始最稳。每个阶段会自动从你的 KB 进度 / 内容产出 / SOV 趋势拉数据,显示当前完成度,不是死的咨询模板。'}
+        steps={[
+          'W1-2 基础阶段:百科 + POI + 大众点评(基础设施先立起来)',
+          'W3-4 内容阶段:每周 4-6 篇科普,覆盖核心治疗项目',
+          'W5-6 矩阵阶段:40 人员工真人发布,跨平台分发',
+          'W7-8 验证阶段:跑 SOV baseline,看引用率,迭代弱项',
+        ]}
       />
 
       {/* Top status bar */}

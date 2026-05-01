@@ -12,6 +12,7 @@
 import Link from 'next/link';
 import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { InlineGuide } from '@/components/inline-guide';
 import { PageHeader } from '@/components/page-header';
 import { RescueButton } from './rescue-button';
 
@@ -71,6 +72,17 @@ export default async function RescuePage({ params }: { params: { slug: string } 
       <PageHeader
         title="老内容效果迭代"
         subtitle={`列出 GEO 评分 < ${RESCUE_SCORE_THRESHOLD} 的变体,可一键 AI 重写补强弱项`}
+      />
+
+      <InlineGuide
+        storageKey={`guide:rescue:${tenant.slug}`}
+        title="这页是干嘛的"
+        body={'被发现 GEO 评分太低或发布超过 30 天没引用的"内容资产",在这里集中救援。点 "AI 救援" 系统会读这条变体的弱项(缺权威引用 / 数据 / 引语等),针对性重写一份新版本,走完整合规审核后替换上去。等于把死掉的老内容回炉重造,不用从头写。'}
+        steps={[
+          '红 / 黄 / 绿 三档分布:🔴 紧急 < 50,🟡 较弱 50-64,🟢 临界 65-79',
+          '点单条卡片右侧"AI 救援"按钮 → 系统 60-130s 出新变体 → 进合规审核',
+          '救援后保留旧版本作为版本谱系,不删,以后回看哪条效果好',
+        ]}
       />
 
       <section className="card-surface p-5">

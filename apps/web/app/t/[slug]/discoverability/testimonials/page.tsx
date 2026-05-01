@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { InlineGuide } from '@/components/inline-guide';
 import { PageHeader } from '@/components/page-header';
 import { fmtDateTime } from '@/lib/format';
 import { TestimonialsTable } from './testimonials-table';
@@ -67,10 +68,21 @@ export default async function TestimonialsListPage({
         }
       />
 
+      <InlineGuide
+        storageKey={`guide:disco-testimonials:${tenant.slug}`}
+        title="这页是干嘛的"
+        body={'录入客户对治疗的真实反馈,审核通过后挂到对外公开 URL,变成 schema.org/Review 给 AI 引擎读。豆包答「XX 医院靠谱吗」这类问题时,AI 会拉取这些 Review 的评分 + 摘要回答用户。'}
+        steps={[
+          '"+ 新增见证"录入一条 — 化名(L 女士 / 32 岁 / 南京)+ 内容 + 评分 + 见证日期',
+          '默认状态是"待审"+不公开,审核通过(通过 / 拒绝按钮)后才能开公开',
+          'DB 触发器兜底:即便手动改库,只要 compliance_status≠approved 就不允许 geo_visible=true',
+        ]}
+        linkLabel="合规四道门"
+        linkHref={`/t/${tenant.slug}/help#compliance`}
+      />
+
       <div className="rounded-md border border-amber-200 bg-amber-50/60 p-4 text-xs text-amber-900">
-        <strong>合规闸(D16):</strong> 客户见证默认 pending 状态,不公开。需要先在"合规审核"
-        标记为 approved 才能开 geo_visible。DB 触发器兜底(0018)— 即便代码绕过,DB 也会拒绝。
-        所有 PII 不准存(姓名 / 手机 / 身份证 / 病历号),只用化名 + 城市 + 年龄段。
+        <strong>⚠ 隐私红线:</strong> 所有 PII(姓名 / 手机 / 身份证 / 病历号)严禁存入。只用 <strong>化名 + 城市 + 年龄段</strong>。医疗个人信息保护法对此有明文约束,违反一次起罚十万。
       </div>
 
       <TestimonialsTable tenantSlug={tenant.slug} rows={rows} services={services} />

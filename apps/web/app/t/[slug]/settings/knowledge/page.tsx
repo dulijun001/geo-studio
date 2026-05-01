@@ -3,6 +3,7 @@ import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/components/page-header';
 import { fmtDateTime } from '@/lib/format';
+import { InlineGuide } from '@/components/inline-guide';
 import { ForceSyncButton } from './force-sync-button';
 
 export const dynamic = 'force-dynamic';
@@ -95,6 +96,17 @@ export default async function KnowledgeSettingsPage({
         title="知识库"
         subtitle="客户 markdown 知识库 → 同步状态 / 派生数据 / 立即重扫"
         actions={<ForceSyncButton tenantSlug={tenant.slug} />}
+      />
+
+      <InlineGuide
+        storageKey={`guide:settings-kb:${tenant.slug}`}
+        title="这页是干嘛的"
+        body={'知识库是整个内容生产 + 合规 + 派单的「上游水源」。客户的科普文 / 临床指南 / 病例 / 医生介绍以 markdown 文件存进来,worker 每 5 分钟扫一次:新文件 / 修改 / 删除都会触发对应下游(合规词库 / 医生标签 / 品牌词典)的自动重建。AI 起草 + 变体改写都会读 KB 上下文,降低 LLM 幻觉。'}
+        steps={[
+          '上传新 md 文件:放进客户 KB 目录(运维侧操作),worker 自动发现',
+          '"立即重扫"按钮 → 跳过 5 分钟扫描周期,马上同步',
+          '建议至少 20 篇起步,按"医生介绍 / 治疗项目 / 科普 / 病例"四类分文件夹',
+        ]}
       />
 
       {/* === Top-level KPIs === */}

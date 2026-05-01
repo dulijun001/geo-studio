@@ -20,6 +20,7 @@
 import Link from 'next/link';
 import { requireTenantMember } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { InlineGuide } from '@/components/inline-guide';
 import { PageHeader } from '@/components/page-header';
 
 export const dynamic = 'force-dynamic';
@@ -187,6 +188,18 @@ export default async function SovHeatmapPage({ params }: { params: { slug: strin
       <PageHeader
         title="SOV 战况图"
         subtitle={`Query × 周 热力图 · 过去 ${WEEKS_TO_SHOW} 周 · 每周一 09:00 自动 baseline · 数据来自豆包真人模拟抓取`}
+      />
+
+      <InlineGuide
+        storageKey={`guide:sov:${tenant.slug}`}
+        title="这页是干嘛的"
+        body={'看你品牌在豆包答案里的"话语权"趋势。"GEO 追踪"页是当前快照,这页是 8 周趋势 — 哪些 query 在改善 / 退步 / 一直空着,一眼可见。每周一早 9 点自动跑一轮 baseline。'}
+        steps={[
+          '✅ 守住 = 你被提到 + 竞品没被提到,稳住',
+          '⚔️ 拉锯 = 你和竞品都被提到,争夺中,可针对性加内容',
+          '🔴 失守 = 只竞品被提到 — 紧急,补内容 / 加 schema / 救援老变体',
+          '⚪ 真空 = 谁都没被提到 — 这条 query 整体冷,大家没卷,你抢机会',
+        ]}
       />
 
       {/* Top rollup — overall SOV trend */}

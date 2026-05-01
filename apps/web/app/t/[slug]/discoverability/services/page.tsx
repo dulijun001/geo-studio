@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { InlineGuide } from '@/components/inline-guide';
 import { PageHeader } from '@/components/page-header';
 import { fmtDateTime } from '@/lib/format';
 import { ServicesTable } from './services-table';
@@ -49,6 +50,20 @@ export default async function ServicesListPage({ params }: { params: { slug: str
           </Link>
         }
       />
+
+      <InlineGuide
+        storageKey={`guide:disco-services:${tenant.slug}`}
+        title="这页是干嘛的"
+        body={'维护医院 / 诊所提供的「服务项」目录:种植牙、正畸、儿牙、美白等核心项目。每条服务都会变成一份 schema.org/MedicalProcedure 给 AI 引擎读,在 llms.txt + feed 里也会出现。带价格区间的服务在豆包答「贵不贵」类问题时更容易被引用。'}
+        steps={[
+          '"+ 新增服务"创建一项 — 至少填名称 + 分类',
+          '价格留空 = "面诊报价";填了 min/typical/max 会按 ¥xx,xxx-xx,xxx 格式展示',
+          '勾"公开"后下次重建 artifact 就会出现在公开 URL 里;不勾 = 内部记录,不外放',
+        ]}
+        linkLabel="可发现层完整设计"
+        linkHref={`/t/${tenant.slug}/help#discoverability`}
+      />
+
       <ServicesTable tenantSlug={tenant.slug} rows={rows} />
     </div>
   );

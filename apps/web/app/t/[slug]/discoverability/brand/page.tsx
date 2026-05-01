@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { InlineGuide } from '@/components/inline-guide';
 import { PageHeader } from '@/components/page-header';
 import { BrandForm } from './brand-form';
 
@@ -78,6 +79,20 @@ export default async function BrandEditPage({ params }: { params: { slug: string
           </Link>
         }
       />
+
+      <InlineGuide
+        storageKey={`guide:disco-brand:${tenant.slug}`}
+        title="这页是干嘛的"
+        body={'维护医院 / 诊所的「对外身份卡」— 地址、营业时间、医疗专科、执业资质。这些字段是 AI 引擎判断「这是不是一家正经医疗机构」的核心信号,直接进 schema.org/MedicalBusiness。地址 + 经纬度齐全的医院,豆包答「南京哪家」这类本地问题时大概率会推到你。'}
+        steps={[
+          '地址必须填街道 + 经纬度(高德地图 / 百度地图查得到),否则 AI 不知道你在哪',
+          '医疗专科用英文(Dentistry / Orthodontics 等),Schema.org 国际标准只认英文',
+          '执业资质至少填一条(医疗机构执业许可证),AI 引擎对带资质的内容信任度更高',
+        ]}
+        linkLabel="GEO 体检表(基础设施清单)"
+        linkHref={`/t/${tenant.slug}/settings/geo-checklist`}
+      />
+
       <BrandForm tenantSlug={tenant.slug} initial={initial} />
     </div>
   );
