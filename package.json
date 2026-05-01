@@ -24,7 +24,8 @@
     "db:dev-link": "pnpm --filter @geo/db dev-link",
     "db:test-content": "pnpm --filter @geo/db test-content",
     "db:test-discoverability": "pnpm --filter @geo/db test-discoverability",
-    "db:test-schema": "pnpm --filter @geo/db test-schema"
+    "db:test-schema": "pnpm --filter @geo/db test-schema",
+    "db:test-artifacts": "pnpm --filter @geo/db test-artifacts"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

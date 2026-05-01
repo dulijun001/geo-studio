@@ -1,6 +1,10 @@
 import type PgBoss from 'pg-boss';
 import { handleComplianceReview, type ComplianceReviewJob } from './compliance-review';
 import { handleDailyReport, type DailyReportJob } from './daily-report';
+import {
+  handleDiscoverabilityRegenerate,
+  type DiscoverabilityRegenerateJob,
+} from './discoverability-regenerate';
 import { handleGeoSnapshot, type GeoSnapshotJob } from './geo-snapshot';
 import { handleGeoWeeklyBaseline, type GeoWeeklyBaselineJob } from './geo-weekly-baseline';
 import { handleKnowledgeSync, type KnowledgeSyncJob } from './knowledge-sync';
@@ -21,6 +25,7 @@ export const JOBS = {
   KNOWLEDGE_SYNC: 'knowledge.sync', // V1.5
   KNOWLEDGE_WEEKLY: 'knowledge.weekly_report', // V1.5-10
   GEO_WEEKLY_BASELINE: 'geo.weekly_baseline', // V1.6-2
+  DISCOVERABILITY_REGENERATE: 'discoverability.regenerate', // V1.7
 } as const;
 
 export async function registerJobs(boss: PgBoss): Promise<void> {
@@ -64,6 +69,14 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
   await boss.work<GeoWeeklyBaselineJob>(JOBS.GEO_WEEKLY_BASELINE, async ([job]) => {
     await handleGeoWeeklyBaseline(boss, job?.data ?? {});
   });
+
+  await boss.work<DiscoverabilityRegenerateJob>(
+    JOBS.DISCOVERABILITY_REGENERATE,
+    async ([job]) => {
+      if (!job?.data) return;
+      await handleDiscoverabilityRegenerate(job.data);
+    },
+  );
 
   // Schedule the daily report at 09:00 Asia/Shanghai (= 01:00 UTC).
   // pg-boss schedule uses UTC cron; 0 1 * * * = 01:00 UTC = 09:00 Asia/Shanghai.
