@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 import { requireRole } from '@/lib/tenant';
 import { fmtDateTime } from '@/lib/format';
+import { EeatCard } from '@/components/eeat-card';
 import { ReviewActions } from './review-actions';
 import { HighlightedBody } from './highlighted-body';
 import { EditForm } from './edit-form';
@@ -120,6 +121,9 @@ export default async function ComplianceDetailPage({
         <aside className="space-y-5">
           <CaseMatchPanel match={variant.case_match} />
           <GeoScorePanel score={variant.geo_score} />
+          {variant.geo_score && typeof variant.geo_score.total === 'number' ? (
+            <EeatCard score={variant.geo_score as unknown as import('@geo/geo-core').GeoScore} compact />
+          ) : null}
           <CitationCheckPanel check={variant.citation_check} />
           <ReviewTimeline reviews={reviewRows} reviewerEmails={reviewerEmails} />
           {canAct ? (

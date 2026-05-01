@@ -24,6 +24,8 @@ export default async function TenantHomePage({ params }: { params: { slug: strin
     questionsRes,
     snapshotsDoneRes,
     conversionsRes,
+    tenantSettingsRes,
+    artifactsRes,
   ] = await Promise.all([
     supabase.from('content_items').select('*', { count: 'exact', head: true }).eq('tenant_id', tenant.id).is('deleted_at', null),
     supabase.from('content_variants').select('*', { count: 'exact', head: true }).eq('tenant_id', tenant.id).eq('compliance_status', 'pending').is('deleted_at', null),
@@ -33,7 +35,13 @@ export default async function TenantHomePage({ params }: { params: { slug: strin
     supabase.from('questions').select('*', { count: 'exact', head: true }).eq('tenant_id', tenant.id).eq('active', true).is('deleted_at', null),
     supabase.from('geo_snapshots').select('question_id').eq('tenant_id', tenant.id).eq('status', 'done').is('deleted_at', null),
     supabase.from('conversion_events').select('*', { count: 'exact', head: true }).eq('tenant_id', tenant.id).is('deleted_at', null),
+    supabase.from('tenants').select('settings').eq('id', tenant.id).single(),
+    supabase.from('discoverability_artifacts').select('generated_at').eq('tenant_id', tenant.id).order('generated_at', { ascending: false }).limit(1),
   ]);
+
+  const discoSettings = ((tenantSettingsRes.data?.settings as Record<string, unknown> | undefined)?.discoverability ?? {}) as Record<string, unknown>;
+  const discoPublicEnabled = discoSettings.public_enabled === true;
+  const discoLastGenerated = (artifactsRes.data?.[0]?.generated_at as string | null | undefined) ?? null;
 
   // ─────────────────────────────────────────────────────────────────
   // Doubao GEO Health (V1.6-4) — 5-tier pyramid
@@ -185,6 +193,32 @@ export default async function TenantHomePage({ params }: { params: { slug: strin
         <MiniStat label="问题库" value={questionsTotal} caption="active = true 的问题" />
         <MiniStat label="转化事件" value={conversionEvents} caption="患者通过暗号回报" />
       </section>
+
+      {/* V1.7 — Discoverability layer status */}
+      <Link
+        href={`/t/${tenant.slug}/discoverability`}
+        className={`flex flex-wrap items-center gap-3 rounded-md border p-4 transition hover:shadow-sm ${
+          discoPublicEnabled
+            ? 'border-emerald-200 bg-emerald-50/40'
+            : 'border-border bg-card'
+        }`}
+      >
+        <span
+          className={`inline-block h-2 w-2 rounded-full ${
+            discoPublicEnabled ? 'bg-emerald-500' : 'bg-muted-foreground/40'
+          }`}
+        />
+        <div className="flex-1 text-sm">
+          <span className="font-medium">可发现层</span>
+          <span className="ml-2 text-muted-foreground">
+            {discoPublicEnabled ? '公开开启' : '关闭(尚未对外)'}
+            {discoLastGenerated
+              ? ` · artifacts 最近重建 ${fmtDateTime(discoLastGenerated)}`
+              : ' · artifacts 未生成'}
+          </span>
+        </div>
+        <span className="text-xs text-muted-foreground">前往配置 →</span>
+      </Link>
 
       {/* Quick start (only if tenant is empty) */}
       {isFreshTenant ? (

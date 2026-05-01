@@ -145,27 +145,28 @@ geo-studio/
 5. 所有 commit 保留 `Co-Authored-By: Claude`,不隐藏 AI 参与
 6. 涉及金钱/合规/隐私的变更,必须和用户确认后才推进
 
-## 九、当前状态(2026-04-30 更新)
+## 九、当前状态(2026-05-01 更新)
 
 ### 已完成
 - **V0 骨架**(2026-04-23):docs/ 五份 + CLAUDE.md + monorepo 立起
-- **V1 W1-W7 主体**(2026-04-23 → 2026-04-25):多租户 + 内容中台 + 合规三道门 + 派单 + 移动端 + GEO 半自动追踪 + 转化归因。15 个 migration 落库,`/t/[slug]` 后台 + `/staff` 员工端 PWA 上线
+- **V1 W1-W7 主体**(2026-04-23 → 2026-04-25):多租户 + 内容中台 + 合规三道门 + 派单 + 移动端 + GEO 半自动追踪 + 转化归因
 - **V1.5 知识库驱动 AI 内容工厂**(2026-04-25 前后):KB 实时同步、AI 起草、平台风格从 KB 派生、引用守卫、周报邮件
-- **V1.6 增量补强**:
-  - V1.6-1~9:合规变体 AI 改写、Doubao GEO playbook(8 周路线 + 周行动表)、内容反向工作流(query → matrix proposer)、品牌+竞品+地点真实种子、admin HMAC + dev bypass
-  - 合规升级:四道门(历史案例匹配 + 平台特定关键词作用域)
-  - GEO:9 法 rule-based 评分、低分变体自动改写 + rescue 页(P2-#13)、SOV 8 周 × query 热力图、引用幻觉检查、verified-citations 白名单
-- **V2 起步**:多引擎 dispatcher(P1-#6)、元宝 adapter scaffold;余下 4 引擎 + 账号池 + 代理 + 指纹隔离待做
+- **V1.6 增量补强**:合规四道门(D12)、GEO 9 法评分、低分变体自动改写 + rescue 页、SOV 8 周热力图、引用幻觉检查、verified-citations 白名单、多引擎 dispatcher 起步
+- **V1.7 可发现层**(2026-05-01,**Sprint 0-6 全部完成**):
+  - **A 组(可发现层)**:Schema.org JSON-LD 7 类生成器、`/c/[slug]/llms.txt` + `llms-full.txt` + `ai-content-feed.json` + `ai-sitemap.xml` 4 条公开路由 + ETag/304 + 60/min rate-limit + opt-in 闸 + service-role 物化缓存(`discoverability_artifacts`)+ build-on-write worker job(`discoverability.regenerate`)+ 4 维度 audit 评分(完整度/数据规模/可信度/时效性)+ 完整 admin UI(hub + brand 编辑 + services/testimonials/faqs CRUD)
+  - **B 组(生产层补强)**:内容独特性检测(Jaccard + 结构 + 关键信息,自动加 `uniqueness_warning` 到跨平台变体)+ E-E-A-T 4 维度命名映射(scorer 不动,纯命名 + UI 标签)
+  - 数据模型扩 7 张 migration(0015-0021):brands 扩列、staff 加 geo_profile_visible、新增 services / testimonials / faqs / discoverability_artifacts、tenants.settings.discoverability 默认值
+  - 109 项纯函数测试覆盖(profile builders 33 + schema generators 49 + artifact generators 23 + uniqueness/eeat 19 + RLS / behavioral 已在 S1 e2e 验证)
+  - **关键安全 bug 抓+修**:`unstable_noStore()` 缺失会让 Next 14 Data Cache 把过期的 opt-in 状态喂给路由 → opt-out 失效 → 客户内容继续泄露。S3 实测时定位 + 修复
 
 ### 当前阶段
-- **V1.6 收尾 + V2 准备期**
-- 文档对齐工单进行中(2026-04-30):本节 + 第七节合规四道门 + ADR 004 反爬策略
-- 接下来按 A → B → D 顺序:文档对齐 → 技术债清理 → V2 反爬基础设施
+- **V1.7 完成,等待部署**(本地 main,5+ 条 commit 攒着)
+- **V2 反爬基础设施可启动**:多引擎 + 账号池 + 代理 + 指纹隔离(ADR 004)
 
 ### 阻塞 / 待澄清
 - V1 W8 真实数据验收(40 人打卡率、5 起到店转化追溯、医院见证)未归档,需业务侧推进
-- `docs/03-compliance.md` 仍是三道门版本,需回填四道门细节(B 阶段)
-- `packages/db/src/` 与 `apps/worker/src/trackers/` 根目录混入 `dev-*`/`test-*` 脚本,需重组(B 阶段进行中)
+- `docs/03-compliance.md` 仍是三道门版本,需回填四道门细节(技术债)
+- 自上次 demo 起未部署的 commit:V1.6 文档对齐 + tracking SUPPORTED_ENGINES 修复 + format.ts TZ 防御 + 中间件短路 + tenant_memberships FK migration + V1.7 全套
 
 ## 十、参考
 
