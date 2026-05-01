@@ -8,3 +8,4 @@ export * from './compliance';
 export * from './conversion';
 export * from './audit';
 export * from './knowledge';
+export * from './discoverability';

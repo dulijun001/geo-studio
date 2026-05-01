@@ -16,3 +16,4 @@ export * from './generation';
 export * from './dispatch';
 export * from './tracking';
 export * from './attribution';
+export * from './discoverability';

@@ -22,7 +22,8 @@
     "db:test-auth": "pnpm --filter @geo/db test-auth",
     "db:test-tenant": "pnpm --filter @geo/db test-tenant",
     "db:dev-link": "pnpm --filter @geo/db dev-link",
-    "db:test-content": "pnpm --filter @geo/db test-content"
+    "db:test-content": "pnpm --filter @geo/db test-content",
+    "db:test-discoverability": "pnpm --filter @geo/db test-discoverability"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

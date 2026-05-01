@@ -1,5 +1,6 @@
 import { relations, sql } from 'drizzle-orm';
 import {
+  boolean,
   index,
   jsonb,
   pgEnum,
@@ -37,12 +38,24 @@ export const brands = pgTable(
     id: pk(),
     tenant_id: tenantFk(),
     name: text('name').notNull(),
-    /** { city, district, address, lat, lng } */
+    /** { city, district, address, lat, lng, neighborhood?, postal_code?, country?, region? } */
     location: jsonb('location').notNull().default({}),
     /** Phone pool for phone-tail hooks. */
     contact_phones: text('contact_phones').array().notNull().default([]),
     /** WeCom QR url embedded in published content for utm-based attribution. */
     wecom_qr_url: text('wecom_qr_url'),
+    /** schema.org/medicalSpecialty values, e.g. ["Dentistry","OrthopaedicSurgery"]. (V1.7 / migration 0015) */
+    medical_specialties: text('medical_specialties').array().notNull().default([]),
+    /** schema.org/openingHoursSpecification flattened: { mon: "09:00-18:00", ... }. (0015) */
+    business_hours: jsonb('business_hours').notNull().default({}),
+    /** Customer-owned website. Null = host llms.txt/feed under our subdomain. (0015) */
+    website_url: text('website_url'),
+    /** Public profile URLs: { wechat_mp, weibo, douyin, xiaohongshu, ... }. Used as Organization.sameAs. (0015) */
+    social_urls: jsonb('social_urls').notNull().default({}),
+    /** Long-form brand description. Used in llms-full.txt + Organization.description. (0015) */
+    description_md: text('description_md'),
+    /** { licenses: [...], accreditations: [...] }. JCI / 三甲 / 医保定点 etc. (0015) */
+    verified_credentials: jsonb('verified_credentials').notNull().default({}),
     ...timestamps(),
   },
   (t) => ({
@@ -81,6 +94,10 @@ export const staffAccounts = pgTable(
      * staff member completes setup via an invite link.
      */
     password_hash: text('password_hash'),
+    /** Opt-in flag: false = doctor not exposed in any public artifact. (V1.7 / migration 0016) */
+    geo_profile_visible: boolean('geo_profile_visible').notNull().default(false),
+    /** { license_number, board_certifications: [...], specialties: [...], experience_years, education: [...] }. Maps to schema.org/Physician. (0016) */
+    credentials: jsonb('credentials').notNull().default({}),
     ...timestamps(),
   },
   (t) => ({
@@ -90,6 +107,9 @@ export const staffAccounts = pgTable(
     tenant_phone_uq: uniqueIndex('staff_accounts_tenant_phone_uq')
       .on(t.tenant_id, t.phone)
       .where(sql`${t.phone} IS NOT NULL`),
+    geo_visible_idx: index('staff_accounts_geo_visible_idx')
+      .on(t.tenant_id)
+      .where(sql`${t.geo_profile_visible} = true AND ${t.status} = 'active' AND ${t.deleted_at} IS NULL`),
   }),
 );
 
