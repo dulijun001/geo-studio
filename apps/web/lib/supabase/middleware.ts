@@ -19,40 +19,50 @@ type CookieItem = { name: string; value: string; options?: CookieOptions };
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
   let response = NextResponse.next({ request });
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) {
-    // In dev, surface the misconfiguration instead of silently passing through.
-    console.error('[middleware] Supabase env vars missing');
-    return response;
+  // Local-auth cookies (HMAC-signed by the web app itself) are independent
+  // of the Supabase Auth container. When either is present, skip the upstream
+  // getUser() round-trip — that call hangs whenever Auth is flaky on ECS,
+  // and middleware runs on every request, so a 5-30s tail latency there
+  // bleeds into the whole site. The admin/staff page handlers do their own
+  // HMAC verification via getCurrentUser / readStaffSession.
+  const hasAdminCookie = !!request.cookies.get('geo_admin_session')?.value;
+  const hasStaffCookie = !!request.cookies.get('geo_staff_session')?.value;
+  const hasLocalAuth = hasAdminCookie || hasStaffCookie;
+
+  let supabaseUser = null;
+  if (!hasLocalAuth) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !anonKey) {
+      // In dev, surface the misconfiguration instead of silently passing through.
+      console.error('[middleware] Supabase env vars missing');
+      return response;
+    }
+
+    const supabase = createServerClient(url, anonKey, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll(cookiesToSet: CookieItem[]) {
+          for (const { name, value } of cookiesToSet) {
+            request.cookies.set(name, value);
+          }
+          response = NextResponse.next({ request });
+          for (const { name, value, options } of cookiesToSet) {
+            response.cookies.set(name, value, options);
+          }
+        },
+      },
+    });
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    supabaseUser = user;
   }
 
-  const supabase = createServerClient(url, anonKey, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
-      },
-      setAll(cookiesToSet: CookieItem[]) {
-        for (const { name, value } of cookiesToSet) {
-          request.cookies.set(name, value);
-        }
-        response = NextResponse.next({ request });
-        for (const { name, value, options } of cookiesToSet) {
-          response.cookies.set(name, value, options);
-        }
-      },
-    },
-  });
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  // Admin HMAC cookie is an alternate auth path (lib/admin-session.ts) used
-  // by /login/dev when supabase-auth is unreachable. We only check presence
-  // here — the page's getCurrentUser() performs the actual HMAC verification.
-  const hasAdminCookie = !!request.cookies.get('geo_admin_session')?.value;
-  const isAuthed = !!user || hasAdminCookie;
+  const isAuthed = !!supabaseUser || hasLocalAuth;
 
   const pathname = request.nextUrl.pathname;
   const isProtected = pathname.startsWith('/app') || pathname.startsWith('/t/');
