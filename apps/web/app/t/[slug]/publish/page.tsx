@@ -2,6 +2,7 @@ import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/components/page-header';
 import { InlineGuide } from '@/components/inline-guide';
+import { fmtDateTime } from '@/lib/format';
 import { DispatchButton } from './dispatch-button';
 import { CancelButton } from './cancel-button';
 
@@ -192,7 +193,7 @@ export default async function PublishPage({ params }: { params: { slug: string }
                     </span>
                     {overdue ? (
                       <span
-                        title={`派发于 ${new Date(t.created_at).toLocaleString('zh-CN')},超过 ${OVERDUE_HOURS} 小时未回填发布链接`}
+                        title={`派发于 ${fmtDateTime(t.created_at)},超过 ${OVERDUE_HOURS} 小时未回填发布链接`}
                         className="ml-1.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-800"
                       >
                         逾期

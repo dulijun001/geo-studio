@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireTenantMember } from '@/lib/tenant';
 import { PageHeader } from '@/components/page-header';
 import { InlineGuide } from '@/components/inline-guide';
+import { fmtDateTime } from '@/lib/format';
 import { UploadForm } from './upload-form';
 import { AiDraftForm } from './ai-draft-form';
 import { QueryMatrixForm } from './query-matrix-form';
@@ -101,7 +102,7 @@ function ContentTable({ items, canEdit: _canEdit }: { items: Item[]; canEdit: bo
                 {it.markdown ? it.markdown.length.toLocaleString() : '—'}
               </td>
               <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                {new Date(it.created_at).toLocaleString('zh-CN')}
+                {fmtDateTime(it.created_at)}
               </td>
             </tr>
           ))}

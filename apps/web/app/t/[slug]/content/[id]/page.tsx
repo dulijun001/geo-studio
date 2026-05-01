@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireTenantMember } from '@/lib/tenant';
+import { fmtDateTime } from '@/lib/format';
 import { GenerateVariantsForm } from './generate-variants-form';
 import { DeriveForm } from './derive-form';
 
@@ -74,9 +75,9 @@ export default async function ContentDetailPage({
           <span>·</span>
           <span>{item.status}</span>
           <span>·</span>
-          <span>创建于 {new Date(item.created_at).toLocaleString('zh-CN')}</span>
+          <span>创建于 {fmtDateTime(item.created_at)}</span>
           <span>·</span>
-          <span>更新于 {new Date(item.updated_at).toLocaleString('zh-CN')}</span>
+          <span>更新于 {fmtDateTime(item.updated_at)}</span>
         </div>
         {item.topics.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
@@ -206,7 +207,7 @@ function VariantsTable({ variants, tenantSlug }: { variants: VariantRow[]; tenan
                 <ComplianceBadge status={v.compliance_status} />
               </td>
               <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                {new Date(v.created_at).toLocaleString('zh-CN')}
+                {fmtDateTime(v.created_at)}
               </td>
             </tr>
           ))}

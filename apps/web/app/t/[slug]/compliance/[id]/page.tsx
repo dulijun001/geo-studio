@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 import { requireRole } from '@/lib/tenant';
+import { fmtDateTime } from '@/lib/format';
 import { ReviewActions } from './review-actions';
 import { HighlightedBody } from './highlighted-body';
 import { EditForm } from './edit-form';
@@ -101,7 +102,7 @@ export default async function ComplianceDetailPage({
           <span>·</span>
           <span>变体:{variant.status}</span>
           <span>·</span>
-          <span>提交于 {new Date(variant.created_at).toLocaleString('zh-CN')}</span>
+          <span>提交于 {fmtDateTime(variant.created_at)}</span>
         </div>
       </header>
 
@@ -195,7 +196,7 @@ function ReviewTimeline({
               </ul>
             )}
             <p className="mt-2 text-muted-foreground/70">
-              {new Date(r.created_at).toLocaleString('zh-CN')}
+              {fmtDateTime(r.created_at)}
               {r.stage === 'manual' && r.reviewer_id ? (
                 <span className="ml-2">
                   · 由 {reviewerEmails.get(r.reviewer_id) ?? r.reviewer_id.slice(0, 8)}

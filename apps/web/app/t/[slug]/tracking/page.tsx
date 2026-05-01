@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/components/page-header';
 import { InlineGuide } from '@/components/inline-guide';
 import { SovDonut } from '@/components/sov-donut';
+import { fmtDateShort } from '@/lib/format';
 import { RunButton } from './run-button';
 
 export const dynamic = 'force-dynamic';
@@ -316,7 +317,7 @@ function TrackerHealthBanner({ health }: { health: TrackerHealth }) {
         <span className="font-medium">豆包追踪健康</span>
         <span className="text-xs text-emerald-800/70">
           最近 {health.total} 次成功率 {health.successRate}%
-          {health.lastSuccessAt && ` · 最后成功 ${new Date(health.lastSuccessAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`}
+          {health.lastSuccessAt && ` · 最后成功 ${fmtDateShort(health.lastSuccessAt)}`}
         </span>
       </div>
     );
@@ -363,14 +364,7 @@ function SnapshotBadge({ latest }: { latest: LatestSnapshot }) {
       <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
         {label}
       </span>
-      <span className="text-xs text-muted-foreground">
-        {new Date(ts).toLocaleString('zh-CN', {
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-        })}
-      </span>
+      <span className="text-xs text-muted-foreground">{fmtDateShort(ts)}</span>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/components/page-header';
+import { fmtDateTime } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
@@ -165,7 +166,7 @@ export default async function ConversionDetail({
           <dt className="text-muted-foreground">阶段</dt>
           <dd className="font-medium">{STAGE_LABEL[ev.stage] ?? ev.stage}</dd>
           <dt className="text-muted-foreground">登记时间</dt>
-          <dd>{new Date(ev.stage_at).toLocaleString('zh-CN')}</dd>
+          <dd>{fmtDateTime(ev.stage_at)}</dd>
           {ev.notes ? (
             <>
               <dt className="text-muted-foreground">备注</dt>
@@ -190,7 +191,7 @@ export default async function ConversionDetail({
                 <span className="absolute -left-[27px] top-1 flex h-3 w-3 items-center justify-center rounded-full gradient-brand ring-4 ring-background" />
                 <p className="text-sm font-medium">{t.label}</p>
                 <p className="text-xs text-muted-foreground">
-                  {new Date(t.ts).toLocaleString('zh-CN')} · {t.detail}
+                  {fmtDateTime(t.ts)} · {t.detail}
                 </p>
               </li>
             ))}

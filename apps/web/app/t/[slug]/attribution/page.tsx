@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/components/page-header';
 import { InlineGuide } from '@/components/inline-guide';
 import { FunnelChart } from '@/components/funnel-chart';
+import { fmtDateTime } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
@@ -220,7 +221,7 @@ export default async function AttributionPage({ params }: { params: { slug: stri
                 {events.slice(0, 20).map((e) => (
                   <tr key={e.id} className="hover:bg-muted/30">
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                      {new Date(e.stage_at).toLocaleString('zh-CN')}
+                      {fmtDateTime(e.stage_at)}
                     </td>
                     <td className="px-4 py-2.5">
                       <span className="rounded-full bg-muted px-2 py-0.5 text-xs">
@@ -388,7 +389,7 @@ async function JourneysList({
                 <td className="px-4 py-2.5 font-mono text-xs">{id.first_hook_value ?? '—'}</td>
                 <td className="px-4 py-2.5">{tpCount.get(id.id) ?? 0}</td>
                 <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                  {new Date(id.created_at).toLocaleString('zh-CN')}
+                  {fmtDateTime(id.created_at)}
                 </td>
                 <td className="px-4 py-2.5 text-right">
                   <Link

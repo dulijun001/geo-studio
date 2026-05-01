@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { requireTenantMember } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/components/page-header';
+import { fmtDateTime } from '@/lib/format';
 import {
   PHASES,
   PLATFORM_LABEL,
@@ -297,7 +298,7 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
       {latestSnap?.asked_at ? (
         <section className="rounded-md border border-dashed border-border bg-muted/20 p-4 text-xs text-muted-foreground">
           最近一次 GEO 追踪 baseline:
-          {new Date(latestSnap.asked_at).toLocaleString('zh-CN')} ·{' '}
+          {fmtDateTime(latestSnap.asked_at)} ·{' '}
           <Link href={`/t/${tenant.slug}/tracking`} className="text-indigo-700 hover:underline">
             去 GEO 追踪页看 SOV →
           </Link>

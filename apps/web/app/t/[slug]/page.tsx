@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireTenantMember } from '@/lib/tenant';
 import { PageHeader } from '@/components/page-header';
 import { InlineGuide } from '@/components/inline-guide';
+import { fmtDateTime } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
@@ -353,7 +354,7 @@ function GeoHealthSection({
         <div className="mt-1 flex items-center gap-3 text-[11px] text-muted-foreground">
           <span>本品牌 {sov.own} 次 vs 竞品 {sov.comp} 次</span>
           {sov.askedAt ? (
-            <span>· {new Date(sov.askedAt).toLocaleString('zh-CN')}</span>
+            <span>· {fmtDateTime(sov.askedAt)}</span>
           ) : (
             <span>· 还没跑过追踪</span>
           )}

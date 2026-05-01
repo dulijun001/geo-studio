@@ -3,6 +3,7 @@ import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/components/page-header';
 import { InlineGuide } from '@/components/inline-guide';
+import { fmtDateTime } from '@/lib/format';
 import { ExportButton } from './export-button';
 
 export const dynamic = 'force-dynamic';
@@ -158,7 +159,7 @@ export default async function AuditPage({
               {logs.map((r) => (
                 <tr key={r.id} className="hover:bg-muted/30">
                   <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                    {new Date(r.created_at).toLocaleString('zh-CN')}
+                    {fmtDateTime(r.created_at)}
                   </td>
                   <td className="px-4 py-2.5">
                     <span className="font-medium">{ACTION_LABEL[r.action] ?? r.action}</span>

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/components/page-header';
+import { fmtDateTime } from '@/lib/format';
 import { ForceSyncButton } from './force-sync-button';
 
 export const dynamic = 'force-dynamic';
@@ -103,7 +104,7 @@ export default async function KnowledgeSettingsPage({
           <Stat
             label="最近同步"
             value={lastIndexedAge !== null ? `${lastIndexedAge} 分钟前` : '尚未'}
-            sub={lastIndexed ? new Date(lastIndexed).toLocaleString('zh-CN') : '等待 worker 跑首次同步'}
+            sub={lastIndexed ? fmtDateTime(lastIndexed) : '等待 worker 跑首次同步'}
             tone={lastIndexedAge === null ? 'warn' : lastIndexedAge > 30 ? 'warn' : 'ok'}
           />
           <Stat label="近 7 天新增" value={addedLast7d ?? 0} />
@@ -186,7 +187,7 @@ export default async function KnowledgeSettingsPage({
                     <span className="ml-2 text-xs text-muted-foreground">{r.source_path}</span>
                   </span>
                   <span className="ml-3 shrink-0 text-xs text-muted-foreground">
-                    {(r.byte_size / 1024).toFixed(1)} KB · {new Date(r.updated_at).toLocaleString('zh-CN')}
+                    {(r.byte_size / 1024).toFixed(1)} KB · {fmtDateTime(r.updated_at)}
                   </span>
                 </div>
               </li>

@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireRole } from '@/lib/tenant';
 import { PageHeader } from '@/components/page-header';
 import { InlineGuide } from '@/components/inline-guide';
+import { fmtDateTime } from '@/lib/format';
 import { BulkActions, BulkCheckbox } from './bulk-actions';
 
 export const dynamic = 'force-dynamic';
@@ -172,7 +173,7 @@ function ReviewTable({
                 <ComplianceBadge status={r.compliance_status} />
               </td>
               <td className="px-4 py-2.5 text-xs text-muted-foreground">
-                {new Date(r.created_at).toLocaleString('zh-CN')}
+                {fmtDateTime(r.created_at)}
               </td>
             </tr>
           ))}

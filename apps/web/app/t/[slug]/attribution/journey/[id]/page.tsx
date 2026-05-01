@@ -16,6 +16,7 @@ import { notFound } from 'next/navigation';
 import { requireTenantMember } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/components/page-header';
+import { fmtDateOnly, fmtDateTime } from '@/lib/format';
 import {
   attributeAll,
   type AttributionModel,
@@ -213,7 +214,7 @@ export default async function JourneyDetailPage({
                       </span>
                     </p>
                     <p className="text-muted-foreground">
-                      {tp.touchpoint_type} · {new Date(tp.touched_at).toLocaleString('zh-CN')}
+                      {tp.touchpoint_type} · {fmtDateTime(tp.touched_at)}
                       {t?.staff?.real_name && ` · 由 ${t.staff.real_name} 发布`}
                     </p>
                   </div>
@@ -238,7 +239,7 @@ export default async function JourneyDetailPage({
                 <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
                   {STAGE_LABEL[c.stage] ?? c.stage}
                 </span>
-                <span className="text-muted-foreground">{new Date(c.stage_at).toLocaleString('zh-CN')}</span>
+                <span className="text-muted-foreground">{fmtDateTime(c.stage_at)}</span>
                 {c.amount_cents != null && c.amount_cents > 0 && (
                   <span className="font-mono">¥{(c.amount_cents / 100).toLocaleString()}</span>
                 )}
@@ -254,7 +255,7 @@ export default async function JourneyDetailPage({
         <section className="card-surface p-5">
           <h2 className="mb-3 text-sm font-medium">三模型归因对比</h2>
           <p className="mb-3 text-xs text-muted-foreground">
-            归因锚定时间 = {anchorConv ? `${STAGE_LABEL[anchorConv.stage] ?? anchorConv.stage} (${new Date(anchorConv.stage_at).toLocaleString('zh-CN')})` : '当前时间(无成交事件)'}
+            归因锚定时间 = {anchorConv ? `${STAGE_LABEL[anchorConv.stage] ?? anchorConv.stage} (${fmtDateTime(anchorConv.stage_at)})` : '当前时间(无成交事件)'}
           </p>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[600px] text-xs">
@@ -281,7 +282,7 @@ export default async function JourneyDetailPage({
                           {(t?.variant?.title?.length ?? 0) > 30 ? '…' : ''}
                         </div>
                         <div className="text-[10px] text-muted-foreground">
-                          {t?.variant?.platform ?? '?'} · {new Date(tp.touched_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit' })}
+                          {t?.variant?.platform ?? '?'} · {fmtDateOnly(tp.touched_at)}
                         </div>
                       </td>
                       {(['linear', 'time_decay', 'position_based'] as AttributionModel[]).map((m) => {
