@@ -169,9 +169,10 @@ export async function listMyTenants(): Promise<ActiveTenant[]> {
     }));
   }
 
-  // Two-step query instead of PostgREST embed: tenant_memberships → tenants
-  // FK is missing from the live schema (a migration we'll patch separately),
-  // so embed selects fail with PGRST200. Two queries are cheap enough.
+  // Two-step query instead of PostgREST embed. The FK was restored in
+  // migration 0014, so embed would work now — left as two queries because
+  // the extra round-trip is cheap and the code reads more cleanly than a
+  // nested embed selector.
   const { data: memberships, error: memErr } = await client
     .from('tenant_memberships')
     .select('role, tenant_id')

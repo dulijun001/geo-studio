@@ -44,7 +44,11 @@ export const tenants = pgTable(
 
 export const tenantMemberships = pgTable('tenant_memberships', {
   id: pk(),
-  tenant_id: tenantFk(),
+  // Explicit FK (not tenantFk()) — the shared helper lacks .references() and
+  // we're not ready to sweep every tenant-scoped table yet. See migration 0014.
+  tenant_id: uuid('tenant_id')
+    .notNull()
+    .references(() => tenants.id, { onDelete: 'cascade' }),
   user_id: uuid('user_id').notNull(), // references auth.users from Supabase
   role: memberRoleEnum('role').notNull(),
   ...timestamps(),
