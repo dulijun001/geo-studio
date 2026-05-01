@@ -21,6 +21,8 @@ import {
   scoreGeo,
   checkCitations,
   buildRewriteHint,
+  computeSimilarity,
+  classifySimilarity,
   type VerifiedCitation,
 } from '@geo/geo-core';
 import { RECOMMENDED_COMBO, type GeoTacticId, type VariantPlatform } from '@geo/shared';
@@ -190,6 +192,35 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
       // citation_check column; downstream compliance UI surfaces them red.
       const citationCheck = checkCitations(v.body, verifiedCitations);
 
+      // Uniqueness check (V1.7 b1): compare this variant body against any
+      // sibling variants already generated for the same content_item. Cross-
+      // platform variants SHOULD differ — if any pair lands ≥ 0.7 similarity,
+      // record it on the variant so admin sees it on the detail page. We do
+      // NOT auto-rewrite here (the inner retry loop already used the GEO
+      // score signal); auto-rewriting on uniqueness too would risk runaway
+      // loops since the LLM may produce another similar variant.
+      const { data: siblings } = await client
+        .from('content_variants')
+        .select('id, platform, body')
+        .eq('content_item_id', content_item_id)
+        .is('deleted_at', null);
+      let uniquenessWarning: { platform: string; total: number; verdict: string } | null = null;
+      for (const s of siblings ?? []) {
+        const sim = computeSimilarity(v.body, s.body as string);
+        const verdict = classifySimilarity(sim.total);
+        if (verdict === 'rewrite') {
+          uniquenessWarning = {
+            platform: s.platform as string,
+            total: Number(sim.total.toFixed(3)),
+            verdict,
+          };
+          console.log(
+            `[variant-generate] ${platform} 与 ${s.platform} 高度相似(${sim.total.toFixed(3)}),已标记 uniqueness_warning`,
+          );
+          break;
+        }
+      }
+
       const { data: inserted, error: insErr } = await client
         .from('content_variants')
         .insert({
@@ -199,7 +230,12 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
           title: v.title,
           body: v.body,
           geo_tactics: v.tactics_applied,
-          extra_assets: { notes: v.notes, llm_provider: v.provider, llm_usage: v.usage ?? null },
+          extra_assets: {
+            notes: v.notes,
+            llm_provider: v.provider,
+            llm_usage: v.usage ?? null,
+            ...(uniquenessWarning && { uniqueness_warning: uniquenessWarning }),
+          },
           geo_score: geoScore,
           citation_check: citationCheck,
           compliance_status: 'pending',

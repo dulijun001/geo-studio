@@ -27,6 +27,7 @@
     "test-discoverability": "tsx --env-file=../../.env src/_test/discoverability.ts",
     "test-schema": "tsx --env-file=../../.env src/_test/schema-generators.ts",
     "test-artifacts": "tsx --env-file=../../.env src/_test/artifact-generators.ts",
+    "test-uniqueness": "tsx --env-file=../../.env src/_test/uniqueness-eeat.ts",
     "dev-link": "tsx --env-file=../../.env src/_dev/mint-link.ts",
     "dev-clear-variants": "tsx --env-file=../../.env src/_dev/clear-variants.ts",
     "dev-test-doubao": "tsx --env-file=../../.env src/_dev/test-doubao.ts",
