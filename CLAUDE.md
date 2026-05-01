@@ -35,6 +35,12 @@
 | D11 | 员工端(`/staff`)不走 Supabase Auth,用 phone + 一次性 passcode + HMAC cookie 自建 session | 2026-04-25 | 员工只有手机号没邮箱;Supabase Auth 强绑邮箱魔链不适合移动端高频场景;V1 W5 用管理员手发 dev-passcode 跑通,V1 收尾接阿里云 SMS OTP,`staff_invites` 表结构不变 |
 | D12 | 医疗合规升级为**四道门**:在 D5 三道门基础上叠加(a) 历史案例匹配 + (b) 关键词按平台作用域 | 2026-04-29 | (a) 让违规判断有「过往真实罚单」做锚,而不是只靠抽象关键词或 LLM 主观;(b) 同一关键词在抖音和小红书风险等级不同(平台规则差异),全局判罚会过严或过松 |
 | D13 | Supabase 改为自托管到阿里云国内节点(替换商业 us-east-1) | 2026-04-25 | 医疗个人信息出境违反《个人信息保护法》;延迟 + 合规两个问题一次解;详见 ADR 003 |
+| D14 | V1.7 增加**可发现层(Layer A)**:Schema.org JSON-LD 7 类 + llms.txt + AI Content Feed + AI Sitemap + Discoverability Audit | 2026-05-01 | GEO 三层模型(可发现 / 生产 / 验证)分析下我们 A 层完全空白,而 A 是 B+C 的上游。详见 ADR 005、`docs/06-discoverability.md` |
+| D15 | 公开路由按 tenant 显式 opt-in(`tenants.settings.discoverability.public_enabled`) | 2026-05-01 | V1 第一次有对外公开 API,默认关闭、显式开启,降低误暴露概率 |
+| D16 | 公开路由内容过滤双闸:实体 `geo_visible=true` + testimonials 必须 `compliance_status='approved'` | 2026-05-01 | 防止未审客户见证 / 草稿状态服务流到公网,合规外溢 |
+| D17 | 公开路由缓存策略:build-on-write,artifacts 表存物化结果,公开路由单行读 | 2026-05-01 | 把可能的 N×M 重构成本(N 实体 × M 路由)摊到一次写入,公开访问 < 50ms 单行 SELECT |
+| D18 | Schema 生成纪律:**只填有值字段,不用 placeholder 凑数** | 2026-05-01 | placeholder schema 比缺字段更糟,gaming 招致 AI 引擎降权;审计页显式提示"还差什么字段" |
+| D19 | 禁用 `pnpm db:generate`,migration 一律手写 | 2026-05-01 | Drizzle journal 自 0006 起冻结,手写为主流;运行 generate 会重新编号撞库导致冲突(2026-05-01 已撞过一次) |
 
 ## 四、目录结构(强制)
 
