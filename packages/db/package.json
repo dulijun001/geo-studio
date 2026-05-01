@@ -25,6 +25,7 @@
     "test-variant-flow": "tsx --env-file=../../.env src/_test/variant-flow.ts",
     "test-dispatch": "tsx --env-file=../../.env src/_test/dispatch.ts",
     "test-discoverability": "tsx --env-file=../../.env src/_test/discoverability.ts",
+    "test-schema": "tsx --env-file=../../.env src/_test/schema-generators.ts",
     "dev-link": "tsx --env-file=../../.env src/_dev/mint-link.ts",
     "dev-clear-variants": "tsx --env-file=../../.env src/_dev/clear-variants.ts",
     "dev-test-doubao": "tsx --env-file=../../.env src/_dev/test-doubao.ts",
