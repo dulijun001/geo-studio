@@ -25,7 +25,8 @@
     "db:test-content": "pnpm --filter @geo/db test-content",
     "db:test-discoverability": "pnpm --filter @geo/db test-discoverability",
     "db:test-schema": "pnpm --filter @geo/db test-schema",
-    "db:test-artifacts": "pnpm --filter @geo/db test-artifacts"
+    "db:test-artifacts": "pnpm --filter @geo/db test-artifacts",
+    "db:test-uniqueness": "pnpm --filter @geo/db test-uniqueness"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
