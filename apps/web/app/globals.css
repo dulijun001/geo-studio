@@ -64,6 +64,27 @@
     color: transparent;
   }
 
+  /* Form input — consistent across discoverability + future admin forms */
+  .form-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    background: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.375rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .form-input:focus {
+    outline: none;
+    border-color: hsl(var(--foreground) / 0.5);
+    box-shadow: 0 0 0 2px hsl(var(--foreground) / 0.1);
+  }
+  .form-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   /* Card — softer than border-only, has subtle shadow */
   .card-surface {
     background: hsl(var(--card));

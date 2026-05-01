@@ -11,3 +11,9 @@ export * from './artifact-input';
 export { generateLlmsTxt, generateLlmsTxtFull } from './llms-txt';
 export { generateContentFeed, AI_FEED_VERSION } from './feed';
 export { generateAiSitemap } from './sitemap';
+export {
+  runDiscoverabilityAudit,
+  type AuditDimension,
+  type AuditReport,
+  type AuditContext,
+} from './audit';
