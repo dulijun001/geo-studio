@@ -2,14 +2,13 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { enqueueGeoSnapshot, SUPPORTED_ENGINES } from './actions';
+import { enqueueGeoSnapshot } from './actions';
+import { SUPPORTED_ENGINES, type SupportedEngine } from './engines';
 
 const ENGINE_LABEL: Record<string, string> = {
   doubao: '豆包',
   yuanbao: '元宝',
 };
-
-type Engine = (typeof SUPPORTED_ENGINES)[number];
 
 export function RunButton({
   tenantSlug,
@@ -21,7 +20,7 @@ export function RunButton({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [err, setErr] = useState<string | null>(null);
-  const [engine, setEngine] = useState<Engine>('doubao');
+  const [engine, setEngine] = useState<SupportedEngine>('doubao');
 
   const onClick = () => {
     setErr(null);
@@ -39,7 +38,7 @@ export function RunButton({
     <span className="inline-flex items-center gap-1.5">
       <select
         value={engine}
-        onChange={(e) => setEngine(e.target.value as Engine)}
+        onChange={(e) => setEngine(e.target.value as SupportedEngine)}
         disabled={pending}
         className="rounded-md border border-border bg-background px-1.5 py-1 text-xs disabled:opacity-50"
       >

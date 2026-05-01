@@ -4,6 +4,7 @@ import PgBoss from 'pg-boss';
 import { revalidatePath } from 'next/cache';
 import { requireRole } from '@/lib/tenant';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
+import { SUPPORTED_ENGINES, type SupportedEngine } from './engines';
 
 /**
  * Enqueue a GEO snapshot for one question.
@@ -13,14 +14,6 @@ import { getSupabaseServiceClient } from '@/lib/supabase/service';
  * progresses. We use the service-role client because the snapshot is owned by
  * the tenant, not the operator's user account.
  */
-/**
- * Engines we currently know how to scrape. Extending this lets the run-button
- * dropdown offer the new engine; the worker side dispatches via
- * apps/worker/src/trackers/registry.ts.
- */
-export const SUPPORTED_ENGINES = ['doubao', 'yuanbao'] as const;
-type SupportedEngine = (typeof SUPPORTED_ENGINES)[number];
-
 export async function enqueueGeoSnapshot(
   tenantSlug: string,
   questionId: string,
