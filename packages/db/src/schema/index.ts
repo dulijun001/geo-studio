@@ -9,3 +9,5 @@ export * from './conversion';
 export * from './audit';
 export * from './knowledge';
 export * from './discoverability';
+export * from './templates';
+export * from './keywords';

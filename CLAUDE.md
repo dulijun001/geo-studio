@@ -41,6 +41,7 @@
 | D17 | 公开路由缓存策略:build-on-write,artifacts 表存物化结果,公开路由单行读 | 2026-05-01 | 把可能的 N×M 重构成本(N 实体 × M 路由)摊到一次写入,公开访问 < 50ms 单行 SELECT |
 | D18 | Schema 生成纪律:**只填有值字段,不用 placeholder 凑数** | 2026-05-01 | placeholder schema 比缺字段更糟,gaming 招致 AI 引擎降权;审计页显式提示"还差什么字段" |
 | D19 | 禁用 `pnpm db:generate`,migration 一律手写 | 2026-05-01 | Drizzle journal 自 0006 起冻结,手写为主流;运行 generate 会重新编号撞库导致冲突(2026-05-01 已撞过一次) |
+| D20 | **写作要求(意图骨架)× 平台风格(格式/口吻)** 双层叠加,不替换。新增 `writing_templates` 表 + `keywords` 词库,`buildVariantPrompt` 加 `writing_template?` 入参向后兼容 | 2026-05-04 | 抓词GEO 只有意图模板没有平台维度,我们叠加后"产品对比×小红书"和"产品对比×公众号"自动差异化输出,延续 D2 配置化思想;详见 ADR 007 |
 
 ## 四、目录结构(强制)
 
@@ -158,9 +159,16 @@ geo-studio/
   - 数据模型扩 7 张 migration(0015-0021):brands 扩列、staff 加 geo_profile_visible、新增 services / testimonials / faqs / discoverability_artifacts、tenants.settings.discoverability 默认值
   - 109 项纯函数测试覆盖(profile builders 33 + schema generators 49 + artifact generators 23 + uniqueness/eeat 19 + RLS / behavioral 已在 S1 e2e 验证)
   - **关键安全 bug 抓+修**:`unstable_noStore()` 缺失会让 Next 14 Data Cache 把过期的 opt-in 状态喂给路由 → opt-out 失效 → 客户内容继续泄露。S3 实测时定位 + 修复
+- **V1.8 创作向导(D20 / ADR 007)**(2026-05-04):由竞品「抓词GEO」分析驱动:
+  - 数据模型 migration 0024:`writing_templates`(系统预设 + 租户自定义)+ `keyword_groups` + `keywords`(三种来源 manual/combine/ai_dig)+ `content_items` 扩 `writing_template_id` + `keyword_ids`
+  - 12 个系统预设写作要求(操作教程 / 产品对比 / 痛点解决 / 终极指南 / 案例研究 / PAS / 小红书种草 / 知乎硬核 / 公众号情感 / 新闻公关稿 / 第三方测评 / 短视频脚本)
+  - `buildVariantPrompt` 扩展 `writing_template?` + `keywords_to_plant?`,**红线优先于模板**(防 prompt injection),20 case 单测全过含恶意模板防御
+  - `createAiDraft` 扩展同两参数,系统模板 prompt_skeleton 拼到 SYSTEM_PROMPT 之后
+  - 三个新 admin 页:写作要求库 / 关键词词库(含 6 维组合 + AI 智能挖掘 + 合规第一道门入库前过滤)/ 创作向导(3 步:参考资料 → 关键词 → 写作要求)
+  - 抓词GEO 的 "GEO 排名优化" 模板**未照抄**(软广堆砌,踩医疗合规),作为后续工单单独评估改造为 `geo-ranking-objective`
 
 ### 当前阶段
-- **V1.7 完成,等待部署**(本地 main,5+ 条 commit 攒着)
+- **V1.7 + V1.8 完成,等待部署**(本地 main,V1.7 5+ 条 commit + V1.8 一批新文件)
 - **V2 反爬基础设施可启动**:多引擎 + 账号池 + 代理 + 指纹隔离(ADR 004)
 
 ### 阻塞 / 待澄清

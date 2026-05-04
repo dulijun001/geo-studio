@@ -89,6 +89,10 @@ export const contentItems = pgTable(
     markdown: text('markdown').notNull().default(''),
     topics: text('topics').array().notNull().default([]),
     target_questions: uuid('target_questions').array().notNull().default(sql`'{}'::uuid[]`),
+    /** ADR 007 — picked in creation wizard step 3, drives prompt skeleton injection. NULL = legacy V1.5/V1.6 path. */
+    writing_template_id: uuid('writing_template_id'),
+    /** ADR 007 — keywords picked in wizard step 2 to plant in body. */
+    keyword_ids: uuid('keyword_ids').array().notNull().default(sql`'{}'::uuid[]`),
     status: contentItemStatusEnum('status').notNull().default('draft'),
     embedding: vector('embedding'),
     ...timestamps(),

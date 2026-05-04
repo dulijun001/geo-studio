@@ -8,7 +8,9 @@
 import { db } from '../index';
 import { complianceKeywords } from '../schema/compliance';
 import { tenants } from '../schema/tenants';
+import { writingTemplates } from '../schema/templates';
 import { A_LEVEL_KEYWORDS, B_LEVEL_KEYWORDS } from './compliance-seed';
+import { WRITING_TEMPLATE_SEEDS } from './writing-templates-seed';
 
 async function main() {
   console.log('Seeding compliance keywords...');
@@ -30,6 +32,23 @@ async function main() {
     })
     .onConflictDoNothing();
   console.log('  done');
+
+  console.log('Seeding system writing templates (12 presets, ADR 007)...');
+  const templateRows = WRITING_TEMPLATE_SEEDS.map((t) => ({
+    tenant_id: null,
+    slug: t.slug,
+    name: t.name,
+    description: t.description,
+    prompt_skeleton: t.prompt_skeleton,
+    structure_hint: t.structure_hint,
+    is_system: true,
+    visible: true,
+  }));
+  await db
+    .insert(writingTemplates)
+    .values(templateRows)
+    .onConflictDoNothing();
+  console.log(`  inserted ${templateRows.length} system templates (skipped on conflict)`);
 
   process.exit(0);
 }
