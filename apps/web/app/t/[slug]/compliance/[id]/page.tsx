@@ -8,7 +8,7 @@ import { EeatCard } from '@/components/eeat-card';
 import { ReviewActions } from './review-actions';
 import { HighlightedBody } from './highlighted-body';
 import { EditForm } from './edit-form';
-import { AiRewriteButton } from './ai-rewrite-button';
+import { AiRewriteButton, InlineAiRewriteCta } from './ai-rewrite-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -120,7 +120,11 @@ export default async function ComplianceDetailPage({
 
         <aside className="space-y-5">
           <CaseMatchPanel match={variant.case_match} />
-          <GeoScorePanel score={variant.geo_score} />
+          <GeoScorePanel
+            score={variant.geo_score}
+            tenantSlug={tenant.slug}
+            variantId={variant.id}
+          />
           {variant.geo_score && typeof variant.geo_score.total === 'number' ? (
             <EeatCard score={variant.geo_score as unknown as import('@geo/geo-core').GeoScore} compact />
           ) : null}
@@ -135,14 +139,16 @@ export default async function ComplianceDetailPage({
               变体已处于终态({variant.compliance_status}),不再接受审批动作。
             </div>
           )}
-          <EditForm
-            tenantSlug={tenant.slug}
-            variantId={variant.id}
-            initialTitle={variant.title}
-            initialBody={variant.body}
-            disabled={editLocked}
-            disabledReason="变体已派发给员工,改文案会让员工手里版本不一致。先撤回派单或废弃变体重新生成。"
-          />
+          <div id="variant-edit-form" className="scroll-mt-6">
+            <EditForm
+              tenantSlug={tenant.slug}
+              variantId={variant.id}
+              initialTitle={variant.title}
+              initialBody={variant.body}
+              disabled={editLocked}
+              disabledReason="变体已派发给员工,改文案会让员工手里版本不一致。先撤回派单或废弃变体重新生成。"
+            />
+          </div>
         </aside>
       </div>
     </div>
@@ -257,7 +263,15 @@ const TACTIC_LABEL_ZH: Record<string, string> = {
   authority: '权威语调',
 };
 
-function GeoScorePanel({ score }: { score: GeoScore | null | undefined }) {
+function GeoScorePanel({
+  score,
+  tenantSlug,
+  variantId,
+}: {
+  score: GeoScore | null | undefined;
+  tenantSlug: string;
+  variantId: string;
+}) {
   if (!score || typeof score.total !== 'number') {
     return (
       <div className="rounded-md border border-dashed border-border bg-muted/20 p-3 text-xs text-muted-foreground">
@@ -275,6 +289,15 @@ function GeoScorePanel({ score }: { score: GeoScore | null | undefined }) {
     amber: 'border-amber-200 bg-amber-50 text-amber-900',
     rose: 'border-rose-200 bg-rose-50 text-rose-900',
   }[tone];
+
+  // Compute the top-3 weakest tactics inline (mirrors getWeakestTactics
+  // logic so we don't need to ship the geo-core helper to this server file).
+  const weakest = Object.entries(score.breakdown ?? {})
+    .map(([id, t]) => ({ id, ratio: t.max > 0 ? t.score / t.max : 1, score: t.score, max: t.max }))
+    .filter((x) => x.ratio < 1)
+    .sort((a, b) => b.max - b.score - (a.max - a.score))
+    .slice(0, 3);
+
   return (
     <div className={`rounded-md border p-3 text-xs ${toneClass}`}>
       <div className="mb-2 flex items-baseline justify-between">
@@ -294,11 +317,77 @@ function GeoScorePanel({ score }: { score: GeoScore | null | undefined }) {
           );
         })}
       </ul>
-      {total < 70 && (
-        <p className="mt-2 text-[11px] opacity-80">
-          ⚠️ 低于 70 分阈值,建议从最低分项补强(数据/引用/精简句式),或用「AI 改写」按钮触发重写。
-        </p>
+      {total < 70 && weakest.length > 0 && (
+        <WeakestTacticsPrompt
+          tenantSlug={tenantSlug}
+          variantId={variantId}
+          weakest={weakest}
+          tone={tone}
+        />
       )}
+    </div>
+  );
+}
+
+const TACTIC_ADVICE_ZH: Record<string, string> = {
+  statistics: '加入更多具体数字(年限、百分比、价格区间、样本量等),不要泛泛而谈',
+  quotation: '加入 1-2 处「直接引语」(医生原话、文献金句),用 「...」 包裹',
+  citation: '加入至少 1 条具名权威来源(《XX 指南》/中华医学会/国家卫健委)',
+  fluency: '增加段落数(至少 3 段),让句子长短交替,不要一直长句或一直短句',
+  readability: '把超过 35 字的长句拆成 2-3 句,每段控制在 80 字内',
+  keyword_freq: '主题关键词在正文里至少出现 2-5 次,不要只在标题',
+  position: '把主题关键词放进开头 100 字以内,首句最好就出现',
+  unique: '避开「众所周知」「随着...的发展」「为大家详细介绍」这种模板套话',
+  authority: '使用 "临床数据显示"/"医生建议"/"研究表明" 这类权威短语,避免主观夸张',
+};
+
+function WeakestTacticsPrompt({
+  tenantSlug,
+  variantId,
+  weakest,
+  tone,
+}: {
+  tenantSlug: string;
+  variantId: string;
+  weakest: Array<{ id: string; score: number; max: number }>;
+  tone: 'emerald' | 'sky' | 'amber' | 'rose';
+}) {
+  const accentBtn =
+    tone === 'rose'
+      ? 'bg-rose-700 text-white hover:bg-rose-800 border-rose-800'
+      : tone === 'amber'
+        ? 'bg-amber-700 text-white hover:bg-amber-800 border-amber-800'
+        : 'bg-foreground text-background hover:bg-foreground/90 border-foreground';
+
+  return (
+    <div className="mt-3 space-y-2.5 rounded-md bg-white/60 p-3 text-foreground">
+      <p className="text-[11px] font-medium opacity-80">
+        ⚠️ 低于 70 分阈值。下面这 {weakest.length} 项最弱,优先补这几个:
+      </p>
+      <ul className="space-y-2">
+        {weakest.map((w) => (
+          <li key={w.id} className="space-y-0.5">
+            <div className="flex items-baseline gap-2">
+              <span className="font-medium">{TACTIC_LABEL_ZH[w.id] ?? w.id}</span>
+              <span className="font-mono text-[10px] opacity-60">
+                {w.score} / {w.max}
+              </span>
+            </div>
+            <p className="pl-3 text-[11px] leading-relaxed text-muted-foreground">
+              → {TACTIC_ADVICE_ZH[w.id] ?? '提升此维度'}
+            </p>
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <InlineAiRewriteCta tenantSlug={tenantSlug} variantId={variantId} className={accentBtn} />
+        <a
+          href="#variant-edit-form"
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1.5 text-[11px] font-medium text-foreground hover:bg-muted"
+        >
+          自己编辑 ↓
+        </a>
+      </div>
     </div>
   );
 }

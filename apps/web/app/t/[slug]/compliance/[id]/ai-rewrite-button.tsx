@@ -4,6 +4,97 @@ import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { aiRewriteVariant } from '../actions';
 
+/**
+ * Inline compact CTA — used in the GeoScorePanel weakest-tactics banner.
+ * Same action as AiRewriteButton but a single button, no heading / helper
+ * text. Shares the confirm dialog UX so users can cancel.
+ */
+export function InlineAiRewriteCta({
+  tenantSlug,
+  variantId,
+  className = '',
+}: {
+  tenantSlug: string;
+  variantId: string;
+  className?: string;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const onConfirm = () => {
+    setErr(null);
+    setConfirmOpen(false);
+    start(async () => {
+      try {
+        const result = await aiRewriteVariant(tenantSlug, variantId);
+        if (!result.ok) {
+          setErr(result.reason);
+          return;
+        }
+        router.refresh();
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : String(e));
+      }
+    });
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setConfirmOpen(true)}
+        disabled={pending}
+        className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-[11px] font-medium disabled:opacity-50 ${className}`}
+      >
+        {pending ? '改写中…' : '⚡ AI 一键改写'}
+      </button>
+      {err ? (
+        <span className="text-[11px] text-rose-700">{err}</span>
+      ) : null}
+
+      {confirmOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setConfirmOpen(false)}
+          onKeyDown={(e) => e.key === 'Escape' && setConfirmOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-sm rounded-lg bg-card p-5 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <h3 className="text-sm font-semibold">确认让 AI 针对最弱项改写?</h3>
+            <p className="mt-2 text-xs text-muted-foreground">
+              系统会用最弱 3 项的具体提示让 LLM 重写一版,大约 60-120 秒。原正文写入 audit_logs 可回溯,合规状态重置 pending。
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(false)}
+                className="rounded-md border border-border bg-background px-3 py-1.5 text-xs hover:bg-muted"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={onConfirm}
+                className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
+              >
+                开始改写
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export function AiRewriteButton({
   tenantSlug,
   variantId,

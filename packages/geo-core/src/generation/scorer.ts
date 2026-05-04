@@ -57,6 +57,54 @@ export type GeoScore = {
 const VERSION = 1;
 
 /**
+ * Per-tactic Chinese rewrite advisor — what to do to improve each tactic.
+ * Exported so UIs can render the same advice the LLM rewrite prompt uses.
+ */
+export const TACTIC_ADVISOR: Record<keyof GeoScoreBreakdown, string> = {
+  statistics: '加入更多具体数字(年限、百分比、价格区间、样本量等),不要泛泛而谈',
+  quotation: '加入 1-2 处「直接引语」(医生原话、文献金句),用 「...」 引号包裹',
+  citation: '加入至少 1 条具名权威来源(《XX 指南》/中华医学会/国家卫健委)',
+  fluency: '增加段落数(至少 3 段),让句子长短交替,不要一直长句或一直短句',
+  readability: '把超过 35 字的长句拆成 2-3 句,每段控制在 80 字内',
+  keyword_freq: '主题关键词在正文里至少出现 2-5 次,不要只在标题',
+  position: '把主题关键词放进开头 100 字以内,首句最好就出现',
+  unique: '避开「众所周知」「随着...的发展」「为大家详细介绍」这种模板套话',
+  authority: '使用 "临床数据显示"/"医生建议"/"研究表明" 这类权威短语,避免主观夸张',
+};
+
+export type WeakTactic = {
+  id: keyof GeoScoreBreakdown;
+  score: number;
+  max: number;
+  ratio: number;
+  advice: string;
+};
+
+/**
+ * Top-N weakest tactics by absolute gap. Skips fully-met tactics (ratio = 1).
+ * UI uses this to render an actionable "fix these next" diagnostic.
+ */
+export function getWeakestTactics(score: GeoScore, n = 3): WeakTactic[] {
+  const items: WeakTactic[] = [];
+  for (const [rawId, t] of Object.entries(score.breakdown)) {
+    const id = rawId as keyof GeoScoreBreakdown;
+    const ratio = t.max > 0 ? t.score / t.max : 1;
+    if (ratio < 1) {
+      items.push({
+        id,
+        score: t.score,
+        max: t.max,
+        ratio,
+        advice: TACTIC_ADVISOR[id] ?? '提升此维度',
+      });
+    }
+  }
+  // Sort by gap desc — biggest deficit first
+  items.sort((a, b) => b.max - b.score - (a.max - a.score));
+  return items.slice(0, n);
+}
+
+/**
  * Build a human-readable hint listing the weakest tactics, suitable for
  * injection into a rewrite-pass prompt via PromptContext.rewrite_hint.
  *
@@ -64,37 +112,26 @@ const VERSION = 1;
  * up to 3 priority items so the model isn't overwhelmed.
  */
 export function buildRewriteHint(score: GeoScore): string {
-  type Item = { id: string; gap: number; score: number; max: number; ratio: number; advice: string };
-  const advisor: Record<string, string> = {
-    statistics: '加入更多具体数字(年限、百分比、价格区间、样本量等),不要泛泛而谈',
-    quotation: '加入 1-2 处「直接引语」(医生原话、文献金句),用 「...」 引号包裹',
-    citation: '加入至少 1 条具名权威来源(《XX 指南》/中华医学会/国家卫健委)',
-    fluency: '增加段落数(至少 3 段),让句子长短交替,不要一直长句或一直短句',
-    readability: '把超过 35 字的长句拆成 2-3 句,每段控制在 80 字内',
-    keyword_freq: '主题关键词在正文里至少出现 2-5 次,不要只在标题',
-    position: '把主题关键词放进开头 100 字以内,首句最好就出现',
-    unique: '避开「众所周知」「随着...的发展」「为大家详细介绍」这种模板套话',
-    authority: '使用 "临床数据显示"/"医生建议"/"研究表明" 这类权威短语,避免主观夸张',
-  };
-  const items: Item[] = [];
-  for (const [id, t] of Object.entries(score.breakdown)) {
-    const ratio = t.max > 0 ? t.score / t.max : 1;
-    if (ratio < 0.6) {
-      items.push({
-        id,
-        gap: t.max - t.score,
+  // For prompt injection we tighten the threshold to < 0.6 (only act on
+  // genuinely weak tactics — UI version uses < 1 to always have something
+  // to nudge users on). buildRewriteHint stays the LLM-facing variant.
+  const items = Object.entries(score.breakdown)
+    .map(([id, t]) => {
+      const ratio = t.max > 0 ? t.score / t.max : 1;
+      return {
+        id: id as keyof GeoScoreBreakdown,
         score: t.score,
         max: t.max,
         ratio,
-        advice: advisor[id] ?? '提升此维度',
-      });
-    }
-  }
+        advice: TACTIC_ADVISOR[id as keyof GeoScoreBreakdown] ?? '提升此维度',
+      };
+    })
+    .filter((x) => x.ratio < 0.6);
+
   if (items.length === 0) {
     return `上一版 GEO 综合评分 ${score.total}/100,大部分维度尚可,只是综合分仍低于 70 阈值,请整体精修语言,提升信息密度。`;
   }
-  // Sort by gap desc — biggest deficit first
-  items.sort((a, b) => b.gap - a.gap);
+  items.sort((a, b) => b.max - b.score - (a.max - a.score));
   const top = items.slice(0, 3);
   const lines = top.map((it) => `  • ${it.id}=${it.score}/${it.max} → ${it.advice}`);
   return [
