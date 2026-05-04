@@ -159,6 +159,10 @@ export type CreateAiDraftInput = {
   topic: string;
   audience: string;
   platform: 'xiaohongshu' | 'douyin_script' | 'wechat_mp' | 'zhihu' | 'toutiao_article';
+  /** ADR 007 — optional intent skeleton from writing_templates table. */
+  writing_template_id?: string | null;
+  /** ADR 007 — optional list of keyword ids to plant into the body. */
+  keyword_ids?: string[];
 };
 
 export type CreateAiDraftResult = {
@@ -339,7 +343,55 @@ export async function createAiDraft(
     }
   }
 
-  // 3b. Compose prompt
+  // 3b. ADR 007 — load writing template + keywords if provided
+  let templateBlock = '';
+  let templateSystemAppend = '';
+  let keywordsBlock = '';
+
+  if (input.writing_template_id || (input.keyword_ids && input.keyword_ids.length > 0)) {
+    const tplPromise = input.writing_template_id
+      ? supabase
+          .from('writing_templates')
+          .select('name, prompt_skeleton, structure_hint')
+          .eq('id', input.writing_template_id)
+          .or(`tenant_id.eq.${tenant.id},tenant_id.is.null`)
+          .is('deleted_at', null)
+          .maybeSingle()
+      : Promise.resolve({ data: null });
+    const kwPromise = input.keyword_ids && input.keyword_ids.length > 0
+      ? supabase
+          .from('keywords')
+          .select('text')
+          .in('id', input.keyword_ids)
+          .eq('tenant_id', tenant.id)
+          .is('deleted_at', null)
+      : Promise.resolve({ data: [] });
+    const [tplRes, kwRes] = await Promise.all([tplPromise, kwPromise]);
+
+    if (tplRes.data) {
+      const tpl = tplRes.data as { name: string; prompt_skeleton: string; structure_hint: { sections?: string[]; min_sections?: number } | null };
+      templateSystemAppend = `\n\n${tpl.prompt_skeleton}`;
+      const sections = tpl.structure_hint?.sections ?? [];
+      if (sections.length > 0) {
+        templateBlock =
+          `\n\n# 文章骨架(来自写作要求"${tpl.name}",作为结构参考可微调)\n` +
+          sections.map((s, i) => `${i + 1}. ${s}`).join('\n') +
+          (tpl.structure_hint?.min_sections
+            ? `\n\n至少包含 ${tpl.structure_hint.min_sections} 个上述节段。`
+            : '');
+      }
+    }
+
+    const keywordTexts = ((kwRes.data ?? []) as Array<{ text: string }>).map((k) => k.text);
+    if (keywordTexts.length > 0) {
+      keywordsBlock =
+        `\n\n# 必须自然植入的关键词(每个至少出现一次,禁止堆砌列表)\n` +
+        keywordTexts.map((k) => `• ${k}`).join('\n') +
+        `\n\n注意:每个关键词必须以**自然语境**出现,不要集中堆在末尾或 tag 区。`;
+    }
+  }
+
+  // 3c. Compose prompt
   const sourcesBlock = sourceBodies
     .map((s, i) => `## 素材 ${i + 1} 〈${s.path}〉\n${s.body}`)
     .join('\n\n---\n\n');
@@ -348,8 +400,13 @@ export async function createAiDraft(
     ? `# 平台调性(客户维护的风格指南 〈${guidePath}〉)\n\n${platformGuide}`
     : `# 平台调性\n\n${platformHint}`;
 
+  // ADR 007 — SYSTEM_PROMPT (compliance + zero-hallucination, IMMUTABLE) comes
+  // FIRST. Template skeleton is appended after, so a malicious template can't
+  // override the red lines.
+  const systemContent = SYSTEM_PROMPT + templateSystemAppend;
+
   const messages = [
-    { role: 'system' as const, content: SYSTEM_PROMPT },
+    { role: 'system' as const, content: systemContent },
     {
       role: 'user' as const,
       content:
@@ -358,7 +415,9 @@ export async function createAiDraft(
         `**目标受众**: ${audience}\n` +
         `**目标平台**: ${input.platform}\n\n` +
         `${platformBlock}\n\n` +
-        `${GEO_TACTICS_PROMPT}\n\n` +
+        `${GEO_TACTICS_PROMPT}` +
+        `${templateBlock}` +
+        `${keywordsBlock}\n\n` +
         `# 可用素材(只能引用以下内容,严禁外部知识)\n\n${sourcesBlock}\n\n` +
         `# 输出要求\n\n` +
         `严格输出 JSON,字段:\n` +
@@ -438,7 +497,7 @@ export async function createAiDraft(
 
   if (!draftBody.trim()) throw new Error('AI 生成的正文为空,请重试');
 
-  // 5. Persist content_item + citations
+  // 5. Persist content_item + citations (ADR 007 — also stash template + kw refs)
   const { data: created, error: insErr } = await supabase
     .from('content_items')
     .insert({
@@ -448,6 +507,8 @@ export async function createAiDraft(
       status: 'ai_drafted',
       markdown: draftBody,
       topics: [topic, audience].filter(Boolean),
+      writing_template_id: input.writing_template_id ?? null,
+      keyword_ids: input.keyword_ids ?? [],
     })
     .select('id')
     .single();

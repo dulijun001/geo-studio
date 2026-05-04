@@ -149,6 +149,8 @@ function buildMenu(role: string, badges: Badges): NavItem[] {
     },
     { href: '/attribution', label: '转化归因', iconKey: 'attribution', allowed: ['owner', 'admin', 'operator'] },
     { href: '/discoverability', label: '可发现层', iconKey: 'compliance', allowed: ['owner', 'admin', 'operator'] },
+    { href: '/templates', label: '写作要求', iconKey: 'content', allowed: ['owner', 'admin', 'operator'] },
+    { href: '/keywords', label: '关键词词库', iconKey: 'content', allowed: ['owner', 'admin', 'operator'] },
     { href: '/settings', label: '设置', iconKey: 'settings', allowed: ['owner', 'admin'] },
   ];
   return all.filter((item) => !item.allowed || item.allowed.includes(role));

@@ -33,6 +33,12 @@ export default async function ContentPage({ params }: { params: { slug: string }
         actions={
           canEdit ? (
             <div className="flex items-center gap-2">
+              <Link
+                href={`/t/${tenant.slug}/content/wizard`}
+                className="inline-flex items-center gap-1 rounded-md border border-foreground bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
+              >
+                ✦ 创作向导
+              </Link>
               <QueryMatrixForm tenantSlug={tenant.slug} />
               <AiDraftForm tenantSlug={tenant.slug} />
               <UploadForm tenantSlug={tenant.slug} />
