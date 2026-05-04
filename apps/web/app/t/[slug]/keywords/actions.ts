@@ -21,6 +21,35 @@ function normalizeTerm(t: string): string {
 }
 
 /**
+ * Filter `texts` against existing live (deleted_at IS NULL) keywords for this tenant.
+ *
+ * Why not use Supabase `.upsert({ onConflict: 'tenant_id,text' })`?
+ * The unique index in 0024 is partial (`WHERE deleted_at IS NULL`) to allow
+ * soft-deleted rows to coexist with re-added ones. Postgres requires ON CONFLICT
+ * to match a real unique constraint, not a partial index — Supabase JS client
+ * doesn't support specifying the index predicate. So we de-dup in app code.
+ */
+async function partitionExisting(
+  tenantId: string,
+  texts: string[],
+): Promise<{ fresh: string[]; existing: string[] }> {
+  if (texts.length === 0) return { fresh: [], existing: [] };
+  const service = getSupabaseServiceClient();
+  const { data, error } = await service
+    .from('keywords')
+    .select('text')
+    .eq('tenant_id', tenantId)
+    .is('deleted_at', null)
+    .in('text', texts);
+  if (error) throw new Error(`查重失败: ${error.message}`);
+  const taken = new Set((data ?? []).map((r) => r.text as string));
+  const fresh: string[] = [];
+  const existing: string[] = [];
+  for (const t of texts) (taken.has(t) ? existing : fresh).push(t);
+  return { fresh, existing };
+}
+
+/**
  * Run gate-1 keyword blacklist over each candidate. Returns the candidate
  * list partitioned into accepted (no hits) and rejected (has hits).
  *
@@ -118,19 +147,21 @@ export async function addKeywordsManual(
   if (lines.length === 0) throw new Error('没有有效关键词');
   if (lines.length > MAX_BATCH) throw new Error(`一次最多 ${MAX_BATCH} 条`);
 
-  const rows = lines.map((text) => ({
+  const deduped = Array.from(new Set(lines));
+  const { fresh } = await partitionExisting(tenant.id, deduped);
+  if (fresh.length === 0) {
+    return { inserted: 0, skipped: deduped.length };
+  }
+  const rows = fresh.map((text) => ({
     tenant_id: tenant.id,
     group_id: input.group_id,
     text,
     source: 'manual' as const,
   }));
-  const { data, error } = await service
-    .from('keywords')
-    .upsert(rows, { onConflict: 'tenant_id,text', ignoreDuplicates: true })
-    .select('id');
+  const { data, error } = await service.from('keywords').insert(rows).select('id');
   if (error) throw new Error(`保存失败: ${error.message}`);
   revalidatePath(`/t/${tenantSlug}/keywords`);
-  return { inserted: data?.length ?? 0, skipped: lines.length - (data?.length ?? 0) };
+  return { inserted: data?.length ?? 0, skipped: deduped.length - (data?.length ?? 0) };
 }
 
 export type CombineAxes = {
@@ -180,16 +211,18 @@ export async function addKeywordsCombine(
   if (total === 0) throw new Error('组合结果为空');
   if (total > MAX_BATCH) throw new Error(`组合数 ${total} 超过 ${MAX_BATCH},请减少某些维度的词数`);
 
-  const rows = combos.map((text) => ({
+  const deduped = Array.from(new Set(combos));
+  const { fresh } = await partitionExisting(tenant.id, deduped);
+  if (fresh.length === 0) {
+    return { inserted: 0, skipped: deduped.length, total };
+  }
+  const rows = fresh.map((text) => ({
     tenant_id: tenant.id,
     group_id: input.group_id,
     text,
     source: 'combine' as const,
   }));
-  const { data, error } = await service
-    .from('keywords')
-    .upsert(rows, { onConflict: 'tenant_id,text', ignoreDuplicates: true })
-    .select('id');
+  const { data, error } = await service.from('keywords').insert(rows).select('id');
   if (error) throw new Error(`保存失败: ${error.message}`);
   revalidatePath(`/t/${tenantSlug}/keywords`);
   return { inserted: data?.length ?? 0, skipped: total - (data?.length ?? 0), total };
@@ -224,20 +257,30 @@ export async function digKeywords(
   let used_stub = false;
 
   if (llmAvailable()) {
-    const { content } = await chat({
-      messages: [
-        {
-          role: 'system',
-          content:
-            '你是 SEO/GEO 关键词专家。给定一个核心词,产出 50 个相关的长尾搜索词,覆盖价格、流程、对比、风险、城市、人群等不同意图维度。' +
-            '严格返回 JSON: {"candidates": ["...", ...]}。每条不超过 30 字。禁止使用医疗绝对化用语(治愈/根治/最好/第一)。',
-        },
-        { role: 'user', content: `核心词: ${seed}` },
-      ],
-      response_format: 'json_object',
-      temperature: 0.7,
-      timeout_ms: 30_000,
-    });
+    let content: string;
+    try {
+      const result = await chat({
+        messages: [
+          {
+            role: 'system',
+            content:
+              '你是 SEO/GEO 关键词专家。给定一个核心词,产出 50 个相关的长尾搜索词,覆盖价格、流程、对比、风险、城市、人群等不同意图维度。' +
+              '严格返回 JSON: {"candidates": ["...", ...]}。每条不超过 30 字。禁止使用医疗绝对化用语(治愈/根治/最好/第一)。',
+          },
+          { role: 'user', content: `核心词: ${seed}` },
+        ],
+        response_format: 'json_object',
+        temperature: 0.7,
+        timeout_ms: 90_000,
+      });
+      content = result.content;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/abort|timeout|timed out/i.test(msg)) {
+        throw new Error('AI 挖掘超时(>90 秒)。请重试,或换一个更具体的核心词。');
+      }
+      throw new Error(`AI 调用失败: ${msg}`);
+    }
     try {
       const parsed = JSON.parse(content) as { candidates?: unknown };
       if (Array.isArray(parsed.candidates)) {
@@ -291,16 +334,18 @@ export async function saveDugKeywords(
   const { accepted } = await filterByCompliance(tenant.id, cleaned);
   if (accepted.length === 0) throw new Error('全部命中合规黑名单,无法保存');
 
-  const rows = accepted.map((text) => ({
+  const deduped = Array.from(new Set(accepted));
+  const { fresh } = await partitionExisting(tenant.id, deduped);
+  if (fresh.length === 0) {
+    return { inserted: 0, skipped: cleaned.length };
+  }
+  const rows = fresh.map((text) => ({
     tenant_id: tenant.id,
     group_id: groupId,
     text,
     source: 'ai_dig' as const,
   }));
-  const { data, error } = await service
-    .from('keywords')
-    .upsert(rows, { onConflict: 'tenant_id,text', ignoreDuplicates: true })
-    .select('id');
+  const { data, error } = await service.from('keywords').insert(rows).select('id');
   if (error) throw new Error(`保存失败: ${error.message}`);
   revalidatePath(`/t/${tenantSlug}/keywords`);
   return { inserted: data?.length ?? 0, skipped: cleaned.length - (data?.length ?? 0) };
