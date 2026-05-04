@@ -131,7 +131,11 @@ export default async function ComplianceDetailPage({
           <CitationCheckPanel check={variant.citation_check} />
           <ReviewTimeline reviews={reviewRows} reviewerEmails={reviewerEmails} />
           {canAct ? (
-            <ReviewActions tenantSlug={tenant.slug} variantId={variant.id} />
+            <ReviewActions
+              tenantSlug={tenant.slug}
+              variantId={variant.id}
+              citationCheck={variant.citation_check as { verdict?: string; unmatched?: Array<{ needle: string }> } | null}
+            />
           ) : variant.compliance_status === 'rejected' ? (
             <AiRewriteButton tenantSlug={tenant.slug} variantId={variant.id} />
           ) : (

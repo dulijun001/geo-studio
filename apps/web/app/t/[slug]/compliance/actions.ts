@@ -96,8 +96,9 @@ export async function approveVariant(
   tenantSlug: string,
   variantId: string,
   rationale: string,
+  options?: { acknowledgeUnverifiedCitations?: boolean },
 ): Promise<void> {
-  await transition(tenantSlug, variantId, 'approve', rationale);
+  await transition(tenantSlug, variantId, 'approve', rationale, options);
 }
 
 export async function rejectVariant(
@@ -148,6 +149,7 @@ async function transition(
   variantId: string,
   verb: 'approve' | 'reject',
   rationale: string,
+  options?: { acknowledgeUnverifiedCitations?: boolean },
 ): Promise<void> {
   const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'auditor']);
   const supabase = createSupabaseServerClient();
@@ -170,20 +172,25 @@ async function transition(
   }
 
   // Hallucination gate: variants with verdict=suspected_hallucination need
-  // explicit acknowledgement. We allow approval anyway (operator might have
-  // verified them out-of-band — e.g. they're real but missing from the
-  // whitelist), but the rationale must explicitly say so so we keep audit
-  // trail.
+  // explicit acknowledgement. We allow approval (operator may have verified
+  // out-of-band) but the action must record it as an explicit choice for
+  // audit. Two paths accepted:
+  //
+  //   1. options.acknowledgeUnverifiedCitations === true (modern UI uses
+  //      a dedicated checkbox — clear consent, recorded in audit_logs).
+  //   2. rationale contains 核实|verified|手工|手动|确认 (legacy fallback
+  //      for any pre-V1.7 callers that still pass the magic word).
   if (verb === 'approve') {
     const cc = variant.citation_check as
       | { verdict?: string; unmatched?: Array<{ needle: string }> }
       | null;
     if (cc?.verdict === 'suspected_hallucination' && (cc.unmatched?.length ?? 0) > 0) {
-      const acknowledged = /核实|verified|手工|手动|确认/.test(rationale);
+      const acknowledged =
+        options?.acknowledgeUnverifiedCitations === true ||
+        /核实|verified|手工|手动|确认/.test(rationale);
       if (!acknowledged) {
-        const sample = cc.unmatched!.slice(0, 3).map((u) => u.needle).join('、');
         throw new Error(
-          `这条变体有 ${cc.unmatched!.length} 处可疑引用(${sample}…)未通过白名单核实。要批准请在审批理由里说明已**手工核实**这些引用真实存在(包含「核实/确认」字样),或者先去「设置 → 引用来源」补到白名单后再批。`,
+          `这条变体有 ${cc.unmatched!.length} 处可疑引用未通过白名单核实。请在审批面板勾选「我已手工核实」复选框后再批准。`,
         );
       }
     }
