@@ -23,6 +23,7 @@ import {
   buildRewriteHint,
   computeSimilarity,
   classifySimilarity,
+  checkNumericFacts,
   type VerifiedCitation,
 } from '@geo/geo-core';
 import { RECOMMENDED_COMBO, type GeoTacticId, type VariantPlatform } from '@geo/shared';
@@ -97,7 +98,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
   // citation in body that isn't in the list as suspected hallucination).
   const { data: verifiedRows } = await client
     .from('verified_citations')
-    .select('id, title, title_aliases')
+    .select('id, title, title_aliases, key_claims')
     .eq('tenant_id', tenant_id)
     .eq('active', true)
     .is('deleted_at', null);
@@ -105,6 +106,14 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
     id: r.id as string,
     title: r.title as string,
     aliases: (r.title_aliases as string[] | null) ?? [],
+  }));
+  // 档位 C1 — same rows, with key_claims for the LLM-judge fact checker. Kept
+  // separate from `verifiedCitations` because checkCitations only needs
+  // titles/aliases (faster path, no extra column allocation).
+  const citationsWithClaims = (verifiedRows ?? []).map((r) => ({
+    title: r.title as string,
+    aliases: (r.title_aliases as string[] | null) ?? [],
+    key_claims: (r.key_claims as string[] | null) ?? [],
   }));
 
   // ADR 007 — Wizard-selected keywords. variant-generate must:
@@ -257,6 +266,23 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
       const geoScore = chosen.geo;
       const citationCheck = chosen.citation;
 
+      // 档位 C1 — numeric fact-check runs AFTER citation_check on the chosen
+      // variant. Skipped when the body has zero whitelisted citations (the
+      // checkCitations() upstream gate already covered "title hallucination";
+      // checkNumericFacts adds data-level grounding only when there's a
+      // citation+number co-occurrence to verify).
+      let numericCheck = null as Awaited<ReturnType<typeof checkNumericFacts>> | null;
+      if (citationCheck.matches.length > 0) {
+        try {
+          numericCheck = await checkNumericFacts(v.body, citationsWithClaims);
+        } catch (err) {
+          console.warn(
+            `[variant-generate] ${platform} numeric-fact-check failed:`,
+            err,
+          );
+        }
+      }
+
       const { data: inserted, error: insErr } = await client
         .from('content_variants')
         .insert({
@@ -281,6 +307,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
           },
           geo_score: geoScore,
           citation_check: citationCheck,
+          numeric_check: numericCheck,
           compliance_status: 'pending',
           status: 'draft',
         })

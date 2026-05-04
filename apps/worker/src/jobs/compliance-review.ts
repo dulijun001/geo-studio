@@ -44,6 +44,7 @@ type VariantRow = {
   compliance_status: string;
   geo_score: { total?: number } | null;
   citation_check: { verdict?: string } | null;
+  numeric_check: { verdict?: string } | null;
 };
 
 /**
@@ -65,7 +66,7 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   // 1. Fetch variant
   const { data: variant, error: vErr } = await client
     .from('content_variants')
-    .select('id, tenant_id, title, body, platform, compliance_status, geo_score, citation_check')
+    .select('id, tenant_id, title, body, platform, compliance_status, geo_score, citation_check, numeric_check')
     .eq('id', variant_id)
     .single<VariantRow>();
   if (vErr || !variant) {
@@ -218,21 +219,28 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
 
   // 4b. Quality-gate downgrade — even if 4-道-门 says auto_approved, refuse to
   // bypass human review when:
-  //   - GEO score < 70 (could not reach minimum after rewrite); OR
-  //   - citation_check flagged hallucinated 《...》 references.
-  // Both signals were captured by variant-generate.ts at insert time. Forcing
-  // these into pending_review prevents low-quality / hallucinated content from
-  // landing on the auto_approved → dispatch path silently.
+  //   - GEO score < 70 (could not reach minimum after rewrite — 档位 A1); OR
+  //   - citation_check flagged hallucinated 《...》 references (档位 A2); OR
+  //   - numeric_check verdict='reject' (档位 C1, data-level hallucination).
+  //
+  // Numeric_check verdict='suspect' does NOT downgrade — that's the LLM's
+  // way of saying "I can't tell" (no key_claims, ambiguous match). 'reject'
+  // is reserved for either heuristic hard-hit (100% 治愈 + citation) or LLM
+  // judging a clear contradiction with operator-curated key_claims.
   if (finalStatus === 'auto_approved') {
     const geoTotal =
       typeof variant.geo_score?.total === 'number' ? variant.geo_score.total : null;
     const citationVerdict = variant.citation_check?.verdict ?? null;
+    const numericVerdict = variant.numeric_check?.verdict ?? null;
     const downgradeReasons: string[] = [];
     if (geoTotal !== null && geoTotal < GEO_AUTO_APPROVE_MIN) {
       downgradeReasons.push(`geo_score=${geoTotal}<${GEO_AUTO_APPROVE_MIN}`);
     }
     if (citationVerdict === 'suspected_hallucination') {
       downgradeReasons.push('citation_hallucination');
+    }
+    if (numericVerdict === 'reject') {
+      downgradeReasons.push('numeric_fact_reject');
     }
     if (downgradeReasons.length > 0) {
       finalStatus = 'pending';
@@ -241,6 +249,7 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
         reasons: downgradeReasons,
         geo_total: geoTotal,
         citation_verdict: citationVerdict,
+        numeric_verdict: numericVerdict,
       });
       console.log(
         `[compliance-review] variant=${variant_id} downgraded auto→pending (${downgradeReasons.join(', ')})`,
