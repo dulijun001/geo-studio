@@ -405,6 +405,10 @@ export async function deriveStaffAccounts(tenantId: string): Promise<{ upserted:
         platforms: {},
         status: 'active',
         bio_md_path: doctor.bio_md_path,
+        // 0023: KB-derived rows are doctors (content authors / persona),
+        // not operators. Dispatch action filters by kind='operator', so
+        // these never receive publish tasks.
+        kind: 'doctor',
       });
       if (error) {
         console.error(`[derive-staff] insert ${doctor.real_name} failed:`, error);

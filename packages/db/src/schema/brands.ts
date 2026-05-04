@@ -24,6 +24,14 @@ export const staffRoleEnum = pgEnum('staff_role', [
 
 export const staffStatusEnum = pgEnum('staff_status', ['active', 'paused', 'offboarding']);
 
+/**
+ * doctor   = 医生本人(用于内容署名 + persona 匹配,不接派单)
+ * operator = 真正登录平台账号发布内容的人(接派单)
+ *
+ * Migration 0023 adds this column. Backfill: bio_md_path IS NOT NULL → doctor.
+ */
+export const staffKindEnum = pgEnum('staff_kind', ['doctor', 'operator']);
+
 export const vocabTypeEnum = pgEnum('vocab_type', [
   'brand',
   'doctor',
@@ -94,6 +102,8 @@ export const staffAccounts = pgTable(
      * staff member completes setup via an invite link.
      */
     password_hash: text('password_hash'),
+    /** doctor (内容署名,不派单)/ operator (派单接收人)。Migration 0023. */
+    kind: staffKindEnum('kind').notNull().default('operator'),
     /** Opt-in flag: false = doctor not exposed in any public artifact. (V1.7 / migration 0016) */
     geo_profile_visible: boolean('geo_profile_visible').notNull().default(false),
     /** { license_number, board_certifications: [...], specialties: [...], experience_years, education: [...] }. Maps to schema.org/Physician. (0016) */

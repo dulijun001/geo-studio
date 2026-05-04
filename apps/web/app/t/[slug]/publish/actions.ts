@@ -141,6 +141,7 @@ export async function dispatchToday(
       .select('id, persona, platforms, real_name')
       .eq('tenant_id', tenant.id)
       .eq('status', 'active')
+      .eq('kind', 'operator')  // 0023: doctors don't receive dispatch tasks
       .is('deleted_at', null),
   ]);
 
