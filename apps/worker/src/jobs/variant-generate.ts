@@ -24,6 +24,8 @@ import {
   computeSimilarity,
   classifySimilarity,
   checkNumericFacts,
+  chat,
+  isAvailable as llmAvailable,
   type VerifiedCitation,
 } from '@geo/geo-core';
 import { RECOMMENDED_COMBO, type GeoTacticId, type VariantPlatform } from '@geo/shared';
@@ -139,6 +141,11 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
   const boss = new PgBoss({ connectionString: databaseUrl, schema: 'pgboss' });
   await boss.start();
   let successCount = 0;
+  // Tier-C3: track variants inserted in THIS job run so the post-pass diff-
+  // label generation only compares variants from the same generation cycle.
+  // Mixing in older variants would make labels confusing ("differs from a
+  // version generated 2 weeks ago by a different prompt").
+  const processedVariantIds: string[] = [];
   try {
     await boss.createQueue('compliance.review');
 
@@ -150,6 +157,16 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
       platforms.map((platform) => processPlatform(platform)),
     );
     successCount = results.filter((r) => r.status === 'fulfilled' && r.value).length;
+
+    // Tier-C3: cross-platform diff labels — runs after all insertions land.
+    // Best-effort: failures here don't fail the job (label is decorative).
+    if (processedVariantIds.length >= 2) {
+      try {
+        await generateDiffLabels(client, processedVariantIds);
+      } catch (err) {
+        console.warn('[variant-generate] diff-label generation failed:', err);
+      }
+    }
 
     async function processPlatform(platform: VariantPlatform): Promise<boolean> {
       const t0 = Date.now();
@@ -317,6 +334,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
         console.error(`[variant-generate] insert variant failed: ${insErr?.message}`);
         return false;
       }
+      processedVariantIds.push(inserted.id as string);
 
       await writeAudit(
         tenant_id,
@@ -441,6 +459,136 @@ function combinedScore(s: VariantScores): number {
   score -= s.uniqueness ? 5 : 0;
   score -= s.citation.verdict === 'suspected_hallucination' ? 10 : 0;
   return score;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 档位 C3 — Cross-platform diff label generation
+// ─────────────────────────────────────────────────────────────────────────
+
+const DIFF_LABEL_SIM_THRESHOLD = 0.5;
+
+type DiffLabelVariantRow = {
+  id: string;
+  platform: string;
+  body: string;
+  extra_assets: Record<string, unknown> | null;
+};
+
+/**
+ * Per-variant short label (≤30 chars zh) explaining how this version differs
+ * stylistically from its closest sibling. Surfaced in compliance UI so admin
+ * sees "this 公众号 version is the long-form one; 抖音 version is the punchy
+ * one" without re-reading bodies.
+ *
+ * Skipped when the variant has no sibling above DIFF_LABEL_SIM_THRESHOLD —
+ * if all variants are already very different, there's nothing to explain.
+ *
+ * Cost: ONE batched LLM call regardless of variant count. Failures are
+ * non-blocking (label is decorative).
+ */
+async function generateDiffLabels(
+  client: ReturnType<typeof getServiceClient>,
+  variantIds: string[],
+): Promise<void> {
+  if (!llmAvailable() || variantIds.length < 2) return;
+
+  const { data: rows } = await client
+    .from('content_variants')
+    .select('id, platform, body, extra_assets')
+    .in('id', variantIds);
+  const variants = (rows ?? []) as DiffLabelVariantRow[];
+  if (variants.length < 2) return;
+
+  // Find each variant's most-similar sibling (above threshold).
+  type Pair = {
+    variant: DiffLabelVariantRow;
+    sibling: DiffLabelVariantRow;
+    similarity: number;
+  };
+  const pairs: Pair[] = [];
+  for (const v of variants) {
+    let best: DiffLabelVariantRow | null = null;
+    let bestSim = 0;
+    for (const s of variants) {
+      if (s.id === v.id) continue;
+      const sim = computeSimilarity(v.body, s.body).total;
+      if (sim > bestSim) {
+        bestSim = sim;
+        best = s;
+      }
+    }
+    if (best && bestSim >= DIFF_LABEL_SIM_THRESHOLD) {
+      pairs.push({ variant: v, sibling: best, similarity: bestSim });
+    }
+  }
+  if (pairs.length === 0) return;
+
+  // Batch all pairs into ONE LLM call. Each variant gets its own label.
+  const numbered = pairs
+    .map((p, i) => {
+      const aHead = p.variant.body.slice(0, 200).replace(/\s+/g, ' ');
+      const bHead = p.sibling.body.slice(0, 200).replace(/\s+/g, ' ');
+      return [
+        `案例 ${i + 1} [variant_id=${p.variant.id}]`,
+        `  - 当前版本(${p.variant.platform}):${aHead}...`,
+        `  - 最相似的兄弟版本(${p.sibling.platform}):${bHead}...`,
+      ].join('\n');
+    })
+    .join('\n\n');
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content:
+        '你是一名内容编辑助手。任务:对每个案例,用 ≤25 个汉字概括"当前版本"相比"兄弟版本"在风格/重点/口吻上的差异。' +
+        '语气要像编辑给同事的简短备注,不要套话。\n\n' +
+        '严格输出 JSON: {"labels": [{"variant_id": "...", "label": "..."}]}',
+    },
+    { role: 'user' as const, content: numbered },
+  ];
+
+  let parsed: { labels?: Array<{ variant_id?: string; label?: string }> };
+  try {
+    const result = await chat({
+      messages,
+      temperature: 0.4,
+      response_format: 'json_object',
+      timeout_ms: 60_000,
+      max_tokens: 800,
+    });
+    parsed = JSON.parse(result.content);
+  } catch (err) {
+    console.warn('[variant-generate] diff-label LLM call failed:', err);
+    return;
+  }
+
+  if (!Array.isArray(parsed.labels)) return;
+
+  // Apply labels: SELECT existing extra_assets, merge in JS, UPDATE.
+  // Yes, N round-trips for N variants — acceptable since this runs once at
+  // end-of-job, and the labels are short. JSONB merge via raw SQL would be
+  // faster but adds complexity for limited gain.
+  for (const entry of parsed.labels) {
+    if (!entry.variant_id || !entry.label) continue;
+    const v = variants.find((x) => x.id === entry.variant_id);
+    if (!v) continue;
+    const trimmed = entry.label.slice(0, 50);
+    const merged = {
+      ...(v.extra_assets ?? {}),
+      diff_label: trimmed,
+    };
+    const { error } = await client
+      .from('content_variants')
+      .update({ extra_assets: merged })
+      .eq('id', v.id);
+    if (error) {
+      console.warn(`[variant-generate] diff-label update ${v.id} failed:`, error);
+    }
+  }
+
+  console.log(
+    `[variant-generate] diff-labels generated for ${parsed.labels.length}/${pairs.length} pairs`,
+  );
 }
 
 async function writeAudit(

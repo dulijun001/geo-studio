@@ -44,7 +44,7 @@ export default async function ComplianceDetailPage({
   const { data: variant } = await supabase
     .from('content_variants')
     .select(
-      'id, title, body, platform, status, compliance_status, compliance_review_id, created_at, content_item_id, geo_score, citation_check, case_match',
+      'id, title, body, platform, status, compliance_status, compliance_review_id, created_at, content_item_id, geo_score, citation_check, case_match, numeric_check, extra_assets',
     )
     .eq('id', params.id)
     .eq('tenant_id', tenant.id)
@@ -129,6 +129,8 @@ export default async function ComplianceDetailPage({
             <EeatCard score={variant.geo_score as unknown as import('@geo/geo-core').GeoScore} compact />
           ) : null}
           <CitationCheckPanel check={variant.citation_check} />
+          <NumericCheckPanel check={variant.numeric_check} />
+          <DiffLabelPanel extraAssets={variant.extra_assets} />
           <ReviewTimeline reviews={reviewRows} reviewerEmails={reviewerEmails} />
           {canAct ? (
             <ReviewActions
@@ -525,6 +527,94 @@ function CitationCheckPanel({ check }: { check: CitationCheck | null | undefined
           (另有 {check.matches.length} 条引用核实通过)
         </p>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 档位 C1 — Numeric fact-check display
+// ─────────────────────────────────────────────────────────────────────────
+type NumericClaim = {
+  citation: string;
+  number: string;
+  sentence: string;
+  verdict: 'pass' | 'suspect' | 'reject';
+  reason: string;
+  mode: 'heuristic_reject' | 'llm_judged' | 'no_ground_truth';
+};
+type NumericCheck = {
+  scanned_at: string;
+  verdict: 'pass' | 'suspect' | 'reject';
+  claims: NumericClaim[];
+  llm_used: boolean;
+} | null;
+
+function NumericCheckPanel({ check }: { check: NumericCheck }) {
+  if (!check) return null;
+  // Don't show a panel for clean pass + no claims — it's noise.
+  if (check.verdict === 'pass' && check.claims.every((c) => c.mode === 'no_ground_truth')) {
+    if (check.claims.length === 0) return null;
+    return (
+      <div className="rounded-md border border-dashed border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+        <p className="font-medium text-foreground">数据事实核查</p>
+        <p className="mt-1">
+          找到 {check.claims.length} 条「引用 + 数字」组合,但白名单源未配置 key_claims,无法机器核验。建议运营人员在引用源里补充关键陈述以启用 LLM 裁判。
+        </p>
+      </div>
+    );
+  }
+  const reject = check.claims.filter((c) => c.verdict === 'reject');
+  const suspect = check.claims.filter((c) => c.verdict === 'suspect');
+  const tone =
+    check.verdict === 'reject'
+      ? 'border-2 border-rose-300 bg-rose-50 text-rose-900'
+      : check.verdict === 'suspect'
+        ? 'border border-amber-300 bg-amber-50 text-amber-900'
+        : 'border border-emerald-200 bg-emerald-50 text-emerald-900';
+  const icon = check.verdict === 'reject' ? '⛔' : check.verdict === 'suspect' ? '⚠️' : '✓';
+  return (
+    <div className={`rounded-md p-3 text-xs ${tone}`}>
+      <p className="font-medium">
+        {icon} 数据事实核查 {check.llm_used ? '(LLM 已裁判)' : '(启发式)'}
+      </p>
+      {reject.length > 0 && (
+        <div className="mt-2">
+          <p className="text-[11px] font-medium">{reject.length} 条疑似数据幻觉(已强制人工审):</p>
+          <ul className="mt-1 space-y-1.5">
+            {reject.slice(0, 4).map((c, i) => (
+              <li key={i} className="rounded-sm bg-rose-100/60 p-1.5">
+                <div className="font-mono">
+                  {c.citation} · {c.number}
+                </div>
+                <div className="mt-0.5 text-[11px] opacity-80">{c.sentence}</div>
+                <div className="mt-0.5 text-[10px] opacity-70">理由:{c.reason}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {suspect.length > 0 && check.verdict !== 'reject' && (
+        <p className="mt-2 text-[11px] opacity-90">
+          {suspect.length} 条不确定(LLM 无法判断与 ground truth 是否一致),建议人工复核。
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 档位 C3 — Cross-platform diff label badge
+// ─────────────────────────────────────────────────────────────────────────
+function DiffLabelPanel({ extraAssets }: { extraAssets: Record<string, unknown> | null }) {
+  const label = extraAssets?.diff_label;
+  if (typeof label !== 'string' || label.length === 0) return null;
+  return (
+    <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
+      <p className="font-medium">该平台版本特征</p>
+      <p className="mt-1 italic">「{label}」</p>
+      <p className="mt-1 text-[11px] opacity-70">
+        与本次生成中最相似的兄弟版本对比,自动生成的差异化标签
+      </p>
     </div>
   );
 }
