@@ -32,7 +32,22 @@ export function DispatchButton({ tenantSlug }: { tenantSlug: string }) {
       try {
         const r = await dispatchToday(tenantSlug, false);
         if (r.proposals.length === 0) {
-          setMsg('没有可派的新变体 — 可能全部已派,或还没有合规通过的变体。');
+          // Diagnostic — figure out the actual blocker so the message
+          // points the admin at the real fix, not a generic "可能..."
+          // hand-wave. r.unmatched = variants that couldn't find any
+          // matching staff. r.idle_staff = staff who could take more
+          // but didn't get matched to any candidate variant.
+          if (r.unmatched > 0 && r.idle_staff > 0) {
+            setMsg(
+              `算法跑通了但 ${r.unmatched} 条变体没匹配上任何员工 · ${r.idle_staff} 个员工今天还能接但没被匹配。多半是「员工平台账号 / persona 标签」和「变体平台 / 主题」对不上 — 去「设置 → 员工管理」给员工补对应平台账号。`,
+            );
+          } else if (r.unmatched > 0) {
+            setMsg(
+              `${r.unmatched} 条候选变体都没匹配到员工 — 大概率是「员工平台账号没录」。去「设置 → 员工管理」给每个员工至少录一个平台(toutiao_article / zhihu / douyin_script ...)。`,
+            );
+          } else {
+            setMsg('当前没有"已审通过 + 还没派给任何员工"的新变体可派。先去「内容」生成新变体或在「合规审核」批准 pending 项。');
+          }
           return;
         }
         setProposals(r.proposals);
