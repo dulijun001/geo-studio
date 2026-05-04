@@ -33,13 +33,22 @@ export function EeatCard({
       <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-4">
         {dims.map(({ key, data }) => {
           const pct = data.max > 0 ? Math.round((data.score / data.max) * 100) : 0;
+          const label = EEAT_LABELS[key];
+          // First letter of english label as a small visual anchor (E/E/A/T)
+          const initial = label.en.charAt(0);
           return (
-            <div key={key} className="rounded-md border border-border bg-card px-2 py-1.5">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {EEAT_LABELS[key].en}
+            <div key={key} className="rounded-md border border-border bg-card px-2 py-2">
+              <div className="flex items-center gap-1.5">
+                <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-muted text-[10px] font-mono font-semibold text-muted-foreground">
+                  {initial}
                 </span>
-                <span className="text-xs font-semibold">{data.score}/{data.max}</span>
+                <span className="truncate text-xs font-medium text-foreground">
+                  {label.zh}
+                </span>
+              </div>
+              <div className="mt-1.5 flex items-baseline gap-1">
+                <span className="text-base font-semibold tabular-nums">{data.score}</span>
+                <span className="text-[10px] text-muted-foreground">/ {data.max}</span>
               </div>
               <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
                 <div
