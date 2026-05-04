@@ -380,7 +380,12 @@ function WeakestTacticsPrompt({
         ))}
       </ul>
       <div className="flex flex-wrap items-center gap-2 pt-1">
-        <InlineAiRewriteCta tenantSlug={tenantSlug} variantId={variantId} className={accentBtn} />
+        <InlineAiRewriteCta
+          tenantSlug={tenantSlug}
+          variantId={variantId}
+          mode="geo_score"
+          className={accentBtn}
+        />
         <a
           href="#variant-edit-form"
           className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1.5 text-[11px] font-medium text-foreground hover:bg-muted"

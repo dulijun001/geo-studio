@@ -2,20 +2,41 @@
 
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
-import { aiRewriteVariant } from '../actions';
+import { aiRewriteForGeoScore, aiRewriteVariant } from '../actions';
+
+export type RewriteMode = 'compliance' | 'geo_score';
+
+const MODE_COPY: Record<RewriteMode, { dialogTitle: string; dialogBody: string }> = {
+  compliance: {
+    dialogTitle: '确认让 AI 改写违规内容?',
+    dialogBody:
+      'AI 会基于关键词扫描的违规位置 + LLM 评审意见做替换,大约 60-120 秒。原正文写入 audit_logs 可回溯,合规状态重置 pending。仅适用于「已拒绝」状态的变体。',
+  },
+  geo_score: {
+    dialogTitle: '确认让 AI 针对最弱 3 项改写?',
+    dialogBody:
+      '系统会用 GEO 9 法评分里最弱的 3 项作为具体提示让 LLM 重写,大约 60-120 秒。改写不引入合规违规词,改完后重新走四道门审核。原正文写入 audit_logs 可回溯。',
+  },
+};
 
 /**
- * Inline compact CTA — used in the GeoScorePanel weakest-tactics banner.
- * Same action as AiRewriteButton but a single button, no heading / helper
- * text. Shares the confirm dialog UX so users can cancel.
+ * Inline compact CTA used in the GeoScorePanel weakest-tactics banner.
+ *
+ *   mode='compliance' — drives the violation-fixing rewrite (existing
+ *                        aiRewriteVariant action). Locked to rejected.
+ *   mode='geo_score'  — drives the GEO-score-lift rewrite (new
+ *                        aiRewriteForGeoScore action). Works on any
+ *                        non-final state.
  */
 export function InlineAiRewriteCta({
   tenantSlug,
   variantId,
+  mode,
   className = '',
 }: {
   tenantSlug: string;
   variantId: string;
+  mode: RewriteMode;
   className?: string;
 }) {
   const router = useRouter();
@@ -28,7 +49,8 @@ export function InlineAiRewriteCta({
     setConfirmOpen(false);
     start(async () => {
       try {
-        const result = await aiRewriteVariant(tenantSlug, variantId);
+        const action = mode === 'compliance' ? aiRewriteVariant : aiRewriteForGeoScore;
+        const result = await action(tenantSlug, variantId);
         if (!result.ok) {
           setErr(result.reason);
           return;
@@ -39,6 +61,8 @@ export function InlineAiRewriteCta({
       }
     });
   };
+
+  const copy = MODE_COPY[mode];
 
   return (
     <>
@@ -68,10 +92,8 @@ export function InlineAiRewriteCta({
             role="dialog"
             aria-modal="true"
           >
-            <h3 className="text-sm font-semibold">确认让 AI 针对最弱项改写?</h3>
-            <p className="mt-2 text-xs text-muted-foreground">
-              系统会用最弱 3 项的具体提示让 LLM 重写一版,大约 60-120 秒。原正文写入 audit_logs 可回溯,合规状态重置 pending。
-            </p>
+            <h3 className="text-sm font-semibold">{copy.dialogTitle}</h3>
+            <p className="mt-2 text-xs text-muted-foreground">{copy.dialogBody}</p>
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"

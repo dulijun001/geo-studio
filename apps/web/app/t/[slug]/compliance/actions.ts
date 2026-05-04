@@ -2,7 +2,13 @@
 
 import PgBoss from 'pg-boss';
 import { revalidatePath } from 'next/cache';
-import { chat, isAvailable as llmAvailable } from '@geo/geo-core';
+import {
+  buildRewriteHint,
+  chat,
+  isAvailable as llmAvailable,
+  scoreGeo,
+  type GeoScore,
+} from '@geo/geo-core';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/current-user';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
@@ -384,6 +390,183 @@ export async function aiRewriteVariant(
       original_body: variant.body,
       changes: parsed.changes ?? [],
       findings_count: findings.length,
+    },
+  });
+
+  // Re-enqueue compliance review for the new body
+  const databaseUrl = process.env.DATABASE_URL;
+  if (databaseUrl) {
+    const boss = new PgBoss({ connectionString: databaseUrl, schema: 'pgboss' });
+    await boss.start();
+    try {
+      await boss.createQueue('compliance.review');
+      await boss.send('compliance.review', {
+        variant_id: variantId,
+        tenant_id: tenant.id,
+        triggered_by: user?.id ?? null,
+      });
+    } finally {
+      await boss.stop({ graceful: true, timeout: 5000 });
+    }
+  }
+
+  revalidatePath(`/t/${tenantSlug}/compliance`);
+  revalidatePath(`/t/${tenantSlug}/compliance/${variantId}`);
+  return { ok: true };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// GEO-score-driven rewrite (V1.7+)
+//
+// Different intent from aiRewriteVariant:
+//   - aiRewriteVariant     : variant got REJECTED by compliance gates →
+//                            rewrite to remove violation language. Locked
+//                            to compliance_status='rejected'.
+//   - aiRewriteForGeoScore : variant's GEO 9-tactic score < 70 → rewrite
+//                            to lift the weakest 3 tactics. Works on any
+//                            non-final state(pending / approved /
+//                            rejected). Reuses buildRewriteHint(score)
+//                            so the same advisor strings the UI banner
+//                            shows are exactly what the LLM gets.
+//
+// Both rewrites reset compliance_status='pending' and re-enqueue a fresh
+// four-gate review on the new body.
+// ─────────────────────────────────────────────────────────────────────────
+
+const GEO_REWRITE_SYSTEM = `你是一位医疗内容编辑助手。任务:基于「GEO 9 法」评分薄弱项,把一条已发布或已审通过的医疗营销文案改写得更容易被 AI 引擎(豆包/元宝/Perplexity 等)引用。
+
+铁律:
+1. 不引入任何医疗广告法 A 级违规词(如「根治」「永不复发」「最好」「第一」)
+2. 不编造数据 / 引用 / 医生姓名 — 只在原文已有事实周围补充权威短语 + 句式重组
+3. 保留原文事实数字、医生姓名、诊疗细节;不要改这些
+4. 保留原文结构和大致字数(±20%)
+5. 严格按 user 的"最弱项提示"针对性改写,不要全文重写`;
+
+export async function aiRewriteForGeoScore(
+  tenantSlug: string,
+  variantId: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator', 'auditor']);
+  if (!llmAvailable()) {
+    throw new Error('LLM 未配置(ARK_API_KEY 缺失),无法 AI 改写');
+  }
+
+  const service = getSupabaseServiceClient();
+
+  const { data: variant, error: vErr } = await service
+    .from('content_variants')
+    .select('id, tenant_id, title, body, platform, status, compliance_status, geo_score, content_item_id')
+    .eq('id', variantId)
+    .single();
+  if (vErr || !variant) throw new Error('变体不存在');
+  if (variant.tenant_id !== tenant.id) throw new Error('Tenant mismatch');
+  if (['dispatched', 'published'].includes(variant.status)) {
+    return { ok: false, reason: '已派发或发布的变体不能再改 — 先撤回派单或废弃后重新生成' };
+  }
+
+  const geoScore = variant.geo_score as GeoScore | null;
+  if (!geoScore || typeof geoScore.total !== 'number') {
+    return { ok: false, reason: '该变体没有 GEO 评分,无法基于评分改写' };
+  }
+
+  // Fetch the source content_item to recover the primary keyword that the
+  // original scorer used. Falls back to first 8 chars of title.
+  let primaryKeyword = variant.title.slice(0, 8);
+  if (variant.content_item_id) {
+    const { data: item } = await service
+      .from('content_items')
+      .select('topics')
+      .eq('id', variant.content_item_id)
+      .maybeSingle();
+    const topics = (item?.topics as string[] | null) ?? null;
+    if (Array.isArray(topics) && topics.length > 0 && typeof topics[0] === 'string') {
+      primaryKeyword = topics[0];
+    }
+  }
+
+  const rewriteHint = buildRewriteHint(geoScore);
+
+  const userPrompt =
+    `# 任务\n基于下方"最弱项提示",对一条医疗营销文案做精准改写,提升其在 AI 搜索引擎里的被引概率。\n\n` +
+    `# 平台\n${variant.platform}\n\n` +
+    `# 主题关键词(请保持出现频率)\n${primaryKeyword}\n\n` +
+    `# 原始标题\n${variant.title}\n\n` +
+    `# 原始正文\n${variant.body}\n\n` +
+    `# 最弱项提示\n${rewriteHint}\n\n` +
+    `# 输出 JSON\n` +
+    `- title: 改写后的标题(原则上不变,违规或不达标才动)\n` +
+    `- body: 改写后的正文(markdown,字数 ±20%)\n` +
+    `- changes: 主要改进点的字符串数组(例如 ["补充《XX 指南》引用", "首句加入主题词"])\n`;
+
+  let parsed: { title?: string; body?: string; changes?: string[] };
+  try {
+    const result = await chat({
+      messages: [
+        { role: 'system', content: GEO_REWRITE_SYSTEM },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.5,
+      max_tokens: 3000,
+      response_format: 'json_object',
+      timeout_ms: 180_000,
+    });
+    parsed = JSON.parse(result.content);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      reason: /abort/i.test(msg)
+        ? 'AI 超时未返回,请稍后重试'
+        : `AI 调用失败: ${msg.slice(0, 100)}`,
+    };
+  }
+
+  const newBody = parsed.body?.trim() ?? '';
+  const newTitle = parsed.title?.trim() || variant.title;
+  if (newBody.length < 30) {
+    return { ok: false, reason: 'AI 返回正文过短(< 30 字),改写失败' };
+  }
+
+  // Re-score after rewrite. We accept the new body even if score regresses —
+  // human reviewer makes the final call. But surface the delta in audit_logs
+  // so we can later see how often LLM helps vs hurts.
+  const newScore = scoreGeo({
+    title: newTitle,
+    body: newBody,
+    primary_keyword: primaryKeyword,
+    rewrite_count: (geoScore.rewrite_count ?? 0) + 1,
+  });
+
+  const user = await getCurrentUser();
+
+  const { error: upErr } = await service
+    .from('content_variants')
+    .update({
+      title: newTitle,
+      body: newBody,
+      status: 'draft',
+      compliance_status: 'pending',
+      compliance_review_id: null,
+      geo_score: newScore,
+    })
+    .eq('id', variantId);
+  if (upErr) {
+    return { ok: false, reason: `保存失败: ${upErr.message}` };
+  }
+
+  await service.from('audit_logs').insert({
+    tenant_id: tenant.id,
+    actor_user_id: user?.id ?? null,
+    action: 'compliance.ai_rewrite_geo_score',
+    target_type: 'content_variant',
+    target_id: variantId,
+    payload: {
+      original_title: variant.title,
+      original_body: variant.body,
+      changes: parsed.changes ?? [],
+      score_before: geoScore.total,
+      score_after: newScore.total,
+      rewrite_hint: rewriteHint,
     },
   });
 
