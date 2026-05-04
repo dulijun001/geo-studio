@@ -44,6 +44,7 @@ type ContentItemRow = {
   markdown: string;
   topics: string[];
   status: string;
+  keyword_ids: string[] | null;
 };
 
 type TenantRow = {
@@ -64,7 +65,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
   // 1. Load context
   const { data: item, error: iErr } = await client
     .from('content_items')
-    .select('id, tenant_id, title, markdown, topics, status')
+    .select('id, tenant_id, title, markdown, topics, status, keyword_ids')
     .eq('id', content_item_id)
     .single<ContentItemRow>();
   if (iErr || !item) {
@@ -106,6 +107,23 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
     aliases: (r.title_aliases as string[] | null) ?? [],
   }));
 
+  // ADR 007 — Wizard-selected keywords. variant-generate must:
+  //   (1) inject them into the prompt as "must plant"
+  //   (2) post-verify each appears in the generated body — missing ones
+  //       trigger a combined rewrite hint (B1).
+  // Loaded once per content_item, applied to every platform variant.
+  const wizardKeywordIds = Array.isArray(item.keyword_ids) ? item.keyword_ids : [];
+  let keywordsToPlant: string[] = [];
+  if (wizardKeywordIds.length > 0) {
+    const { data: kwRows } = await client
+      .from('keywords')
+      .select('text')
+      .eq('tenant_id', tenant_id)
+      .in('id', wizardKeywordIds)
+      .is('deleted_at', null);
+    keywordsToPlant = ((kwRows ?? []) as Array<{ text: string }>).map((r) => r.text);
+  }
+
   // 2–4. Per-platform generate + insert + enqueue
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL not set');
@@ -134,6 +152,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
         industry: tenant?.industry,
         topic_hints: item!.topics?.length ? item!.topics : undefined,
         verified_citations: verifiedCitations.map((c) => ({ title: c.title, aliases: c.aliases })),
+        keywords_to_plant: keywordsToPlant.length > 0 ? keywordsToPlant : undefined,
       };
       const result = await generateVariant(baseInput);
       const elapsed = Date.now() - t0;
@@ -150,76 +169,93 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
         return false;
       }
 
-      // GEO 9-tactic scoring runs before insert so the row carries it from
-      // birth — UI / compliance reviewers see the breakdown immediately.
-      // Auto-rewrite kicks in if total < REWRITE_THRESHOLD: re-call LLM with
-      // a hint focused on the weakest tactics, score the result, keep the
-      // higher of the two. Capped at 1 retry per variant to avoid runaway
-      // cost (Doubao Pro single call ~ ¥0.05-0.2, 2 calls fine, 5+ wasteful).
       const REWRITE_THRESHOLD = 70;
       const primaryKeyword = item!.topics?.[0]?.trim() ?? result.variant.title.slice(0, 8);
-      let v = result.variant;
-      let geoScore = scoreGeo({ title: v.title, body: v.body, primary_keyword: primaryKeyword });
-      const initialTotal = geoScore.total;
 
-      if (geoScore.total < REWRITE_THRESHOLD && result.variant.provider !== 'stub') {
-        const hint = buildRewriteHint(geoScore);
-        const t1 = Date.now();
-        const retry = await generateVariant({ ...baseInput, rewrite_hint: hint });
-        if (retry.ok) {
-          const retryScore = scoreGeo({
-            title: retry.variant.title,
-            body: retry.variant.body,
-            primary_keyword: primaryKeyword,
-            rewrite_count: 1,
-          });
-          if (retryScore.total > geoScore.total) {
-            v = retry.variant;
-            geoScore = retryScore;
-            console.log(
-              `[variant-generate] ${platform} rewrite improved ${initialTotal}→${retryScore.total} (+${retryScore.total - initialTotal}) in ${Date.now() - t1}ms`,
-            );
-          } else {
-            console.log(
-              `[variant-generate] ${platform} rewrite kept original (${initialTotal} >= ${retryScore.total})`,
-            );
-          }
-        }
-      }
-
-      // Hallucination check — every 《...》 / 指南 / 学会 mention in the body
-      // must trace to verified_citations. Flagged citations land in the
-      // citation_check column; downstream compliance UI surfaces them red.
-      const citationCheck = checkCitations(v.body, verifiedCitations);
-
-      // Uniqueness check (V1.7 b1): compare this variant body against any
-      // sibling variants already generated for the same content_item. Cross-
-      // platform variants SHOULD differ — if any pair lands ≥ 0.7 similarity,
-      // record it on the variant so admin sees it on the detail page. We do
-      // NOT auto-rewrite here (the inner retry loop already used the GEO
-      // score signal); auto-rewriting on uniqueness too would risk runaway
-      // loops since the LLM may produce another similar variant.
+      // Sibling load happens once — used by both v0 and (potentially) v1
+      // uniqueness checks. Cross-platform variants SHOULD differ.
       const { data: siblings } = await client
         .from('content_variants')
         .select('id, platform, body')
         .eq('content_item_id', content_item_id)
         .is('deleted_at', null);
-      let uniquenessWarning: { platform: string; total: number; verdict: string } | null = null;
-      for (const s of siblings ?? []) {
-        const sim = computeSimilarity(v.body, s.body as string);
-        const verdict = classifySimilarity(sim.total);
-        if (verdict === 'rewrite') {
-          uniquenessWarning = {
-            platform: s.platform as string,
-            total: Number(sim.total.toFixed(3)),
-            verdict,
-          };
-          console.log(
-            `[variant-generate] ${platform} 与 ${s.platform} 高度相似(${sim.total.toFixed(3)}),已标记 uniqueness_warning`,
+      const siblingBodies = (siblings ?? []).map((s) => ({
+        platform: s.platform as string,
+        body: s.body as string,
+      }));
+
+      const score0 = evaluateVariant(
+        result.variant.body,
+        result.variant.title,
+        primaryKeyword,
+        keywordsToPlant,
+        siblingBodies,
+        verifiedCitations,
+        0,
+      );
+      const initialTotal = score0.geo.total;
+
+      // ONE combined rewrite covers GEO score gap (existing) + B1 missing
+      // keyword planting + B2 cross-platform similarity. Total LLM calls per
+      // variant capped at 2 (initial + at most one rewrite) regardless of
+      // how many signals fire — runaway cost protection.
+      let v = result.variant;
+      let chosen = score0;
+
+      const failedSignals = listFailedSignals(score0, REWRITE_THRESHOLD);
+      const rewriteEligible = result.variant.provider !== 'stub' && failedSignals.length > 0;
+
+      if (rewriteEligible) {
+        const hintParts: string[] = [];
+        if (score0.geo.total < REWRITE_THRESHOLD) {
+          hintParts.push(buildRewriteHint(score0.geo));
+        }
+        if (score0.keyword.missing.length > 0) {
+          hintParts.push(
+            `# 关键词补漏\n以下关键词上一稿遗漏,本次必须自然嵌入(每个 ≥1 次):\n${score0.keyword.missing.map((k) => `• ${k}`).join('\n')}`,
           );
-          break;
+        }
+        if (score0.uniqueness) {
+          hintParts.push(
+            `# 平台差异化\n与「${score0.uniqueness.platform}」平台变体相似度 ${score0.uniqueness.total} 过高。改写时换一个开头(不同钩子句)、调整段落顺序、用不同的真实案例细节,**不许**只是同义改词。`,
+          );
+        }
+
+        const t1 = Date.now();
+        const retry = await generateVariant({ ...baseInput, rewrite_hint: hintParts.join('\n\n') });
+        if (retry.ok) {
+          const score1 = evaluateVariant(
+            retry.variant.body,
+            retry.variant.title,
+            primaryKeyword,
+            keywordsToPlant,
+            siblingBodies,
+            verifiedCitations,
+            1,
+          );
+          // Pick the better one. Combined metric:
+          //   geo.total - 5 * missing_keywords - 5 * uniqueness_fail
+          // — penalize each failed signal so a higher GEO with missing keywords
+          // can still lose to a slightly lower GEO with all keywords planted.
+          const combined0 = combinedScore(score0);
+          const combined1 = combinedScore(score1);
+          if (combined1 > combined0) {
+            v = retry.variant;
+            chosen = score1;
+            console.log(
+              `[variant-generate] ${platform} rewrite improved combined ${combined0.toFixed(1)}→${combined1.toFixed(1)} (signals: ${failedSignals.join(',')}, ${Date.now() - t1}ms)`,
+            );
+          } else {
+            console.log(
+              `[variant-generate] ${platform} rewrite kept v0 (combined ${combined0.toFixed(1)} ≥ ${combined1.toFixed(1)}, signals: ${failedSignals.join(',')})`,
+            );
+          }
         }
       }
+
+      const finalSignals = listFailedSignals(chosen, REWRITE_THRESHOLD);
+      const geoScore = chosen.geo;
+      const citationCheck = chosen.citation;
 
       const { data: inserted, error: insErr } = await client
         .from('content_variants')
@@ -234,7 +270,14 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
             notes: v.notes,
             llm_provider: v.provider,
             llm_usage: v.usage ?? null,
-            ...(uniquenessWarning && { uniqueness_warning: uniquenessWarning }),
+            initial_geo_total: initialTotal,
+            keyword_check: {
+              total: chosen.keyword.total,
+              matched: chosen.keyword.matched,
+              missing: chosen.keyword.missing,
+            },
+            ...(chosen.uniqueness && { uniqueness_warning: chosen.uniqueness }),
+            ...(finalSignals.length > 0 && { unresolved_signals: finalSignals }),
           },
           geo_score: geoScore,
           citation_check: citationCheck,
@@ -291,6 +334,86 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
   console.log(
     `[variant-generate] done content=${content_item_id} success=${successCount}/${platforms.length} total=${Date.now() - started}ms`,
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Quality signal helpers (V1.7+ B1/B2 — combined-rewrite design)
+// ─────────────────────────────────────────────────────────────────────────
+
+type VariantScores = {
+  geo: ReturnType<typeof scoreGeo>;
+  citation: ReturnType<typeof checkCitations>;
+  keyword: { total: number; matched: string[]; missing: string[] };
+  uniqueness: { platform: string; total: number; verdict: string } | null;
+};
+
+function evaluateVariant(
+  body: string,
+  title: string,
+  primaryKeyword: string,
+  keywordsToPlant: string[],
+  siblings: Array<{ platform: string; body: string }>,
+  verifiedCitations: VerifiedCitation[],
+  rewriteCount: number,
+): VariantScores {
+  const geo = scoreGeo({ title, body, primary_keyword: primaryKeyword, rewrite_count: rewriteCount });
+  const citation = checkCitations(body, verifiedCitations);
+  const keyword = checkKeywordPresence(body, keywordsToPlant);
+
+  let uniqueness: VariantScores['uniqueness'] = null;
+  for (const s of siblings) {
+    const sim = computeSimilarity(body, s.body);
+    if (classifySimilarity(sim.total) === 'rewrite') {
+      uniqueness = { platform: s.platform, total: Number(sim.total.toFixed(3)), verdict: 'rewrite' };
+      break;
+    }
+  }
+  return { geo, citation, keyword, uniqueness };
+}
+
+function checkKeywordPresence(
+  body: string,
+  keywords: string[],
+): { total: number; matched: string[]; missing: string[] } {
+  if (keywords.length === 0) return { total: 0, matched: [], missing: [] };
+  // Strip whitespace before matching: "种植 牙价格" in keyword should still
+  // hit "种植牙价格" in body and vice versa. Punctuation insensitivity isn't
+  // worth the false positives — a keyword "种植牙" hitting "无种植牙不可"
+  // is fine; that's still natural usage.
+  const norm = body.replace(/\s+/g, '');
+  const matched: string[] = [];
+  const missing: string[] = [];
+  for (const k of keywords) {
+    const kn = k.replace(/\s+/g, '');
+    if (kn.length === 0) continue;
+    if (norm.includes(kn)) matched.push(k);
+    else missing.push(k);
+  }
+  return { total: keywords.length, matched, missing };
+}
+
+/** Returns short symbolic names of the signals that failed for this variant. */
+function listFailedSignals(s: VariantScores, geoMin: number): string[] {
+  const out: string[] = [];
+  if (s.geo.total < geoMin) out.push(`geo<${geoMin}`);
+  if (s.keyword.missing.length > 0) out.push(`kw_miss=${s.keyword.missing.length}`);
+  if (s.uniqueness) out.push(`uniq>=0.7`);
+  if (s.citation.verdict === 'suspected_hallucination') out.push('cite_hallu');
+  return out;
+}
+
+/**
+ * Combined quality score for v0-vs-v1 selection. Each failed signal subtracts
+ * a flat 5 points so a 70-with-all-keywords beats a 75-missing-2-keywords.
+ * Citation hallucinations cost more (10) — that's the most dangerous signal
+ * because compliance review treats it as hard-block downstream.
+ */
+function combinedScore(s: VariantScores): number {
+  let score = s.geo.total;
+  score -= 5 * s.keyword.missing.length;
+  score -= s.uniqueness ? 5 : 0;
+  score -= s.citation.verdict === 'suspected_hallucination' ? 10 : 0;
+  return score;
 }
 
 async function writeAudit(

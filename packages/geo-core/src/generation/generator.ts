@@ -38,6 +38,13 @@ export type GenerateInput = {
    * legacy "only mention what's in source_markdown" behavior.
    */
   verified_citations?: Array<{ title: string; aliases: string[] }>;
+  /**
+   * Keywords the wizard committed to planting (V1.8 / ADR 007). Each must
+   * appear at least once in the generated body — buildVariantPrompt embeds
+   * this as a "must include" instruction; variant-generate.ts post-verifies
+   * with hard substring check, triggering a rewrite if any are missing.
+   */
+  keywords_to_plant?: string[];
   /** Optional hint when this call is a rewrite of a low-scoring previous draft. */
   rewrite_hint?: string;
   /** Max tokens for this generation. Default 2500 — enough for 1500字 with headroom. */
@@ -61,6 +68,7 @@ export async function generateVariant(input: GenerateInput): Promise<GenerateRes
     industry: input.industry,
     topic_hints: input.topic_hints,
     verified_citations: input.verified_citations,
+    keywords_to_plant: input.keywords_to_plant,
     rewrite_hint: input.rewrite_hint,
   };
   const messages = buildVariantPrompt(ctx);
