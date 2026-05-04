@@ -443,7 +443,7 @@ function CaseMatchPanel({ match }: { match: CaseMatch | null | undefined }) {
     <div className="rounded-md border-2 border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
       <p className="font-medium">⚠️ 历史案例比对 — {match.matches.length} 个相似案例</p>
       <p className="mt-1 opacity-90">
-        本文跟历史处罚案例有 ≥ 50% 违规要素重合。**不是直接判违规**,但建议参考案例做调整 — 如果发布后被举报或被监管比对,容易被判定相似行为。
+        本文跟历史处罚案例有 ≥ 50% 违规要素重合。<strong className="font-semibold">这不是直接判违规</strong>,但建议参考案例做调整 — 如果发布后被举报或被监管比对,容易被判定相似行为。
       </p>
       {totalFineYuan > 0 && (
         <p className="mt-1 text-[11px] opacity-80">
@@ -510,7 +510,7 @@ function CitationCheckPanel({ check }: { check: CitationCheck | null | undefined
     <div className="rounded-md border-2 border-rose-300 bg-rose-50 p-3 text-xs text-rose-900">
       <p className="font-medium">⚠️ 引用核实 — {check.unmatched.length} 条疑似 AI 编造</p>
       <p className="mt-1 opacity-90">
-        以下引用在租户的白名单({check.whitelist_size} 条)里**找不到**,可能是模型幻觉。请人工核实后再放行,或在「设置 → 引用来源」补到白名单里。
+        以下引用在租户的白名单({check.whitelist_size} 条)里<strong className="font-semibold">找不到</strong>,可能是模型幻觉。审批面板里勾选「我已手工核实」复选框可强制放行,操作会写入审计日志。
       </p>
       <ul className="mt-2 space-y-1.5">
         {check.unmatched.map((u, i) => (

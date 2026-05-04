@@ -65,7 +65,9 @@ export async function createStaffAccount(
     .limit(1)
     .single();
   if (bErr || !brand) {
-    throw new Error('当前租户还没有 brand。请先在数据库 seed 一个,或等 V2 加品牌管理 UI。');
+    throw new Error(
+      '该租户还没有创建品牌信息。请先到「可发现层 → 品牌资料」填写一份,再回这里加员工。',
+    );
   }
 
   // Phone uniqueness within tenant — schema has a partial unique index but the

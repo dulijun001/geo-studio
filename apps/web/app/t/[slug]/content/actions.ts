@@ -291,13 +291,18 @@ export async function createAiDraft(
     .slice(0, DRAFT_RECALL_K);
 
   if (ranked.length === 0) {
+    // Surface real candidate titles from this tenant's KB so the suggestions
+    // match what the user actually has — no hardcoded example keywords.
     const samples = candidates
       .filter((c) => c.title)
       .slice(0, 6)
-      .map((c) => c.title)
+      .map((c) => `「${c.title}」`)
       .join('、');
+    const suggestion = samples
+      ? `你知识库里现有这些素材标题:${samples}。试试用其中一个的关键词,或精简成 2-4 字的主题词(如其中的核心名词)。`
+      : '请先到「设置 → 知识库」上传相关 markdown 素材,再回来生成内容。';
     throw new Error(
-      `知识库 ${candidates.length} 篇内未找到匹配「${topic}」的素材。可用主题示例:${samples}。建议精简关键词,如「单颗种植」「儿童正畸」「糖尿病种植」`,
+      `知识库里 ${candidates.length} 篇内没有匹配「${topic}」的素材。${suggestion}`,
     );
   }
 
