@@ -12,6 +12,23 @@
 import { GEO_TACTICS, type GeoTacticId, type VariantPlatform } from '@geo/shared';
 import type { ChatMessage } from '../llm/doubao';
 
+/**
+ * Writing template (intent skeleton). Optional add-on per ADR 007 / D20.
+ *
+ * When present, the composer appends `prompt_skeleton` to SYSTEM_RULES (role
+ * + intent) and injects `structure_hint.sections` into the user message
+ * (structural skeleton). Stays orthogonal to PLATFORM_SPEC[platform] which
+ * controls format / length / syntax.
+ *
+ * When absent, behaviour is identical to V1.5/V1.6 (legacy path) — required
+ * for backward compatibility.
+ */
+export type WritingTemplateInput = {
+  name: string;
+  prompt_skeleton: string;
+  structure_hint?: { sections?: string[]; min_sections?: number };
+};
+
 export type PromptContext = {
   source_markdown: string;
   platform: VariantPlatform;
@@ -21,6 +38,15 @@ export type PromptContext = {
   industry?: string;
   /** Hints the model should weave in (city, signature treatments, doctor mentions). Optional. */
   topic_hints?: string[];
+  /**
+   * Keywords picked by the operator in wizard step 2 (ADR 007). MUST be
+   * naturally embedded in body — distinct from topic_hints (softer "weave in").
+   * The model is told: "every keyword below must appear at least once,
+   * verbatim, in natural context — not in a stuffed list."
+   */
+  keywords_to_plant?: string[];
+  /** Writing template chosen in wizard step 3 (ADR 007). Optional. */
+  writing_template?: WritingTemplateInput;
   /**
    * Whitelist of citable references. Pulled from verified_citations table.
    * The model gets explicit instruction: "this is the ONLY pool of named
@@ -164,13 +190,35 @@ ${ctx.verified_citations
     ? `\n\n━━━ 重写指导(上一轮分低,本轮请改进) ━━━\n${ctx.rewrite_hint}`
     : '';
 
+  // ADR 007 — keywords picked in wizard step 2. Each must appear ≥1× verbatim
+  // in natural context. Distinct from topic_hints (softer "weave in").
+  const keywordsBlock =
+    ctx.keywords_to_plant && ctx.keywords_to_plant.length > 0
+      ? `\n\n━━━ 必须自然植入的关键词(每个至少出现一次,禁止堆砌列表) ━━━
+${ctx.keywords_to_plant.map((k) => `• ${k}`).join('\n')}
+
+注意:每个关键词必须以**自然语境**至少出现一次(可同义改写为常见表达,但核心词形需可识别)。**禁止**把它们集中堆在末尾、tag 区或单独成段;读者读起来不应感到关键词突兀。`
+      : '';
+
+  // ADR 007 — structure skeleton from writing template, injected after format_hint.
+  const structureBlock =
+    ctx.writing_template?.structure_hint?.sections &&
+    ctx.writing_template.structure_hint.sections.length > 0
+      ? `\n\n━━━ 文章骨架(来自写作要求"${ctx.writing_template.name}",作为结构参考,可微调) ━━━
+${ctx.writing_template.structure_hint.sections.map((s, i) => `${i + 1}. ${s}`).join('\n')}${
+          ctx.writing_template.structure_hint.min_sections
+            ? `\n\n至少包含 ${ctx.writing_template.structure_hint.min_sections} 个上述节段。`
+            : ''
+        }`
+      : '';
+
   const userContent = `
 请把下面这份【源素材】改写成【${spec.label}】,严格应用下列 GEO 技法,返回严格 JSON。${rewriteBlock}
 
 特别注意 tactics_applied 字段: 只能从下面这些 id 里选 (英文,带下划线): ${allowedTacticIds}。禁止返回中文、禁止新造 id。
 
 目标平台格式: ${spec.format_hint}
-目标长度: ${spec.length_hint}${brandLine}${hintLine}${citationsBlock}
+目标长度: ${spec.length_hint}${brandLine}${hintLine}${citationsBlock}${keywordsBlock}${structureBlock}
 
 必须应用的 GEO 技法(每一条都要在正文中体现):
 ${tacticBlock}
@@ -187,8 +235,16 @@ ${ctx.source_markdown}
 }
 `.trim();
 
+  // ADR 007 — writing template prompt_skeleton appended to SYSTEM_RULES.
+  // Order: SYSTEM_RULES (compliance red lines, IMMUTABLE) → template role/intent.
+  // This ordering matters: red lines come first so a malicious template can't
+  // "override" them by appearing earlier.
+  const systemContent = ctx.writing_template?.prompt_skeleton
+    ? `${SYSTEM_RULES}\n\n${ctx.writing_template.prompt_skeleton}`
+    : SYSTEM_RULES;
+
   return [
-    { role: 'system', content: SYSTEM_RULES },
+    { role: 'system', content: systemContent },
     { role: 'user', content: userContent },
   ];
 }
