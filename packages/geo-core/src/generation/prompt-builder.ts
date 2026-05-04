@@ -57,6 +57,12 @@ const PLATFORM_SPEC: Record<VariantPlatform, { label: string; format_hint: strin
     format_hint: '分镜格式,每条镜头一行:`[镜头 N · 时长s] 画面描述 → 台词`。',
     length_hint: '30-60 秒对应 5-8 个镜头',
   },
+  douyin_image_text: {
+    label: '抖音图文笔记',
+    format_hint:
+      '抓人钩子开头(1-2 句痛点 / 反常识) + 6-9 张图配套文字(每张 30-60 字,适配九宫格 / 单图轮播)+ 末尾互动引导 + 3-5 个话题 #tag。文字偏口语 + 短句 + emoji,不要像长文。每张图的文字独立成段,前面用「1️⃣ 2️⃣ 3️⃣」编号。',
+    length_hint: '350-600 字总文案 + 6-9 张配图位',
+  },
   wechat_mp: {
     label: '微信公众号推文',
     format_hint: '吸引人的开头 + 故事性案例 + 干货小结 + 品牌落脚。可用 emoji 小标题。',

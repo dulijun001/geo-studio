@@ -43,6 +43,7 @@ export type ConversionStage = (typeof CONVERSION_STAGES)[number];
 export const VARIANT_PLATFORMS = [
   'toutiao_article',
   'douyin_script',
+  'douyin_image_text',
   'wechat_mp',
   'zhihu',
   'xiaohongshu',

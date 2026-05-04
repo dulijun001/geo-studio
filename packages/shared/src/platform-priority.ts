@@ -41,8 +41,14 @@ export const DOUBAO_PLATFORM_PRIORITY: Record<VariantPlatform, PlatformPriorityE
   douyin_script: {
     tier: 'P0',
     emoji: '🔥',
-    label: '抖音',
-    reason: '字节自家平台,豆包近 100% 索引',
+    label: '抖音(视频脚本)',
+    reason: '字节自家平台,豆包近 100% 索引;视频脚本用',
+  },
+  douyin_image_text: {
+    tier: 'P0',
+    emoji: '🔥',
+    label: '抖音(图文)',
+    reason: '字节自家平台,豆包近 100% 索引;图文笔记用',
   },
   toutiao_article: {
     tier: 'P0',

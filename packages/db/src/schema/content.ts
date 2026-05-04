@@ -38,6 +38,7 @@ export const contentItemStatusEnum = pgEnum('content_item_status', [
 export const variantPlatformEnum = pgEnum('variant_platform', [
   'toutiao_article',
   'douyin_script',
+  'douyin_image_text',
   'wechat_mp',
   'zhihu',
   'xiaohongshu',
