@@ -42,7 +42,18 @@ type VariantRow = {
   body: string;
   platform: string;
   compliance_status: string;
+  geo_score: { total?: number } | null;
+  citation_check: { verdict?: string } | null;
 };
+
+/**
+ * GEO 9-tactic minimum total score for a variant to skip human review.
+ * Below this, even a clean keyword scan downgrades to pending_review.
+ *
+ * Tuned to match REWRITE_THRESHOLD in variant-generate.ts — a variant that
+ * couldn't reach 70 after one rewrite shouldn't auto-publish on autopilot.
+ */
+const GEO_AUTO_APPROVE_MIN = 70;
 
 export async function handleComplianceReview(data: ComplianceReviewJob): Promise<void> {
   const { variant_id, tenant_id, triggered_by } = data;
@@ -54,7 +65,7 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   // 1. Fetch variant
   const { data: variant, error: vErr } = await client
     .from('content_variants')
-    .select('id, tenant_id, title, body, platform, compliance_status')
+    .select('id, tenant_id, title, body, platform, compliance_status, geo_score, citation_check')
     .eq('id', variant_id)
     .single<VariantRow>();
   if (vErr || !variant) {
@@ -203,6 +214,38 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
       review_id: latestReviewId,
       stage_path: 'keyword_pass',
     });
+  }
+
+  // 4b. Quality-gate downgrade — even if 4-道-门 says auto_approved, refuse to
+  // bypass human review when:
+  //   - GEO score < 70 (could not reach minimum after rewrite); OR
+  //   - citation_check flagged hallucinated 《...》 references.
+  // Both signals were captured by variant-generate.ts at insert time. Forcing
+  // these into pending_review prevents low-quality / hallucinated content from
+  // landing on the auto_approved → dispatch path silently.
+  if (finalStatus === 'auto_approved') {
+    const geoTotal =
+      typeof variant.geo_score?.total === 'number' ? variant.geo_score.total : null;
+    const citationVerdict = variant.citation_check?.verdict ?? null;
+    const downgradeReasons: string[] = [];
+    if (geoTotal !== null && geoTotal < GEO_AUTO_APPROVE_MIN) {
+      downgradeReasons.push(`geo_score=${geoTotal}<${GEO_AUTO_APPROVE_MIN}`);
+    }
+    if (citationVerdict === 'suspected_hallucination') {
+      downgradeReasons.push('citation_hallucination');
+    }
+    if (downgradeReasons.length > 0) {
+      finalStatus = 'pending';
+      await writeAudit(tenant_id, triggered_by, 'compliance.quality_gate_downgrade', variant_id, {
+        review_id: latestReviewId,
+        reasons: downgradeReasons,
+        geo_total: geoTotal,
+        citation_verdict: citationVerdict,
+      });
+      console.log(
+        `[compliance-review] variant=${variant_id} downgraded auto→pending (${downgradeReasons.join(', ')})`,
+      );
+    }
   }
 
   // 5. Update variant

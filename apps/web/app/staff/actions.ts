@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { clearStaffSession } from '@/lib/staff-session';
 import { requireStaff } from '@/lib/staff';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
+import { enqueueRegenerate } from '@/lib/discoverability/enqueue';
 
 export async function logoutStaff(): Promise<void> {
   clearStaffSession();
@@ -28,7 +29,7 @@ export async function markTaskPublished(taskId: string, urlRaw: string): Promise
   // Scope update to (task_id, staff_id, tenant_id) — belt & suspenders against tampering.
   const { data: task, error: tErr } = await client
     .from('publish_tasks')
-    .select('id, staff_account_id, tenant_id, status')
+    .select('id, staff_account_id, tenant_id, status, variant_id')
     .eq('id', taskId)
     .single();
   if (tErr || !task) throw new Error('任务不存在');
@@ -53,6 +54,37 @@ export async function markTaskPublished(taskId: string, urlRaw: string): Promise
     target_id: taskId,
     payload: { staff_id: ctx.staff_id, url },
   });
+
+  // V1.7 ↔ V1.8 wiring (D14/D17, ADR 005): the discoverability worker reads
+  // content_items WHERE status='published'. Without this transition the
+  // articles array is forever empty and llms.txt / feed / sitemap never list
+  // any of our content. We flip on FIRST published task per content_item
+  // (idempotent) — waiting for "all platforms posted" delays surfacing for
+  // weeks and matters less than getting visibility into AI engines fast.
+  const { data: variantRow } = await client
+    .from('content_variants')
+    .select('content_item_id')
+    .eq('id', task.variant_id as string)
+    .single<{ content_item_id: string }>();
+  if (variantRow?.content_item_id) {
+    const { data: itemRow } = await client
+      .from('content_items')
+      .select('id, status')
+      .eq('id', variantRow.content_item_id)
+      .single<{ id: string; status: string }>();
+    if (itemRow && itemRow.status !== 'published') {
+      await client
+        .from('content_items')
+        .update({ status: 'published' })
+        .eq('id', itemRow.id);
+      // Async — don't block staff UX on artifact regen latency.
+      try {
+        await enqueueRegenerate(ctx.tenant_id);
+      } catch (e) {
+        console.error('[markTaskPublished] enqueueRegenerate failed:', e);
+      }
+    }
+  }
 
   revalidatePath('/staff');
 }
