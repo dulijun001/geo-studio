@@ -22,9 +22,21 @@
  * — we keep it as a small constant pass-through (4/5) and let the LLM-blend
  * future iteration penalize cliches if needed.
  *
- * Score weights chosen so total = 100. Citation gets the biggest weight
- * (20) because it's the clearest signal AI engines look for and the easiest
- * for a writer to add explicitly.
+ * Score weights chosen so total = 100. v2 (2026-05-04 — 档位 C2) calibrates
+ * weights against Aggarwal et al.'s measured pos_adj_word_count_gain
+ * coefficients while keeping `citation=20` fixed (medical compliance pillar
+ * + AI-engine-verifiable signal):
+ *
+ *   citation  20   (kept; double-duty for compliance + GEO)
+ *   quotation 18   (was 15; paper coef 0.41 — highest)
+ *   statistics 17  (was 15; paper coef 0.33 — second)
+ *   fluency   10   (kept; paper coef 0.29)
+ *   keyword_freq 10 (kept; SEO baseline though not in 9 法)
+ *   readability 8  (was 10; paper coef 0.14)
+ *   position  8    (was 10; less critical for GEO than SEO)
+ *   authority 6    (was 5; rolls in technical_terms 0.10 + authoritative 0.10)
+ *   unique    3    (was 5; paper coef 0.06 — lowest)
+ *                                                          total = 100
  */
 
 export type GeoScoreBreakdown = {
@@ -54,7 +66,7 @@ export type GeoScore = {
   breakdown: GeoScoreBreakdown;
 };
 
-const VERSION = 1;
+const VERSION = 2;
 
 /**
  * Per-tactic Chinese rewrite advisor — what to do to improve each tactic.
@@ -178,29 +190,30 @@ export function scoreGeo(input: {
 // Per-tactic scorers
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Statistics: count digits, percent signs, prices, time spans, success rates. Max 15. */
+/** Statistics: count digits, percent signs, prices, time spans, success rates. Max 17. */
 function scoreStatistics(body: string): TacticScore {
   // Match 95%, 5 年, 200元, 10 颗, 30 万, etc. Numbers next to chinese units.
   const digitRuns = body.match(/\d+(?:\.\d+)?(?:%|‰|岁|年|月|周|天|颗|元|万|亿|分|分钟|小时)/g) ?? [];
   // Standalone numbers (≥ 4 digits is usually a price/quantity, not a year alone)
   const naked = body.match(/(?<![\d.])\d{2,}(?![\d.年%])/g) ?? [];
   const total = digitRuns.length + Math.min(naked.length, 3);
-  // 0 → 0, 1-2 → 6, 3-5 → 11, 6+ → 15
-  const score = total === 0 ? 0 : total <= 2 ? 6 : total <= 5 ? 11 : 15;
+  // 0 → 0, 1-2 → 7, 3-5 → 13, 6+ → 17  (v2: scaled 15→17)
+  const score = total === 0 ? 0 : total <= 2 ? 7 : total <= 5 ? 13 : 17;
   return {
     score,
-    max: 15,
+    max: 17,
     evidence: digitRuns.slice(0, 6),
   };
 }
 
-/** Quotation: chinese 「」 or 西文 "..." with named-entity-like content. Max 15. */
+/** Quotation: chinese 「」 or 西文 "..." with named-entity-like content. Max 18. */
 function scoreQuotation(body: string): TacticScore {
   const cn = body.match(/[「『]([^」』]{4,40})[」』]/g) ?? [];
   const en = body.match(/“([^”]{4,40})”/g) ?? [];
   const total = cn.length + en.length;
-  const score = total === 0 ? 0 : total === 1 ? 7 : total >= 3 ? 15 : 11;
-  return { score, max: 15, evidence: [...cn.slice(0, 3), ...en.slice(0, 3)] };
+  // v2: scaled 15→18 — quotation is paper coef 0.41, the highest GEO signal.
+  const score = total === 0 ? 0 : total === 1 ? 8 : total >= 3 ? 18 : 13;
+  return { score, max: 18, evidence: [...cn.slice(0, 3), ...en.slice(0, 3)] };
 }
 
 /** Citation source: reference to guidelines, studies, books, organizations. Max 20. */
@@ -241,14 +254,15 @@ function scoreFluency(body: string): TacticScore {
   return { score: Math.min(score, 10), max: 10, note: `paragraphs=${paragraphs.length} stdev=${stdev.toFixed(1)}` };
 }
 
-/** Readability: avg sentence length ≤ 35 chars (chinese reads slower). Max 10. */
+/** Readability: avg sentence length ≤ 35 chars (chinese reads slower). Max 8 (v2). */
 function scoreReadability(body: string): TacticScore {
   const sentences = body.split(/[。!?\n]/).filter((s) => s.trim().length > 0);
-  if (sentences.length === 0) return { score: 0, max: 10 };
+  if (sentences.length === 0) return { score: 0, max: 8 };
   const avg = sentences.reduce((a, s) => a + s.length, 0) / sentences.length;
-  // ≤ 25 best, 25-35 OK, 35-50 weak, >50 bad
-  const score = avg <= 25 ? 10 : avg <= 35 ? 8 : avg <= 50 ? 5 : 2;
-  return { score, max: 10, note: `avg=${avg.toFixed(1)} chars/sentence` };
+  // v2: scaled 10→8 to match paper coef 0.14 (easy_to_understand). Same shape:
+  // ≤ 25 best (8), 25-35 OK (6), 35-50 weak (4), >50 bad (2)
+  const score = avg <= 25 ? 8 : avg <= 35 ? 6 : avg <= 50 ? 4 : 2;
+  return { score, max: 8, note: `avg=${avg.toFixed(1)} chars/sentence` };
 }
 
 /** Keyword density: primary keyword appears 2-5 times in body. Max 10. */
@@ -262,18 +276,18 @@ function scoreKeywordFreq(keyword: string, body: string): TacticScore {
   return { score, max: 10, note: `keyword="${keyword}" count=${n}` };
 }
 
-/** Position: primary keyword appears within first 100 chars. Max 10. */
+/** Position: primary keyword appears within first 100 chars. Max 8 (v2). */
 function scorePosition(keyword: string, body: string): TacticScore {
-  if (!keyword) return { score: 5, max: 10 };
+  if (!keyword) return { score: 4, max: 8 };
   const head = body.slice(0, 120);
   return {
-    score: head.includes(keyword) ? 10 : 0,
-    max: 10,
+    score: head.includes(keyword) ? 8 : 0,
+    max: 8,
     note: head.includes(keyword) ? 'keyword in head 120' : 'keyword missing in head 120',
   };
 }
 
-/** Unique phrasing: penalize template phrases like "众所周知" / "随着...的发展". Max 5. */
+/** Unique phrasing: penalize template phrases like "众所周知" / "随着...的发展". Max 3 (v2). */
 function scoreUnique(body: string): TacticScore {
   const cliches = [
     '众所周知',
@@ -288,12 +302,13 @@ function scoreUnique(body: string): TacticScore {
   for (const c of cliches) {
     if (new RegExp(c).test(body)) hits++;
   }
-  // Each cliche -1, max 5, min 0
-  const score = Math.max(0, 5 - hits);
-  return { score, max: 5, note: `cliches=${hits}` };
+  // v2: scaled 5→3. Each cliche -1, min 0, max 3 — first 3 cliches kill the
+  // signal; this dimension is small (paper coef 0.06) so loud penalty is fine.
+  const score = Math.max(0, 3 - hits);
+  return { score, max: 3, note: `cliches=${hits}` };
 }
 
-/** Authority tone: presence of professional verbs vs casual / sales pitch. Max 5. */
+/** Authority tone: presence of professional verbs vs casual / sales pitch. Max 6 (v2). */
 function scoreAuthority(body: string): TacticScore {
   // Positive: 临床研究表明 / 依据指南 / 推荐使用 / 数据显示
   const goodPatterns = [
@@ -308,6 +323,8 @@ function scoreAuthority(body: string): TacticScore {
   let neg = 0;
   for (const p of goodPatterns) if (p.test(body)) pos++;
   for (const p of badPatterns) if (p.test(body)) neg++;
-  const score = Math.max(0, Math.min(5, pos * 2 - neg * 2));
-  return { score, max: 5, note: `pos=${pos} neg=${neg}` };
+  // v2: scaled 5→6 to absorb technical_terms 0.10 + authoritative 0.10 weight.
+  // Same coefficients (pos*2, neg*2), bigger ceiling.
+  const score = Math.max(0, Math.min(6, pos * 2 - neg * 2));
+  return { score, max: 6, note: `pos=${pos} neg=${neg}` };
 }

@@ -113,10 +113,11 @@ function record(name: string, pass: boolean, detail?: string) {
   const eeat = mapToEeat(score);
 
   record('eeat: has 4 dimensions', Object.keys(eeat).length === 4);
-  record('eeat: expertise sums citation+statistics max', eeat.expertise.max === 35);
-  record('eeat: experience sums authority+position max', eeat.experience.max === 15);
-  record('eeat: authoritativeness sums quotation+unique max', eeat.authoritativeness.max === 20);
-  record('eeat: trustworthiness sums fluency+readability+keyword_freq max', eeat.trustworthiness.max === 30);
+  // Scorer v2 (档位 C2) — weights recalibrated to arxiv 2311.09735 coefficients.
+  record('eeat: expertise sums citation+statistics max (v2: 20+17)', eeat.expertise.max === 37);
+  record('eeat: experience sums authority+position max (v2: 6+8)', eeat.experience.max === 14);
+  record('eeat: authoritativeness sums quotation+unique max (v2: 18+3)', eeat.authoritativeness.max === 21);
+  record('eeat: trustworthiness sums fluency+readability+keyword_freq max (v2: 10+8+10)', eeat.trustworthiness.max === 28);
   record(
     'eeat: total max = total of 9 法 = 100',
     eeat.expertise.max + eeat.experience.max + eeat.authoritativeness.max + eeat.trustworthiness.max === 100,

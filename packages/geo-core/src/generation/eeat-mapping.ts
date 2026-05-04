@@ -6,16 +6,16 @@
  * tactics under Google's E-E-A-T framework so the UI can speak the language
  * customers already know from SEO.
  *
- * Mapping rationale:
- *   - Expertise        (35)  citation + statistics — knowledge demonstrated
+ * Mapping rationale (sums updated by scorer v2 weight calibration, 档位 C2):
+ *   - Expertise        (37)  citation + statistics — knowledge demonstrated
  *                            via concrete evidence
- *   - Experience       (15)  authority + position — first-hand voice +
+ *   - Experience       (14)  authority + position — first-hand voice +
  *                            information ordering as if from someone who
  *                            actually does this work
- *   - Authoritativeness (20) quotation + unique — the borrowed authority of
+ *   - Authoritativeness (21) quotation + unique — the borrowed authority of
  *                            named sources, plus non-template phrasing
  *                            (i.e. not parroting industry boilerplate)
- *   - Trustworthiness   (30) fluency + readability + keyword_freq — clear,
+ *   - Trustworthiness   (28) fluency + readability + keyword_freq — clear,
  *                            accurate, no manipulation
  *
  * (Buckets are unequal because the underlying tactic weights are unequal —
