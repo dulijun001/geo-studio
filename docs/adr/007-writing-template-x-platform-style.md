@@ -70,7 +70,7 @@ content_items += writing_template_id, keyword_ids
 | `third-party-review` | 第三方中立测评 | 客观语调 |
 | `short-video-script` | 短视频口播脚本 | 5-10 秒钩子 |
 
-> ⚠️ 抓词GEO 的"GEO 排名优化"模板我们**不照抄** — 他们那个是"主推品牌列首位 + 凑 5 家",踩医疗合规第 1、3 道门。我们改造成 `geo-ranking-objective`,强制"客观语境 + 引用必须可验证 + 主品牌仅在客观对比时出现"。后续工单单独评估。
+> ✅ **2026-05-04 已完成**:抓词GEO 的"GEO 排名优化"模板已改造为 `geo-ranking-objective`(第 13 个系统预设)。改造点:主品牌不许"首推/主推" + 列举顺序按客观维度 + 每个候选必须带"局限/边界条件" + 全部数据可验证或定性化。详见 `packages/db/src/seed/writing-templates-seed.ts` 中带详细注释的版本。
 
 ## 备选方案
 
