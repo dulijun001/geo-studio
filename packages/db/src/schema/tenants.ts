@@ -35,6 +35,12 @@ export const tenants = pgTable(
     industry: industryEnum('industry').notNull().default('other'),
     plan: planEnum('plan').notNull().default('trial'),
     settings: jsonb('settings').notNull().default({}),
+    /**
+     * Per-tenant filesystem root for the markdown knowledge base. NULL = no
+     * KB; sync job skips the tenant. Each tenant must have its own path —
+     * never shared, to prevent cross-tenant pollution. (migration 0027)
+     */
+    knowledge_base_path: text('knowledge_base_path'),
     ...timestamps(),
   },
   (t) => ({

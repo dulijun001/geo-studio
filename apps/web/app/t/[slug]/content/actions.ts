@@ -278,10 +278,13 @@ export async function createAiDraft(
 
   // 1. Recall — fetch all indexable sources for tenant, score in JS.
   //    For ~200 sources this is fine; > 1000 we'd need tsvector / pgvector.
+  //    Migration 0027: filter to public-eligible only. L2 (internal-only)
+  //    sources MUST NOT feed AI drafting whose output is publicly visible.
   const { data: candidates, error: recallErr } = await supabase
     .from('knowledge_sources')
     .select('id, source_path, title, excerpt')
     .eq('tenant_id', tenant.id)
+    .eq('is_public_eligible', true)
     .is('deleted_at', null);
   if (recallErr) throw new Error(`检索知识库失败: ${recallErr.message}`);
   if (!candidates?.length) {

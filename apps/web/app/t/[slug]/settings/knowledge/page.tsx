@@ -54,10 +54,10 @@ export default async function KnowledgeSettingsPage({
       .gte('deleted_at', sevenDaysAgo),
     supabase
       .from('knowledge_sources')
-      .select('source_path, title, indexed_at, byte_size, updated_at')
+      .select('source_path, title, indexed_at, last_synced_at, byte_size, updated_at')
       .eq('tenant_id', tenant.id)
       .is('deleted_at', null)
-      .order('updated_at', { ascending: false })
+      .order('last_synced_at', { ascending: false, nullsFirst: false })
       .limit(8),
     supabase
       .from('knowledge_sources')
@@ -83,7 +83,11 @@ export default async function KnowledgeSettingsPage({
       .is('deleted_at', null),
   ]);
 
-  const lastIndexed = latestRows?.[0]?.indexed_at as string | null | undefined;
+  // Migration 0027: prefer last_synced_at (always bumped per sync run) over
+  // indexed_at (only ticks on hash change) so the badge reflects "did sync run
+  // recently?" rather than "did any file change recently?".
+  const lastSynced = latestRows?.[0]?.last_synced_at as string | null | undefined;
+  const lastIndexed = (lastSynced ?? latestRows?.[0]?.indexed_at) as string | null | undefined;
   const lastIndexedAge = lastIndexed
     ? Math.round((Date.now() - new Date(lastIndexed).getTime()) / 60_000)
     : null;

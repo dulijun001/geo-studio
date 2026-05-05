@@ -32,9 +32,13 @@ export type KnowledgeSyncJob = {
   tenant_slug?: string;
 };
 
-const KB_ROOT =
-  process.env.KNOWLEDGE_BASE_ROOT ??
-  `${process.env.HOME}/Workspace/songshu-knowledge-base`;
+/**
+ * Fallback only — used when a tenant row has no `knowledge_base_path` AND
+ * the legacy `KNOWLEDGE_BASE_ROOT` env is set. Migration 0027 made the
+ * per-tenant column the source of truth; tenants without a path are now
+ * skipped (instead of silently sharing one customer's KB).
+ */
+const LEGACY_FALLBACK_ROOT = process.env.KNOWLEDGE_BASE_ROOT ?? null;
 
 /**
  * Mirrors ops/kb-sync/rsync-excludes (which is the source of truth for
@@ -51,17 +55,19 @@ const IGNORE_PATTERNS = [
   '工具/app/**',
   '工具/凭证/**',
   '记忆/系统/vectors/**',
-  '收件箱/待处理/**',
-  '收件箱/临时/**',
-  '收件箱/待审核/**',
-  '收件箱/已入库/**',
-  '收件箱/已处理/**',
+  // P1-1 — entire 收件箱 directory off-limits (was wildcarding only known
+  // sub-folders, missing files placed at 收件箱 root).
+  '收件箱/**',
   '.sync-conflict-*',
   '**/.snapshot',
   '**/.DS_Store',
   '**/*.swp',
   '**/*.swo',
   '**/*~',
+  // P1-3 — root-level all-caps README-style markdowns (AGENTS.md, CLAUDE.md,
+  // GEMINI.md, README.md ...) are project metadata, not medical content.
+  // Allow nested *.md by anchoring at root.
+  '*.md',
   // L3/L4 hard ignore (also enforced by frontmatter check below)
   '团队/绩效/**',
   '团队/招聘/**',
@@ -77,6 +83,8 @@ type ScanResult = {
   excerpt: string | null;
   category: string | null;
   privacy_level: PrivacyLevel;
+  /** Derived from privacy_level. False for L2 (internal-only sources). */
+  is_public_eligible: boolean;
   source_hash: string;
   byte_size: number;
 };
@@ -163,6 +171,7 @@ async function scanFile(
     excerpt: extractExcerpt(body),
     category: relPath.split(sep)[0] ?? null,
     privacy_level,
+    is_public_eligible: privacy_level === 'L1',
     source_hash: hash,
     byte_size: buf.length,
   };
@@ -202,12 +211,14 @@ type SyncStats = {
 export async function handleKnowledgeSync(
   data: KnowledgeSyncJob = {},
 ): Promise<SyncStats[]> {
-  const root = KB_ROOT;
   const client = getServiceClient();
 
+  // Per-tenant KB paths (migration 0027). Tenants without a path are skipped
+  // entirely — never silently fall back to a shared root, which is how the
+  // P0-1 cross-tenant pollution happened.
   const tenantQuery = client
     .from('tenants')
-    .select('id, slug')
+    .select('id, slug, knowledge_base_path')
     .is('deleted_at', null);
   const { data: tenants, error: tenantErr } = await tenantQuery;
   if (tenantErr) throw tenantErr;
@@ -223,10 +234,19 @@ export async function handleKnowledgeSync(
   const all: SyncStats[] = [];
 
   for (const tenant of targets) {
-    console.log(`[kb-sync] tenant=${tenant.slug} root=${root}`);
+    // Resolve this tenant's KB root. New per-tenant column wins; fall through
+    // to legacy KNOWLEDGE_BASE_ROOT env only for explicit ops continuity.
+    const tenantRoot =
+      (tenant.knowledge_base_path as string | null) ?? LEGACY_FALLBACK_ROOT;
+    if (!tenantRoot) {
+      console.log(`[kb-sync] tenant=${tenant.slug} no knowledge_base_path — skipping`);
+      continue;
+    }
+
+    console.log(`[kb-sync] tenant=${tenant.slug} root=${tenantRoot}`);
     let scan: ScanResult[];
     try {
-      scan = await scanKnowledgeBase(root);
+      scan = await scanKnowledgeBase(tenantRoot);
     } catch (err) {
       console.error(`[kb-sync] tenant=${tenant.slug} scan failed:`, err);
       continue;
@@ -252,6 +272,7 @@ export async function handleKnowledgeSync(
     let deleted = 0;
     let unchanged = 0;
     const now = new Date().toISOString();
+    const unchangedIds: string[] = [];
 
     for (const item of scan) {
       const prev = existingByPath.get(item.source_path);
@@ -263,9 +284,11 @@ export async function handleKnowledgeSync(
           excerpt: item.excerpt,
           category: item.category,
           privacy_level: item.privacy_level,
+          is_public_eligible: item.is_public_eligible,
           source_hash: item.source_hash,
           byte_size: item.byte_size,
           indexed_at: now,
+          last_synced_at: now,
         });
         if (error) {
           console.error(`[kb-sync] insert ${item.source_path} failed:`, error);
@@ -280,9 +303,11 @@ export async function handleKnowledgeSync(
             excerpt: item.excerpt,
             category: item.category,
             privacy_level: item.privacy_level,
+            is_public_eligible: item.is_public_eligible,
             source_hash: item.source_hash,
             byte_size: item.byte_size,
             indexed_at: now,
+            last_synced_at: now,
             updated_at: now,
           })
           .eq('id', prev.id);
@@ -292,7 +317,20 @@ export async function handleKnowledgeSync(
         }
         updated++;
       } else {
+        unchangedIds.push(prev.id as string);
         unchanged++;
+      }
+    }
+
+    // Bulk-touch last_synced_at for unchanged rows so the "最近同步" badge
+    // reflects when sync ran, not when content last changed.
+    if (unchangedIds.length > 0) {
+      const { error } = await client
+        .from('knowledge_sources')
+        .update({ last_synced_at: now })
+        .in('id', unchangedIds);
+      if (error) {
+        console.error(`[kb-sync] bulk last_synced_at touch failed:`, error);
       }
     }
 

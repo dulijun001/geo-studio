@@ -1,5 +1,6 @@
 import { relations, sql } from 'drizzle-orm';
 import {
+  boolean,
   customType,
   index,
   integer,
@@ -59,7 +60,20 @@ export const knowledgeSources = pgTable(
     byte_size: integer('byte_size').notNull().default(0),
     /** V2: text-embedding-3-small / doubao-embedding (1536 dims). Nullable in V1. */
     embedding: vector('embedding'),
+    /** Bumped only when source_hash changes (file content actually moved). */
     indexed_at: timestamp('indexed_at', { withTimezone: true }),
+    /**
+     * Bumped on every sync run that observed this row, regardless of whether
+     * content changed. Drives the "最近同步" UI badge so it reflects sync
+     * health rather than content-change frequency. (migration 0027)
+     */
+    last_synced_at: timestamp('last_synced_at', { withTimezone: true }),
+    /**
+     * Second-pass downstream guard. False = source must NOT feed AI drafting
+     * whose output is externally visible. Derived from privacy_level
+     * (L1=true, L2=false). (migration 0027)
+     */
+    is_public_eligible: boolean('is_public_eligible').notNull().default(true),
     ...timestamps(),
   },
   (t) => ({
