@@ -8,9 +8,11 @@ const PLATFORMS = [
   { id: 'toutiao_article', label: '今日头条号', defaultOn: true },
   { id: 'xiaohongshu', label: '小红书', defaultOn: true },
   { id: 'douyin_script', label: '抖音脚本', defaultOn: true },
+  { id: 'douyin_image_text', label: '抖音图文', defaultOn: false },
   { id: 'zhihu', label: '知乎', defaultOn: true },
   { id: 'wechat_mp', label: '公众号', defaultOn: true },
   { id: 'baijiahao', label: '百家号', defaultOn: false },
+  { id: 'souhu', label: '搜狐号', defaultOn: false },
 ] as const;
 type Platform = (typeof PLATFORMS)[number]['id'];
 
@@ -21,11 +23,14 @@ const DEFAULT_PLATFORMS = new Set<Platform>(
 export function GenerateVariantsForm({
   tenantSlug,
   contentItemId,
+  existingCounts,
   disabled,
   disabledReason,
 }: {
   tenantSlug: string;
   contentItemId: string;
+  /** VAR-2 — count of active variants per platform for this content_item. */
+  existingCounts?: Record<string, number>;
   disabled?: boolean;
   disabledReason?: string;
 }) {
@@ -50,6 +55,20 @@ export function GenerateVariantsForm({
     if (selected.size === 0) {
       setError('请至少选择一个平台。');
       return;
+    }
+    // VAR-2 — confirm before re-generating on platforms that already have
+    // variants. Repeated runs append rather than replace, and operators
+    // routinely click "生成" twice not realizing they're stacking copies.
+    const dupes = Array.from(selected).filter((p) => (existingCounts?.[p] ?? 0) > 0);
+    if (dupes.length > 0) {
+      const lines = dupes
+        .map((p) => `  · ${PLATFORMS.find((x) => x.id === p)?.label ?? p}:已有 ${existingCounts![p]} 条`)
+        .join('\n');
+      const ok = confirm(
+        `以下平台已有变体,继续会再追加(不会替换旧变体):\n${lines}\n\n` +
+          `如果想替换旧的,请先到下方「已生成变体」里删除/归档。\n\n继续生成?`,
+      );
+      if (!ok) return;
     }
     setError(null);
     setMessage(null);
@@ -96,12 +115,14 @@ export function GenerateVariantsForm({
       <div className="flex flex-wrap gap-2">
         {PLATFORMS.map((p) => {
           const on = selected.has(p.id);
+          const existing = existingCounts?.[p.id] ?? 0;
           return (
             <button
               key={p.id}
               type="button"
               aria-pressed={on}
               onClick={() => toggle(p.id)}
+              title={existing > 0 ? `该平台已有 ${existing} 条变体,再生成会追加` : ''}
               className={`rounded-full px-3 py-1 text-xs transition-colors ${
                 on
                   ? 'bg-foreground text-background'
@@ -109,6 +130,18 @@ export function GenerateVariantsForm({
               }`}
             >
               {p.label}
+              {existing > 0 && (
+                <span
+                  className={
+                    'ml-1 inline-block min-w-[1.25rem] rounded-full px-1 text-[10px] ' +
+                    (on
+                      ? 'bg-background/20 text-background'
+                      : 'bg-amber-100 text-amber-800')
+                  }
+                >
+                  {existing}
+                </span>
+              )}
             </button>
           );
         })}

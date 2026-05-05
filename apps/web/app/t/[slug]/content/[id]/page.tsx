@@ -47,6 +47,13 @@ export default async function ContentDetailPage({
     .order('created_at', { ascending: false });
   const variantRows = (variants ?? []) as VariantRow[];
 
+  // VAR-2 — count by platform; passed down to GenerateVariantsForm so
+  // operators see "toutiao_article 已有 3 条" before re-clicking生成.
+  const existingPlatformCounts: Record<string, number> = {};
+  for (const v of variantRows) {
+    existingPlatformCounts[v.platform] = (existingPlatformCounts[v.platform] ?? 0) + 1;
+  }
+
   const canEdit = (['owner', 'admin', 'operator'] as const).includes(
     tenant.role as 'owner' | 'admin' | 'operator',
   );
@@ -115,6 +122,7 @@ export default async function ContentDetailPage({
         <GenerateVariantsForm
           tenantSlug={tenant.slug}
           contentItemId={item.id}
+          existingCounts={existingPlatformCounts}
           disabled={generateDisabled}
           disabledReason={disabledReason}
         />

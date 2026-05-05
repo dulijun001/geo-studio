@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import PgBoss from 'pg-boss';
 import { revalidatePath } from 'next/cache';
 import { chat, isAvailable as llmAvailable } from '@geo/geo-core';
+import { VARIANT_PLATFORMS, type VariantPlatform } from '@geo/shared';
 import { requireRole } from '@/lib/tenant';
 import { getCurrentUser } from '@/lib/current-user';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
@@ -14,16 +15,35 @@ const KB_ROOT =
   process.env.KNOWLEDGE_BASE_ROOT ??
   `${process.env.HOME}/Workspace/songshu-knowledge-base`;
 
-const ALLOWED_PLATFORMS = [
-  'toutiao_article',
-  'douyin_script',
-  'wechat_mp',
-  'zhihu',
-  'xiaohongshu',
-  'baijiahao',
-  'souhu',
-] as const;
-type Platform = (typeof ALLOWED_PLATFORMS)[number];
+// VAR-1 — pull from shared so 'douyin_image_text' (added in 0022) and any
+// future platforms are automatically allowed without a second-source drift.
+const ALLOWED_PLATFORMS = VARIANT_PLATFORMS;
+type Platform = VariantPlatform;
+
+/**
+ * VAR-2 — count active variants per platform for a content_item, so the
+ * UI can warn before re-generating ("toutiao_article 已有 3 条变体,继续会
+ * 再加 1 条;如果想替换请先删除旧的").
+ */
+export async function getVariantPlatformCounts(
+  tenantSlug: string,
+  contentItemId: string,
+): Promise<Record<string, number>> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+  const supabase = createSupabaseServerClient();
+  const { data } = await supabase
+    .from('content_variants')
+    .select('platform')
+    .eq('content_item_id', contentItemId)
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null);
+  const counts: Record<string, number> = {};
+  for (const row of data ?? []) {
+    const p = row.platform as string;
+    counts[p] = (counts[p] ?? 0) + 1;
+  }
+  return counts;
+}
 
 /**
  * Kick off variant generation for the given content item.
@@ -97,6 +117,7 @@ const PLATFORM_KB_GUIDE: Partial<Record<Platform, string>> = {
 const PLATFORM_HINT: Record<Platform, string> = {
   xiaohongshu: '小红书:痛点开头钩子 + 个人化叙事 + 列表分点 + 结尾问句引发评论。300-600 字。',
   douyin_script: '抖音脚本:15 秒钩子 + 视觉化场景 + 单核心信息 + CTA。配分镜建议。',
+  douyin_image_text: '抖音图文:抓人钩子开头 + 6-9 张图配套文字(每张 30-60 字)+ 末尾互动引导 + tag。350-600 字总文案。',
   wechat_mp: '公众号:故事化引入 + 专业内容 + 结尾引导关注/留言。1200-2000 字。',
   zhihu: '知乎:长文 + 权威引用 + 数据 + 逻辑解释。1500-3000 字。',
   toutiao_article: '头条号:资讯感开头 + 结构化小标题 + 数据/案例 + SEO 关键词。800-1500 字。',
