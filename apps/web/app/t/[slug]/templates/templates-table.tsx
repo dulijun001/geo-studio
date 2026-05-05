@@ -5,8 +5,10 @@ import { useMemo, useState, useTransition } from 'react';
 import {
   createTemplate,
   deleteTemplate,
+  previewTemplatePrompt,
   toggleVisibility,
   updateTemplate,
+  type TemplatePreview,
   type WritingTemplateInput,
 } from './actions';
 
@@ -46,6 +48,9 @@ export function TemplatesTable({
   >(null);
   const [filter, setFilter] = useState<'all' | 'system' | 'custom' | 'hidden'>('all');
   const [q, setQ] = useState('');
+  // TPL-VW — preview modal state. `null` closed; `pending` while we fetch.
+  const [preview, setPreview] = useState<TemplatePreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
@@ -96,6 +101,14 @@ export function TemplatesTable({
       {filtered.length === 0 ? (
         <Empty />
       ) : (
+        <>
+        {preview && (
+          <PreviewModal
+            preview={preview}
+            onClose={() => setPreview(null)}
+            tenantSlug={tenantSlug}
+          />
+        )}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
           {filtered.map((r) => (
             <Card
@@ -130,10 +143,23 @@ export function TemplatesTable({
                   },
                 });
               }}
+              onPreview={async () => {
+                setPreviewLoading(true);
+                try {
+                  const result = await previewTemplatePrompt(tenantSlug, r.id);
+                  setPreview(result);
+                } catch (e) {
+                  alert(e instanceof Error ? e.message : '预览失败');
+                } finally {
+                  setPreviewLoading(false);
+                }
+              }}
+              previewLoading={previewLoading}
               onAfter={() => router.refresh()}
             />
           ))}
         </div>
+        </>
       )}
     </div>
   );
@@ -172,12 +198,16 @@ function Card({
   tenantSlug,
   onEdit,
   onClone,
+  onPreview,
+  previewLoading,
   onAfter,
 }: {
   row: TemplateRow;
   tenantSlug: string;
   onEdit: () => void;
   onClone: () => void;
+  onPreview: () => void;
+  previewLoading: boolean;
   onAfter: () => void;
 }) {
   const sections = row.structure_hint?.sections ?? [];
@@ -227,6 +257,22 @@ function Card({
             </ul>
           </div>
         )}
+        {/* TPL-VW-2 — collapsible 写作角色 + 意图原文 (prompt_skeleton).
+            Always visible (system + custom alike) so operators understand
+            what the LLM actually receives. Read-only here; system presets
+            require 克隆 to modify. */}
+        <details className="group rounded-md border border-dashed border-border bg-muted/20 p-2">
+          <summary className="cursor-pointer select-none text-[11px] font-medium text-muted-foreground hover:text-foreground">
+            展开看 prompt_skeleton(写作角色 + 意图原文)
+          </summary>
+          <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-card p-2 text-[11px] leading-relaxed text-foreground/85">
+            {row.prompt_skeleton}
+          </pre>
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            注:这段会拼到合规红线之后,作为「角色 + 意图」注入 LLM 系统提示。
+            想看实际拼接后的完整 prompt,点底部「试用预览」。
+          </p>
+        </details>
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-border bg-muted/30 px-3 py-2">
         <button
@@ -250,6 +296,15 @@ function Card({
           {row.visible ? '隐藏' : '显示'}
         </button>
         <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onPreview}
+            disabled={previewLoading}
+            className="rounded-md border border-border bg-card px-2 py-1 text-xs hover:bg-muted disabled:opacity-60"
+            title="干跑 buildVariantPrompt,看 LLM 实际收到的 system + user 完整 prompt"
+          >
+            {previewLoading ? '生成中…' : '试用预览'}
+          </button>
           <button
             type="button"
             onClick={onClone}
@@ -442,4 +497,113 @@ function ensureUniqueSlug(candidate: string, rows: TemplateRow[]): string {
     if (!taken.has(next)) return next;
   }
   return `${candidate}-${Date.now()}`;
+}
+
+/**
+ * TPL-VW-2 — preview modal showing the actual {system, user} message
+ * pair that buildVariantPrompt will hand to the LLM, with this template
+ * applied. Sample scenario uses the tenant's brand_name + service_areas
+ * + a generic dental topic so the operator sees what real generation
+ * looks like without having to commit changes first.
+ */
+function PreviewModal({
+  preview,
+  tenantSlug: _tenantSlug,
+  onClose,
+}: {
+  preview: TemplatePreview;
+  tenantSlug: string;
+  onClose: () => void;
+}) {
+  // V1: locked to the platform the preview action picked (default wechat_mp).
+  // Switching platform / topic from inside the modal requires plumbing the
+  // template id through; deferred — operators can re-trigger preview from
+  // the card after picking a different sample if they need it.
+  const data = preview;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 p-4 backdrop-blur-sm md:items-center"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="card-elevated flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden bg-card">
+        <header className="flex items-baseline justify-between border-b border-border px-6 py-4">
+          <div className="space-y-0.5">
+            <h2 className="text-lg font-semibold">「{data.template_name}」试用预览</h2>
+            <p className="text-xs text-muted-foreground">
+              干跑 buildVariantPrompt,这是 LLM 实际收到的两条消息(无 LLM 调用,纯字符串拼接)
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="关闭"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </header>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+            预览用示例参数:平台 = {data.platform}、关键词 = 种植牙 / 主题示例。实际起草时
+            源素材会被 RAG 召回的真实知识库 markdown 替换,prompt 结构不变。
+          </div>
+
+          <section>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+                system
+              </span>
+              <span className="text-xs text-muted-foreground">
+                合规红线 + 写作角色拼接结果(不可变,租户不可改)
+              </span>
+              <span className="ml-auto text-[10px] text-muted-foreground">
+                {data.system.length} 字符
+              </span>
+            </div>
+            <pre className="max-h-[40vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/20 p-3 text-[11px] leading-relaxed text-foreground">
+              {data.system}
+            </pre>
+          </section>
+
+          <section>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
+                user
+              </span>
+              <span className="text-xs text-muted-foreground">
+                平台格式 + 服务地区 + 关键词 + 结构骨架 + 源素材
+              </span>
+              <span className="ml-auto text-[10px] text-muted-foreground">
+                {data.user.length} 字符
+              </span>
+            </div>
+            <pre className="max-h-[40vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/20 p-3 text-[11px] leading-relaxed text-foreground">
+              {data.user}
+            </pre>
+          </section>
+        </div>
+
+        <footer className="flex items-center justify-between gap-3 border-t border-border bg-muted/30 px-6 py-3">
+          <p className="text-xs text-muted-foreground">
+            总共 {data.system.length + data.user.length} 字符 · 实际起草时 source_markdown 会替换为 RAG 召回的真实素材
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-border bg-card px-3 py-1.5 text-xs hover:bg-muted"
+          >
+            关闭
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
 }

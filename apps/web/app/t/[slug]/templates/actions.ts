@@ -1,6 +1,8 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { buildVariantPrompt } from '@geo/geo-core';
+import { RECOMMENDED_COMBO } from '@geo/shared';
 import { requireRole } from '@/lib/tenant';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 
@@ -197,4 +199,103 @@ export async function deleteTemplate(
     .eq('tenant_id', tenant.id);
   if (error) throw new Error(`删除失败: ${error.message}`);
   revalidatePath(`/t/${tenantSlug}/templates`);
+}
+
+/**
+ * TPL-VW-1 — dry-run buildVariantPrompt with this template + a sample
+ * scenario, return the actual `system` + `user` strings the LLM will see.
+ *
+ * No LLM call — just string assembly. Lets operators verify "what does my
+ * 写作角色 + 意图 look like after the system red lines and the user-message
+ * skeleton stack up" before committing changes.
+ *
+ * Sample scenario uses tenant brand_name + a generic dental-flavored topic
+ * so 12 system presets all produce sensible-looking output. Operator can
+ * pick a different platform via the 2nd arg from the UI.
+ */
+export type TemplatePreview = {
+  template_name: string;
+  platform: string;
+  system: string;
+  user: string;
+};
+
+export async function previewTemplatePrompt(
+  tenantSlug: string,
+  templateId: string,
+  options?: {
+    platform?:
+      | 'wechat_mp'
+      | 'zhihu'
+      | 'toutiao_article'
+      | 'douyin_script'
+      | 'douyin_image_text'
+      | 'xiaohongshu'
+      | 'baijiahao'
+      | 'souhu';
+    sample_topic?: string;
+  },
+): Promise<TemplatePreview> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+  const service = getSupabaseServiceClient();
+
+  // Load the template — system preset (tenant_id IS NULL) OR this tenant's own.
+  const { data: tpl } = await service
+    .from('writing_templates')
+    .select('name, prompt_skeleton, structure_hint, tenant_id')
+    .eq('id', templateId)
+    .or(`tenant_id.is.null,tenant_id.eq.${tenant.id}`)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (!tpl) throw new Error('模板不存在或无权查看');
+
+  // Pull tenant brand for a more realistic preview.
+  const { data: tenantRow } = await service
+    .from('tenants')
+    .select('name, industry, settings')
+    .eq('id', tenant.id)
+    .maybeSingle();
+  const { data: brandRow } = await service
+    .from('brands')
+    .select('service_areas')
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  const platform = options?.platform ?? 'wechat_mp';
+  const topic = options?.sample_topic ?? '种植牙术后注意事项';
+  const sampleSource =
+    `## ${topic}\n\n` +
+    `这是一段示例素材。运营在「试用预览」时,这里会被替换为真实知识库召回的 markdown,` +
+    `LLM 看到的是「源素材+你的写作要求骨架+合规红线」三层叠加后的完整 prompt。`;
+
+  const messages = buildVariantPrompt({
+    source_markdown: sampleSource,
+    platform,
+    tactics: RECOMMENDED_COMBO,
+    brand_name: (tenantRow?.name as string | undefined) ?? '示例品牌',
+    industry: (tenantRow?.industry as string | undefined) ?? 'dental',
+    topic_hints: [topic],
+    service_areas: Array.isArray(brandRow?.service_areas)
+      ? (brandRow!.service_areas as string[])
+      : undefined,
+    keywords_to_plant: ['种植牙', topic],
+    writing_template: {
+      name: tpl.name as string,
+      prompt_skeleton: tpl.prompt_skeleton as string,
+      structure_hint:
+        (tpl.structure_hint as { sections?: string[]; min_sections?: number } | null) ?? undefined,
+    },
+  });
+
+  const sys = messages[0]?.content ?? '';
+  const user = messages[1]?.content ?? '';
+  return {
+    template_name: tpl.name as string,
+    platform,
+    system: sys,
+    user,
+  };
 }
