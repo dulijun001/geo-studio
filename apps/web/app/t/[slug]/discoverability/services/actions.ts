@@ -17,14 +17,64 @@ type ServiceInput = {
   geo_visible: boolean;
 };
 
+// DSC-1 sanity bounds. Generous but block obviously-wrong values.
+const MAX_DESC_LEN = 2000;
+const MAX_PRICE = 1_000_000; // ¥1M cap — anything higher is probably a typo.
+
 function normalizeInput(raw: ServiceInput) {
   const name = raw.name.trim();
   if (!name) throw new Error('请填写服务名');
   if (name.length > 100) throw new Error('服务名过长');
 
-  const desc = raw.description_md.trim() || null;
+  const desc = raw.description_md.trim();
+  if (desc.length > MAX_DESC_LEN) {
+    throw new Error(`服务描述过长(${desc.length} 字,上限 ${MAX_DESC_LEN} 字)`);
+  }
   const category = raw.category.trim() || null;
   const code = raw.procedure_code.trim() || null;
+
+  // DSC-1 — price sanity.
+  for (const [label, v] of Object.entries({
+    price_min: raw.price_min,
+    price_max: raw.price_max,
+    price_typical: raw.price_typical,
+  })) {
+    if (v === null) continue;
+    if (!Number.isFinite(v)) throw new Error(`${label} 必须是数字`);
+    if (v < 0) throw new Error(`${label} 不能是负数`);
+    if (v > MAX_PRICE) {
+      throw new Error(`${label} 超过 ¥${MAX_PRICE.toLocaleString()},请确认是否填错`);
+    }
+  }
+  if (
+    raw.price_min !== null &&
+    raw.price_max !== null &&
+    raw.price_min > raw.price_max
+  ) {
+    throw new Error('最低价不能高于最高价');
+  }
+  if (
+    raw.price_typical !== null &&
+    raw.price_min !== null &&
+    raw.price_typical < raw.price_min
+  ) {
+    throw new Error('典型价不能低于最低价');
+  }
+  if (
+    raw.price_typical !== null &&
+    raw.price_max !== null &&
+    raw.price_typical > raw.price_max
+  ) {
+    throw new Error('典型价不能高于最高价');
+  }
+  if (raw.duration_minutes !== null) {
+    if (!Number.isFinite(raw.duration_minutes)) {
+      throw new Error('治疗时长必须是数字');
+    }
+    if (raw.duration_minutes < 0 || raw.duration_minutes > 24 * 60) {
+      throw new Error('治疗时长应在 0-1440 分钟之间');
+    }
+  }
 
   let priceRange: Record<string, unknown> | null = null;
   if (raw.price_min !== null || raw.price_max !== null || raw.price_typical !== null) {
@@ -38,7 +88,7 @@ function normalizeInput(raw: ServiceInput) {
 
   return {
     name,
-    description_md: desc,
+    description_md: desc || null,
     category,
     medical_procedure_code: code,
     duration_minutes: raw.duration_minutes,
