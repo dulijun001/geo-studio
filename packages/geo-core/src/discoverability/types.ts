@@ -76,6 +76,13 @@ export type BrandProfile = {
   /** schema.org/medicalSpecialty values. */
   medical_specialties: string[];
   address?: GeoAddress;
+  /**
+   * Drainage scope: cities/regions/provinces this brand serves. Mapped to
+   * schema.org/MedicalBusiness.areaServed for AI engine local-query matching.
+   * Distinct from `address` (single physical clinic location). Empty array
+   * means "no explicit drainage scope set".
+   */
+  area_served: string[];
   business_hours?: BusinessHours;
   contact_phones: string[];
   website_url?: string;

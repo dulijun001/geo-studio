@@ -130,6 +130,27 @@ const baseCtx: PromptContext = {
   );
 }
 
+// 6. service_areas (migration 0026) — geographic scope grounding
+{
+  const ctx: PromptContext = {
+    ...baseCtx,
+    service_areas: ['昆明', '云南'],
+  };
+  const { user } = expectMessages(ctx);
+  ok('geo: user contains 本品牌服务地区 marker', user.includes('━━━ 本品牌服务地区'));
+  ok('geo: 昆明 and 云南 both appear in scope block', user.includes('昆明') && user.includes('云南'));
+  ok(
+    'geo: prohibition on tier-1-city localization is present',
+    user.includes('禁止') && (user.includes('北京') || user.includes('上海')),
+  );
+}
+
+// 7. service_areas absent — no geo block emitted (legacy behavior preserved)
+{
+  const { user } = expectMessages(baseCtx);
+  ok('geo: no service_areas → no scope block', !user.includes('━━━ 本品牌服务地区'));
+}
+
 const failed = results.filter((r) => !r.pass);
 console.log(`\n${results.length - failed.length}/${results.length} passed`);
 if (failed.length > 0) {

@@ -13,6 +13,8 @@ type BrandRow = {
   tenant_id: string;
   name: string;
   location: Record<string, unknown> | null;
+  /** Optional for backward-compat with mocks/older rows; resolves to [] when missing. */
+  service_areas?: string[] | null;
   contact_phones: string[];
   medical_specialties: string[];
   business_hours: Record<string, unknown> | null;
@@ -35,6 +37,13 @@ export function buildBrandProfile(row: BrandRow, opts: BuildBrandOpts): BrandPro
       ? row.website_url
       : `${opts.publicBaseUrl}/c/${opts.tenantSlug}`;
 
+  // Dedup + trim service_areas. Operators can paste sloppy values and we
+  // don't want "昆明 " ≠ "昆明" causing duplicate areaServed entries.
+  const cleanedAreas = (row.service_areas ?? [])
+    .map((a) => a.trim())
+    .filter((a) => a.length > 0);
+  const areaServed = Array.from(new Set(cleanedAreas));
+
   return {
     kind: 'brand',
     id: row.id,
@@ -44,6 +53,7 @@ export function buildBrandProfile(row: BrandRow, opts: BuildBrandOpts): BrandPro
     description: emptyToUndef(row.description_md),
     medical_specialties: row.medical_specialties ?? [],
     address: locationToAddress(row.location),
+    area_served: areaServed,
     business_hours: businessHoursClean(row.business_hours),
     contact_phones: row.contact_phones ?? [],
     website_url: emptyToUndef(row.website_url),

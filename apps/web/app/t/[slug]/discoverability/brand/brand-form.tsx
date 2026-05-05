@@ -106,6 +106,20 @@ export function BrandForm({
         </div>
       </Section>
 
+      <Section
+        title="服务覆盖区域"
+        hint="schema.org/areaServed + AI 拓词地理边界。逗号分隔,例:昆明, 云南 — 这两层都会被 AI 引擎识别"
+      >
+        <ServiceAreasInput
+          value={v.service_areas}
+          onChange={(arr) => setV({ ...v, service_areas: arr })}
+        />
+        <p className="mt-2 text-xs text-muted-foreground">
+          只填一座城市可以,加上省份(或附近地市)能让 AI 拓词时把<strong>本地化长尾词</strong>限定在这些地区,
+          不再返回北京 / 上海等无关城市的本地词。
+        </p>
+      </Section>
+
       <Section title="医疗专科" hint="schema.org/medicalSpecialty。逗号分隔英文,豆包索引时按这识别诊所类型">
         <SpecialtiesInput value={v.medical_specialties} onChange={(arr) => setV({ ...v, medical_specialties: arr })} />
       </Section>
@@ -272,6 +286,68 @@ function SpecialtiesInput({
             + {s}
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Chip-style multi-area editor (migration 0026).
+ * Suggests common geographic granularities so operators can one-click add
+ * city + province + nearby cities. Manual input also accepted.
+ */
+function ServiceAreasInput({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (v: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const add = (s: string) => {
+    const t = s.trim();
+    if (!t || value.includes(t)) return;
+    onChange([...value, t]);
+    setDraft('');
+  };
+  const remove = (idx: number) => onChange(value.filter((_, i) => i !== idx));
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {value.map((s, i) => (
+          <span key={s} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">
+            {s}
+            <button type="button" onClick={() => remove(i)} className="text-muted-foreground hover:text-foreground">
+              ×
+            </button>
+          </span>
+        ))}
+        {value.length === 0 && (
+          <span className="text-xs text-muted-foreground">
+            (空 = 不限地域,AI 拓词会输出全国通用词;建议至少填一个城市)
+          </span>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <input
+          className="form-input"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              add(draft);
+            }
+          }}
+          placeholder="例:昆明 / 云南 / 西山区"
+        />
+        <button
+          type="button"
+          onClick={() => add(draft)}
+          className="rounded-md border border-border bg-card px-3 text-xs hover:bg-muted"
+        >
+          添加
+        </button>
       </div>
     </div>
   );

@@ -15,6 +15,8 @@ export type BrandDiscoverabilityInput = {
   country: string;
   latitude: number | null;
   longitude: number | null;
+  // multi-area drainage scope (migration 0026)
+  service_areas: string[];
   // top-level
   description_md: string;
   medical_specialties: string[]; // strings already split / cleaned
@@ -81,10 +83,20 @@ export async function updateBrandDiscoverability(
     .filter(Boolean)
     .slice(0, 20);
 
+  // Dedup + trim service_areas (migration 0026)
+  const cleanedAreas = Array.from(
+    new Set(
+      input.service_areas
+        .map((a) => a.trim())
+        .filter((a) => a.length > 0 && a.length <= 30),
+    ),
+  ).slice(0, 20);
+
   const { error } = await service
     .from('brands')
     .update({
       location: newLoc,
+      service_areas: cleanedAreas,
       description_md: input.description_md.trim() || null,
       medical_specialties: cleanedSpecialties,
       business_hours: cleanHours,

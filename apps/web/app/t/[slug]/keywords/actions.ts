@@ -244,19 +244,42 @@ export type DigResult = {
  *
  * NOTE: This DOES NOT auto-insert. UI shows the candidates, user picks
  * which ones to save via `saveDugKeywords`.
+ *
+ * Geographic localization (migration 0026): pulls brand.service_areas and
+ * injects into the prompt so a Kunming-based tenant doesn't get
+ * "北京/上海/广州" candidates. Without this, doubao's training-data prior
+ * defaults to top-tier cities for medical queries — useless for local brands.
  */
 export async function digKeywords(
   tenantSlug: string,
   input: DigInput,
 ): Promise<DigResult> {
-  await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+  const tenantPre = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
   const seed = normalizeTerm(input.seed);
   if (!seed) throw new Error('请填写核心词');
+
+  // Resolve brand drainage scope so dig prompt is geographically grounded.
+  const service = getSupabaseServiceClient();
+  const { data: brandRow } = await service
+    .from('brands')
+    .select('service_areas')
+    .eq('tenant_id', tenantPre.id)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const serviceAreas: string[] = Array.isArray(brandRow?.service_areas)
+    ? (brandRow!.service_areas as string[]).map((s) => s.trim()).filter(Boolean)
+    : [];
 
   let raw: string[] = [];
   let used_stub = false;
 
   if (llmAvailable()) {
+    const geoConstraint =
+      serviceAreas.length > 0
+        ? `\n本品牌服务地区限定: ${serviceAreas.join('、')}。所有"地域+服务"型长尾词必须只用这些地区(及其下辖城市/区县),**严禁**列举北京/上海/广州/深圳等其他无关城市的本地词。可保留全国通用型词(医保政策、术后注意、对比类、人群类)不带地名。`
+        : '\n本品牌未配置服务地区,产出**全国通用**长尾词为主,不要堆砌任何具体城市本地词。';
     let content: string;
     try {
       const result = await chat({
@@ -264,8 +287,9 @@ export async function digKeywords(
           {
             role: 'system',
             content:
-              '你是 SEO/GEO 关键词专家。给定一个核心词,产出 50 个相关的长尾搜索词,覆盖价格、流程、对比、风险、城市、人群等不同意图维度。' +
-              '严格返回 JSON: {"candidates": ["...", ...]}。每条不超过 30 字。禁止使用医疗绝对化用语(治愈/根治/最好/第一)。',
+              '你是 SEO/GEO 关键词专家。给定一个核心词,产出 50 个相关的长尾搜索词,覆盖价格、流程、对比、风险、本地化、人群等不同意图维度。' +
+              geoConstraint +
+              '\n严格返回 JSON: {"candidates": ["...", ...]}。每条不超过 30 字。禁止使用医疗绝对化用语(治愈/根治/最好/第一)。',
           },
           { role: 'user', content: `核心词: ${seed}` },
         ],
@@ -312,9 +336,8 @@ export async function digKeywords(
   // Dedup
   raw = Array.from(new Set(raw));
 
-  // Compliance gate 1
-  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
-  const { accepted, rejected } = await filterByCompliance(tenant.id, raw);
+  // Compliance gate 1 — tenantPre already resolved at top of function
+  const { accepted, rejected } = await filterByCompliance(tenantPre.id, raw);
   return { candidates: accepted, rejected, used_stub };
 }
 

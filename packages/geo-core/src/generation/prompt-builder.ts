@@ -39,6 +39,13 @@ export type PromptContext = {
   /** Hints the model should weave in (city, signature treatments, doctor mentions). Optional. */
   topic_hints?: string[];
   /**
+   * Geographic drainage scope from brands.service_areas. When set, the LLM
+   * is told to ground city-specific claims in these areas only — preventing
+   * Kunming brands from auto-generating "北京/上海" content. Empty/undefined
+   * = no scope constraint, model freestyles (legacy behavior).
+   */
+  service_areas?: string[];
+  /**
    * Keywords picked by the operator in wizard step 2 (ADR 007). MUST be
    * naturally embedded in body — distinct from topic_hints (softer "weave in").
    * The model is told: "every keyword below must appear at least once,
@@ -169,6 +176,23 @@ export function buildVariantPrompt(ctx: PromptContext): ChatMessage[] {
       ? `\n所属品牌: ${ctx.brand_name ?? '-'}${ctx.industry ? ` (行业: ${ctx.industry})` : ''}`
       : '';
 
+  // Geographic scope block — prevents the model from defaulting to
+  // tier-1-city framing (北京/上海/广州/深圳) for brands that serve other
+  // regions. The instruction is firm because the model's training-data
+  // prior strongly favors top-tier cities for medical search queries.
+  const geoBlock =
+    ctx.service_areas && ctx.service_areas.length > 0
+      ? `
+
+━━━ 本品牌服务地区(地理边界,严格遵守) ━━━
+${ctx.service_areas.map((a) => `• ${a}`).join('\n')}
+
+注意:
+- 文中提到城市 / 地区时,**只用上面列表里的地区名**,例如本地化案例、医保政策、价格区间。
+- **禁止**把"北京 / 上海 / 广州 / 深圳"或其他列表外城市作为本地化锚点(除非源素材里明确要求做跨城对比)。
+- 全国通用论点(医学共识、术后注意事项)无地域要求,可不指定城市。`
+      : '';
+
   // verified_citations 白名单注入。LLM 引用文献只能从这个池子里挑;不在池子里
   // 的指南/共识/研究就用定性描述代替,生成后扫描 + 校验。
   const citationsBlock =
@@ -218,7 +242,7 @@ ${ctx.writing_template.structure_hint.sections.map((s, i) => `${i + 1}. ${s}`).j
 特别注意 tactics_applied 字段: 只能从下面这些 id 里选 (英文,带下划线): ${allowedTacticIds}。禁止返回中文、禁止新造 id。
 
 目标平台格式: ${spec.format_hint}
-目标长度: ${spec.length_hint}${brandLine}${hintLine}${citationsBlock}${keywordsBlock}${structureBlock}
+目标长度: ${spec.length_hint}${brandLine}${hintLine}${geoBlock}${citationsBlock}${keywordsBlock}${structureBlock}
 
 必须应用的 GEO 技法(每一条都要在正文中体现):
 ${tacticBlock}

@@ -15,7 +15,7 @@ export default async function BrandEditPage({ params }: { params: { slug: string
   const { data: brand } = await supabase
     .from('brands')
     .select(
-      'id, name, location, contact_phones, medical_specialties, business_hours, website_url, social_urls, description_md, verified_credentials',
+      'id, name, location, service_areas, contact_phones, medical_specialties, business_hours, website_url, social_urls, description_md, verified_credentials',
     )
     .eq('tenant_id', tenant.id)
     .is('deleted_at', null)
@@ -40,6 +40,7 @@ export default async function BrandEditPage({ params }: { params: { slug: string
     country: stringField(loc.country),
     latitude: typeof loc.lat === 'number' ? loc.lat : null,
     longitude: typeof loc.lng === 'number' ? loc.lng : null,
+    service_areas: Array.isArray(brand.service_areas) ? (brand.service_areas as string[]) : [],
     description_md: brand.description_md ?? '',
     medical_specialties: (brand.medical_specialties ?? []) as string[],
     business_hours: {

@@ -48,6 +48,13 @@ export const brands = pgTable(
     name: text('name').notNull(),
     /** { city, district, address, lat, lng, neighborhood?, postal_code?, country?, region? } */
     location: jsonb('location').notNull().default({}),
+    /**
+     * Drainage scope: cities/regions the brand serves (multi-area). Distinct
+     * from `location` (single physical address). Used by AI dig + variant
+     * prompts to constrain geographic suggestions, and by V1.7 BrandProfile
+     * to emit schema.org/MedicalBusiness.areaServed. (migration 0026)
+     */
+    service_areas: text('service_areas').array().notNull().default([]),
     /** Phone pool for phone-tail hooks. */
     contact_phones: text('contact_phones').array().notNull().default([]),
     /** WeCom QR url embedded in published content for utm-based attribution. */

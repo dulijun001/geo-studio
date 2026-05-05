@@ -45,6 +45,14 @@ export function buildMedicalBusinessSchema(profile: BrandProfile): JsonLd {
           }
         : undefined,
     medicalSpecialty: isMedical ? profile.medical_specialties : undefined,
+    // schema.org/areaServed — geographic scope where this brand provides
+    // services. Strong signal for AI engines deciding whether to surface this
+    // brand for "city + service" queries (e.g. "昆明种植牙"). Each entry can
+    // be a city or region name; emitted as schema.org/Place with `name`.
+    areaServed:
+      profile.area_served && profile.area_served.length > 0
+        ? profile.area_served.map((a) => ({ '@type': 'Place', name: a }))
+        : undefined,
     openingHoursSpecification: profile.business_hours
       ? buildHoursSpecs(profile.business_hours)
       : undefined,

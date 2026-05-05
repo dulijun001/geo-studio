@@ -45,6 +45,13 @@ export type GenerateInput = {
    * with hard substring check, triggering a rewrite if any are missing.
    */
   keywords_to_plant?: string[];
+  /**
+   * Brand drainage scope from brands.service_areas (migration 0026). When
+   * set, prevents the model from defaulting to tier-1-city framing for
+   * brands that serve other regions (e.g. 昆明松鼠口腔 → only "昆明" /
+   * "云南", not "北京 / 上海").
+   */
+  service_areas?: string[];
   /** Optional hint when this call is a rewrite of a low-scoring previous draft. */
   rewrite_hint?: string;
   /** Max tokens for this generation. Default 2500 — enough for 1500字 with headroom. */
@@ -69,6 +76,7 @@ export async function generateVariant(input: GenerateInput): Promise<GenerateRes
     topic_hints: input.topic_hints,
     verified_citations: input.verified_citations,
     keywords_to_plant: input.keywords_to_plant,
+    service_areas: input.service_areas,
     rewrite_hint: input.rewrite_hint,
   };
   const messages = buildVariantPrompt(ctx);

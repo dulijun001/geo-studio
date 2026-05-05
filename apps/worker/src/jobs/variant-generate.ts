@@ -93,6 +93,22 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
     .eq('id', tenant_id)
     .single<TenantRow>();
 
+  // Brand drainage scope (migration 0026). The first non-deleted brand for
+  // this tenant carries the service_areas array; passed into every variant
+  // prompt below to prevent default tier-1-city framing. Empty array =
+  // operator hasn't filled it yet → prompt falls back to legacy behavior.
+  const { data: brandRow } = await client
+    .from('brands')
+    .select('service_areas')
+    .eq('tenant_id', tenant_id)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const serviceAreas: string[] = Array.isArray(brandRow?.service_areas)
+    ? (brandRow!.service_areas as string[]).map((s) => s.trim()).filter(Boolean)
+    : [];
+
   const chosenTactics: GeoTacticId[] = tactics && tactics.length > 0 ? tactics : RECOMMENDED_COMBO;
 
   // Load tenant's verified-citations whitelist once. Used both for prompt
@@ -179,6 +195,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
         topic_hints: item!.topics?.length ? item!.topics : undefined,
         verified_citations: verifiedCitations.map((c) => ({ title: c.title, aliases: c.aliases })),
         keywords_to_plant: keywordsToPlant.length > 0 ? keywordsToPlant : undefined,
+        service_areas: serviceAreas.length > 0 ? serviceAreas : undefined,
       };
       const result = await generateVariant(baseInput);
       const elapsed = Date.now() - t0;

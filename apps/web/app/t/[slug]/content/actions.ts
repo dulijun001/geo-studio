@@ -400,6 +400,25 @@ export async function createAiDraft(
     ? `# 平台调性(客户维护的风格指南 〈${guidePath}〉)\n\n${platformGuide}`
     : `# 平台调性\n\n${platformHint}`;
 
+  // 3d. Geographic scope (migration 0026) — same prompt prevention pattern
+  // as buildVariantPrompt: brands.service_areas → "only mention these areas".
+  const { data: brandRow } = await supabase
+    .from('brands')
+    .select('service_areas')
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const serviceAreas: string[] = Array.isArray(brandRow?.service_areas)
+    ? (brandRow!.service_areas as string[]).map((s) => s.trim()).filter(Boolean)
+    : [];
+  const geoBlock =
+    serviceAreas.length > 0
+      ? `\n\n# 本品牌服务地区(地理边界,严格遵守)\n${serviceAreas.map((a) => `• ${a}`).join('\n')}\n\n` +
+        `文中提到城市 / 地区时,**只用上面列表里的地区名**(本地化案例、医保政策、价格区间)。**禁止**把"北京 / 上海 / 广州 / 深圳"或其他列表外城市作为本地化锚点。全国通用医学论点无地域要求,可不带城市名。`
+      : '';
+
   // ADR 007 — SYSTEM_PROMPT (compliance + zero-hallucination, IMMUTABLE) comes
   // FIRST. Template skeleton is appended after, so a malicious template can't
   // override the red lines.
@@ -414,7 +433,8 @@ export async function createAiDraft(
         `**主题**: ${topic}\n` +
         `**目标受众**: ${audience}\n` +
         `**目标平台**: ${input.platform}\n\n` +
-        `${platformBlock}\n\n` +
+        `${platformBlock}` +
+        `${geoBlock}\n\n` +
         `${GEO_TACTICS_PROMPT}` +
         `${templateBlock}` +
         `${keywordsBlock}\n\n` +
