@@ -18,7 +18,7 @@ export default async function WritingTemplatesPage({
 
   // System presets read via service client — RLS allows authenticated reads of
   // tenant_id IS NULL rows, but we want the result regardless of session shape.
-  const [systemRes, customRes, tenantRes] = await Promise.all([
+  const [systemRes, customRes, tenantRes, usageRes] = await Promise.all([
     service
       .from('writing_templates')
       .select('id, slug, name, description, prompt_skeleton, structure_hint, is_system, visible, updated_at')
@@ -32,17 +32,39 @@ export default async function WritingTemplatesPage({
       .is('deleted_at', null)
       .order('updated_at', { ascending: false }),
     service.from('tenants').select('settings').eq('id', tenant.id).single(),
+    // TPL-2 — usage count per template.
+    // content_items.writing_template_id was added in migration 0024 (ADR 007).
+    // Filtered to tenant + not-deleted so usage shown is "what this tenant
+    // actually drove with this template". Non-aggregating select returns one
+    // row per content_item; we tally in JS.
+    supabase
+      .from('content_items')
+      .select('writing_template_id')
+      .eq('tenant_id', tenant.id)
+      .not('writing_template_id', 'is', null)
+      .is('deleted_at', null),
   ]);
 
   const settings = (tenantRes.data?.settings ?? {}) as Record<string, unknown>;
   const tpl = (settings.templates ?? {}) as Record<string, unknown>;
   const hiddenSlugs = new Set((tpl.hidden_template_slugs as string[] | undefined) ?? []);
 
-  const systemRows: TemplateRow[] = (systemRes.data ?? []).map((r) => ({
+  // Aggregate usage by template id.
+  const usageById = new Map<string, number>();
+  for (const r of usageRes.data ?? []) {
+    const id = r.writing_template_id as string;
+    usageById.set(id, (usageById.get(id) ?? 0) + 1);
+  }
+  const annotateUsage = (r: TemplateRow): TemplateRow => ({
+    ...r,
+    usage_count: usageById.get(r.id) ?? 0,
+  });
+
+  const systemRows: TemplateRow[] = (systemRes.data ?? []).map((r) => annotateUsage({
     ...(r as TemplateRow),
     visible: !hiddenSlugs.has(r.slug as string),
   }));
-  const customRows = (customRes.data ?? []) as TemplateRow[];
+  const customRows = (customRes.data ?? []).map((r) => annotateUsage(r as TemplateRow));
   const allRows = [...systemRows, ...customRows];
 
   return (

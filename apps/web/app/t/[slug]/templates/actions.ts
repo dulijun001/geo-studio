@@ -53,6 +53,35 @@ export async function createTemplate(
   const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
   const service = getSupabaseServiceClient();
   const payload = normalize(input);
+
+  // P0-1 / P1-2 / P1-3 — slug collision defense.
+  //
+  // The migration's two unique indexes are scope-partial (system in
+  // tenant_id IS NULL, custom in tenant_id IS NOT NULL); they don't prevent
+  // a tenant from picking a slug that's already a system preset. Wizard
+  // would then display two same-slug cards. Plus the partial index doesn't
+  // catch race-condition double-INSERT (Postgres ON CONFLICT can't target
+  // partial predicates without index_predicate, which the JS client doesn't
+  // support — same gotcha we hit on `keywords`).
+  //
+  // Two-phase check: (a) is the slug used by ANY non-deleted row visible to
+  // this tenant? (system preset OR same tenant's own row) (b) only after
+  // that, INSERT.
+  const { data: collisions, error: cErr } = await service
+    .from('writing_templates')
+    .select('id, tenant_id, is_system')
+    .eq('slug', payload.slug)
+    .or(`tenant_id.is.null,tenant_id.eq.${tenant.id}`)
+    .is('deleted_at', null);
+  if (cErr) throw new Error(`slug 校验失败: ${cErr.message}`);
+  if (collisions && collisions.length > 0) {
+    const sys = collisions.find((c) => c.is_system);
+    if (sys) {
+      throw new Error(`slug "${payload.slug}" 已被系统预设占用,请换一个(可加后缀如 "-custom")`);
+    }
+    throw new Error(`slug "${payload.slug}" 已被你的其他模板占用,请换一个`);
+  }
+
   const { data, error } = await service
     .from('writing_templates')
     .insert({

@@ -20,6 +20,8 @@ export type TemplateRow = {
   is_system: boolean;
   visible: boolean;
   updated_at: string;
+  /** TPL-2 — count of content_items that picked this template. Default 0. */
+  usage_count?: number;
 };
 
 const EMPTY: WritingTemplateInput = {
@@ -114,6 +116,20 @@ export function TemplatesTable({
                   },
                 });
               }}
+              onClone={() => {
+                // TPL-3 — clone any template (system or custom) into a new
+                // tenant-owned editable copy. slug auto-suffixed with -copy.
+                setEdit({
+                  initial: {
+                    slug: ensureUniqueSlug(`${r.slug}-copy`, rows),
+                    name: `${r.name}(副本)`,
+                    description: r.description ?? '',
+                    prompt_skeleton: r.prompt_skeleton,
+                    sections_text: (r.structure_hint?.sections ?? []).join('\n'),
+                    min_sections: r.structure_hint?.min_sections ?? null,
+                  },
+                });
+              }}
               onAfter={() => router.refresh()}
             />
           ))}
@@ -155,19 +171,22 @@ function Card({
   row,
   tenantSlug,
   onEdit,
+  onClone,
   onAfter,
 }: {
   row: TemplateRow;
   tenantSlug: string;
   onEdit: () => void;
+  onClone: () => void;
   onAfter: () => void;
 }) {
   const sections = row.structure_hint?.sections ?? [];
+  const usage = row.usage_count ?? 0;
   return (
     <div className={'rounded-md border bg-card ' + (row.visible ? 'border-border' : 'border-dashed border-border opacity-60')}>
       <div className="flex items-start justify-between gap-2 border-b border-border p-3">
-        <div>
-          <div className="flex items-center gap-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium">{row.name}</span>
             {row.is_system ? (
               <span className="rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">
@@ -181,6 +200,14 @@ function Card({
             {!row.visible && (
               <span className="rounded-full border border-muted-foreground/40 bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                 已隐藏
+              </span>
+            )}
+            {usage > 0 && (
+              <span
+                className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700"
+                title="此模板已被多少篇 content_items 选用"
+              >
+                用过 {usage}
               </span>
             )}
           </div>
@@ -223,6 +250,14 @@ function Card({
           {row.visible ? '隐藏' : '显示'}
         </button>
         <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onClone}
+            className="rounded-md border border-border bg-card px-2 py-1 text-xs hover:bg-muted"
+            title={row.is_system ? '克隆系统预设到自定义,可编辑' : '克隆此模板'}
+          >
+            克隆
+          </button>
           {!row.is_system && (
             <>
               <button
@@ -235,7 +270,10 @@ function Card({
               <button
                 type="button"
                 onClick={async () => {
-                  if (!confirm(`删除模板"${row.name}"?`)) return;
+                  const warn = usage > 0
+                    ? `「${row.name}」已被 ${usage} 篇内容选用过。删除模板不会删除已生成的内容,但下次创作向导里会消失。确认删除?`
+                    : `删除模板"${row.name}"?`;
+                  if (!confirm(warn)) return;
                   try {
                     await deleteTemplate(tenantSlug, row.id);
                     onAfter();
@@ -388,4 +426,20 @@ function Empty() {
       没有匹配的模板。试试切换筛选或清空搜索。
     </div>
   );
+}
+
+/**
+ * Find a slug that doesn't collide with anything in the current page's row
+ * set. Server-side createTemplate has authoritative collision detection
+ * (cross-scope: system + tenant); this is a UX nicety so the user doesn't
+ * have to manually adjust the suffix on first try.
+ */
+function ensureUniqueSlug(candidate: string, rows: TemplateRow[]): string {
+  const taken = new Set(rows.map((r) => r.slug));
+  if (!taken.has(candidate)) return candidate;
+  for (let i = 2; i < 100; i++) {
+    const next = `${candidate}-${i}`;
+    if (!taken.has(next)) return next;
+  }
+  return `${candidate}-${Date.now()}`;
 }
