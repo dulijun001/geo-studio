@@ -39,13 +39,30 @@ export async function rescueVariant(
   // 1. Load origin variant
   const { data: origin } = await service
     .from('content_variants')
-    .select('id, tenant_id, content_item_id, platform, title, body, geo_tactics, geo_score')
+    .select('id, tenant_id, content_item_id, platform, title, body, geo_tactics, geo_score, extra_assets')
     .eq('id', variantId)
     .single();
   if (!origin) return { ok: false, error: '原变体未找到' };
   if (origin.tenant_id !== tenant.id) return { ok: false, error: '租户不匹配' };
 
   const oldScore = (origin.geo_score?.total as number | undefined) ?? 0;
+
+  // RES-1 (P0-2) — cap rescue attempts. extra_assets.rescued_into is the
+  // forward link maintained by previous rescue runs. Default cap 3 — anything
+  // more probably means the source markdown itself is the bottleneck (no
+  // amount of rewriting will reach 80 without better material).
+  const RESCUE_MAX_ATTEMPTS = 3;
+  const existingRescues = Array.isArray(
+    (origin.extra_assets as Record<string, unknown> | null)?.rescued_into,
+  )
+    ? ((origin.extra_assets as Record<string, unknown>).rescued_into as string[])
+    : [];
+  if (existingRescues.length >= RESCUE_MAX_ATTEMPTS) {
+    return {
+      ok: false,
+      error: `该变体已救援 ${existingRescues.length} 次,达到上限 ${RESCUE_MAX_ATTEMPTS}。再救多半也救不动 — 建议改写源 markdown 后重新生成,或人工编辑这条变体。`,
+    };
+  }
 
   // 2. Load source content_item
   const { data: item } = await service
@@ -77,9 +94,13 @@ export async function rescueVariant(
 
   // 4. Build rewrite hint from origin's geo_score
   const oldScoreObj = origin.geo_score as Parameters<typeof buildRewriteHint>[0] | null;
+  // RES-1 (P1-3) — fallback hint says "≥ 70" to match REWRITE_THRESHOLD in
+  // variant-generate. Saying "≥ 80" set a target the actual scorer never
+  // enforced, leaving operators puzzled when "rescue succeeded" still meant
+  // "below your stated goal".
   const hint = oldScoreObj?.breakdown
     ? buildRewriteHint(oldScoreObj)
-    : '上一版整体偏弱,本轮请加强数据/引用/句式精简,综合分目标 ≥ 80.';
+    : '上一版整体偏弱,本轮请加强数据/引用/句式精简,综合分目标 ≥ 70.';
 
   // 5. Generate
   const result = await generateVariant({
@@ -134,6 +155,22 @@ export async function rescueVariant(
     return { ok: false, error: `写入新变体失败:${insErr?.message}` };
   }
 
+  // RES-1 (P0-3) — record forward link on origin so the rescue page can
+  // hide already-rescued variants and operators see the lineage. Best-effort:
+  // a failure here doesn't unwind the new variant (it's already valid).
+  const updatedRescuedInto = [...existingRescues, inserted.id as string];
+  const newOriginAssets = {
+    ...((origin.extra_assets as Record<string, unknown> | null) ?? {}),
+    rescued_into: updatedRescuedInto,
+  };
+  const { error: markErr } = await service
+    .from('content_variants')
+    .update({ extra_assets: newOriginAssets })
+    .eq('id', origin.id);
+  if (markErr) {
+    console.warn('[rescue] mark origin failed:', markErr.message);
+  }
+
   // 8. Audit
   await service.from('audit_logs').insert({
     tenant_id: tenant.id,
@@ -144,6 +181,8 @@ export async function rescueVariant(
       origin_variant_id: origin.id,
       old_score: oldScore,
       new_score: newScore.total,
+      rescue_attempt: updatedRescuedInto.length,
+      hint_excerpt: hint.slice(0, 200),
     },
   });
 

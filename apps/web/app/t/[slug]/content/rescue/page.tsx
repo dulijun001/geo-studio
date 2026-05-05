@@ -22,11 +22,13 @@ const RESCUE_SCORE_THRESHOLD = 80;
 
 const PLATFORM_LABEL: Record<string, string> = {
   toutiao_article: '今日头条',
-  douyin_script: '抖音',
+  douyin_script: '抖音脚本',
+  douyin_image_text: '抖音图文',
   wechat_mp: '公众号',
   zhihu: '知乎',
   xiaohongshu: '小红书',
   baijiahao: '百家号',
+  souhu: '搜狐号',
 };
 
 type VariantRow = {
@@ -37,6 +39,8 @@ type VariantRow = {
   status: string;
   compliance_status: string;
   geo_score: { total?: number; breakdown?: Record<string, { score: number; max: number }> } | null;
+  /** RES-1 — populated by actions.ts when this variant has been rescued. */
+  extra_assets: { rescued_into?: string[] } | null;
   created_at: string;
 };
 
@@ -47,7 +51,9 @@ export default async function RescuePage({ params }: { params: { slug: string } 
   // 拉所有有 geo_score 的变体,按总分升序(最差的排上面)
   const { data: rows } = await supabase
     .from('content_variants')
-    .select('id, content_item_id, platform, title, status, compliance_status, geo_score, created_at')
+    .select(
+      'id, content_item_id, platform, title, status, compliance_status, geo_score, extra_assets, created_at',
+    )
     .eq('tenant_id', tenant.id)
     .is('deleted_at', null)
     .not('geo_score', 'is', null)
@@ -55,9 +61,15 @@ export default async function RescuePage({ params }: { params: { slug: string } 
     .limit(200);
 
   const all = (rows ?? []) as VariantRow[];
+  // RES-1 (P0-3) — drop variants that already have rescues. Otherwise the
+  // origin keeps showing up in the queue and operators waste another LLM
+  // call on the same source markdown.
   const candidates = all.filter((r) => {
     const total = r.geo_score?.total ?? 0;
-    return total < RESCUE_SCORE_THRESHOLD;
+    if (total >= RESCUE_SCORE_THRESHOLD) return false;
+    const rescued = r.extra_assets?.rescued_into;
+    if (Array.isArray(rescued) && rescued.length > 0) return false;
+    return true;
   });
 
   // Group by score buckets for visual clarity
