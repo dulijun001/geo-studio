@@ -16,6 +16,10 @@ type Row = {
   compliance_status: string;
   compliance_review_id: string | null;
   created_at: string;
+  citation_check: { verdict?: string; unmatched?: Array<unknown> } | null;
+  numeric_check: { verdict?: string } | null;
+  case_match: { matches?: Array<unknown> } | null;
+  geo_score: { total?: number } | null;
 };
 
 const TABS = [
@@ -45,7 +49,9 @@ export default async function CompliancePage({
 
   const { data: items } = await supabase
     .from('content_variants')
-    .select('id, title, platform, status, compliance_status, compliance_review_id, created_at')
+    .select(
+      'id, title, platform, status, compliance_status, compliance_review_id, created_at, citation_check, numeric_check, case_match, geo_score',
+    )
     .eq('tenant_id', tenant.id)
     .in('compliance_status', statusFilter)
     .is('deleted_at', null)
@@ -146,6 +152,7 @@ function ReviewTable({
             {showCheckbox ? <th className="w-10 px-4 py-2" /> : null}
             <th className="px-4 py-2 font-medium">变体标题</th>
             <th className="px-4 py-2 font-medium">平台</th>
+            <th className="px-4 py-2 font-medium">拦截原因</th>
             <th className="px-4 py-2 font-medium">合规状态</th>
             <th className="px-4 py-2 font-medium">提交时间</th>
           </tr>
@@ -170,6 +177,9 @@ function ReviewTable({
                 {r.platform.replace(/_/g, ' ')}
               </td>
               <td className="px-4 py-2.5">
+                <InterceptReasonBadges row={r} />
+              </td>
+              <td className="px-4 py-2.5">
                 <ComplianceBadge status={r.compliance_status} />
               </td>
               <td className="px-4 py-2.5 text-xs text-muted-foreground">
@@ -179,6 +189,55 @@ function ReviewTable({
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/**
+ * CMP-2 — quick visual on which gate(s) flagged this variant. Helps the
+ * auditor scan a 100-row queue without clicking into every detail page.
+ * Shows up to 4 badge types: GEO score < 70, citation hallucination, numeric
+ * fact-check reject, historical case match.
+ */
+function InterceptReasonBadges({ row }: { row: Row }) {
+  const badges: Array<{ label: string; tone: 'rose' | 'amber' | 'sky' }> = [];
+
+  const geoTotal = row.geo_score?.total;
+  if (typeof geoTotal === 'number' && geoTotal < 70) {
+    badges.push({ label: `GEO ${geoTotal}/100`, tone: 'amber' });
+  }
+  if (row.citation_check?.verdict === 'suspected_hallucination') {
+    const n = row.citation_check.unmatched?.length ?? 0;
+    badges.push({ label: `引用幻觉 ×${n}`, tone: 'rose' });
+  }
+  if (row.numeric_check?.verdict === 'reject') {
+    badges.push({ label: '数字幻觉', tone: 'rose' });
+  } else if (row.numeric_check?.verdict === 'suspect') {
+    badges.push({ label: '数字存疑', tone: 'amber' });
+  }
+  const caseHits = row.case_match?.matches?.length ?? 0;
+  if (caseHits > 0) {
+    badges.push({ label: `历史案例 ${caseHits}`, tone: 'sky' });
+  }
+
+  if (badges.length === 0) {
+    return <span className="text-[11px] text-muted-foreground">—</span>;
+  }
+  const toneCls: Record<'rose' | 'amber' | 'sky', string> = {
+    rose: 'bg-rose-100 text-rose-800',
+    amber: 'bg-amber-100 text-amber-800',
+    sky: 'bg-sky-100 text-sky-800',
+  };
+  return (
+    <div className="flex flex-wrap gap-1">
+      {badges.map((b, i) => (
+        <span
+          key={i}
+          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${toneCls[b.tone]}`}
+        >
+          {b.label}
+        </span>
+      ))}
     </div>
   );
 }

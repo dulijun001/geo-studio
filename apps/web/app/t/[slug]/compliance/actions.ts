@@ -123,11 +123,18 @@ export async function bulkReviewVariants(
   variantIds: string[],
   verb: 'approve' | 'reject',
   rationale: string,
+  options?: { acknowledgeUnverifiedCitations?: boolean },
 ): Promise<{ succeeded: number; failed: Array<{ id: string; error: string }> }> {
   if (variantIds.length === 0) throw new Error('请先勾选变体');
   if (variantIds.length > 200) throw new Error('一次最多处理 200 条,请分批');
-  if (verb === 'reject' && rationale.trim().length < 3) {
-    throw new Error('请填写拒绝原因(至少 3 字)');
+  // CMP-1 — bulk approve also needs a real rationale so audit_log isn't a wall
+  // of identical "批量人工通过" rows. Min 10 chars matches the operator effort
+  // of one short sentence ("种植成功率数据已核对 + 公司新品发布合规审过").
+  if (rationale.trim().length < 10) {
+    const verbZh = verb === 'reject' ? '拒绝' : '通过';
+    throw new Error(
+      `请填写${verbZh}原因(≥10 字,会写进每条 audit_log;事后审计要看得懂)`,
+    );
   }
   await requireRole(tenantSlug, ['owner', 'admin', 'auditor']);
 
@@ -135,13 +142,48 @@ export async function bulkReviewVariants(
   const failed: Array<{ id: string; error: string }> = [];
   for (const id of variantIds) {
     try {
-      await transition(tenantSlug, id, verb, rationale);
+      // CMP-1 — bubble the hallucination acknowledgement through to each row.
+      // Without it, transition() throws on suspected_hallucination variants
+      // and the bulk job silently drops them to `failed[]` (just console.warn,
+      // no UI surface). With it, the operator's explicit consent is recorded.
+      await transition(tenantSlug, id, verb, rationale, options);
       succeeded += 1;
     } catch (e) {
       failed.push({ id, error: e instanceof Error ? e.message : String(e) });
     }
   }
   return { succeeded, failed };
+}
+
+/**
+ * CMP-1 — peek which of the selected variants need explicit acknowledgement
+ * (suspected_hallucination), so the bulk UI can surface them BEFORE submitting
+ * a 30-row job that silently skips half. Reads citation_check.verdict only.
+ */
+export async function inspectBulkHallucinations(
+  tenantSlug: string,
+  variantIds: string[],
+): Promise<{ id: string; title: string; unmatched: number }[]> {
+  if (variantIds.length === 0) return [];
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'auditor']);
+  const supabase = createSupabaseServerClient();
+  const { data } = await supabase
+    .from('content_variants')
+    .select('id, title, citation_check')
+    .eq('tenant_id', tenant.id)
+    .in('id', variantIds);
+  const out: { id: string; title: string; unmatched: number }[] = [];
+  for (const v of data ?? []) {
+    const cc = v.citation_check as { verdict?: string; unmatched?: Array<unknown> } | null;
+    if (cc?.verdict === 'suspected_hallucination' && (cc.unmatched?.length ?? 0) > 0) {
+      out.push({
+        id: v.id as string,
+        title: (v.title as string) ?? '(无标题)',
+        unmatched: cc.unmatched!.length,
+      });
+    }
+  }
+  return out;
 }
 
 async function transition(
