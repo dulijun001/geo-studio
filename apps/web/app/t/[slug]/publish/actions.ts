@@ -87,12 +87,43 @@ function applyHHMM(date: Date, hhmm: string): Date {
 
 /** 6-char activity code, base32 minus easily-confused chars (0/O, 1/I/L). */
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-function generateActivityCode(): string {
+function generateActivityCodeRaw(): string {
   let out = '';
   for (let i = 0; i < 6; i++) {
     out += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
   }
   return out;
+}
+
+/**
+ * DEBT-2 — generate an activity_code that doesn't collide with any
+ * still-valid hook for the same tenant. 31^6 ≈ 8.8e8 combinations so the
+ * birthday-style collision rate is microscopic — but in medical attribution
+ * a duplicated code makes "to-which-staff did this conversion belong"
+ * unanswerable, so we pay the (cheap) check.
+ *
+ * Service client because the caller (dispatchToday) already holds one.
+ */
+async function generateActivityCode(
+  service: ReturnType<typeof getSupabaseServiceClient>,
+  tenantId: string,
+): Promise<string> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = generateActivityCodeRaw();
+    const { data } = await service
+      .from('hooks')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('hook_type', 'activity_code')
+      .eq('hook_value', code)
+      .gt('valid_until', new Date().toISOString())
+      .is('deleted_at', null)
+      .limit(1);
+    if (!data || data.length === 0) return code;
+  }
+  // 5 collisions in a row on 8.8e8 space is statistically impossible;
+  // means the alphabet is exhausted (a tenant minted >50% of all codes).
+  throw new Error('activity_code 命名空间冲突,请联系管理员检查 hooks 表');
 }
 
 /**
@@ -361,7 +392,11 @@ export async function dispatchToday(
     const s = staffMap.get(p.staff_id);
     return {
       variant_id: p.variant_id,
-      variant_title: (v as { title?: string })?.title ?? '(未知)',
+      // DEBT-2 — title is selected on the SELECT now; the legacy '(未知)'
+      // fallback hid the missing-field bug we fixed earlier. Keep a tight
+      // fallback only for the truly impossible case (variant deleted between
+      // dispatcher run and detail mapping).
+      variant_title: (v as { title?: string })?.title ?? '',
       variant_platform: (v as { platform?: string })?.platform ?? 'unknown',
       staff_id: p.staff_id,
       staff_name: s?.name ?? '医生',
@@ -442,22 +477,32 @@ export async function dispatchToday(
         }),
       );
       const validUntil = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
-      const hookRows = inserted.flatMap((t) => [
-        {
-          tenant_id: tenant.id,
-          publish_task_id: t.id,
-          hook_type: 'doctor_name' as const,
-          hook_value: staffNameById.get(t.staff_account_id) ?? '医生',
-          valid_until: validUntil,
-        },
-        {
-          tenant_id: tenant.id,
-          publish_task_id: t.id,
-          hook_type: 'activity_code' as const,
-          hook_value: generateActivityCode(),
-          valid_until: validUntil,
-        },
-      ]);
+      // DEBT-2 — generate codes serially with collision check. Inserted
+      // count is ≤ active staff (~ 12 typical), so the round-trip cost is
+      // small relative to the audit safety it buys.
+      const hookRows = (
+        await Promise.all(
+          inserted.map(async (t) => {
+            const code = await generateActivityCode(service, tenant.id);
+            return [
+              {
+                tenant_id: tenant.id,
+                publish_task_id: t.id,
+                hook_type: 'doctor_name' as const,
+                hook_value: staffNameById.get(t.staff_account_id) ?? '医生',
+                valid_until: validUntil,
+              },
+              {
+                tenant_id: tenant.id,
+                publish_task_id: t.id,
+                hook_type: 'activity_code' as const,
+                hook_value: code,
+                valid_until: validUntil,
+              },
+            ];
+          }),
+        )
+      ).flat();
       const { error: hErr } = await service.from('hooks').insert(hookRows);
       if (hErr) console.error(`[dispatch] hooks insert: ${hErr.message}`);
     }

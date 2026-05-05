@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import PgBoss from 'pg-boss';
 import { revalidatePath } from 'next/cache';
 import { chat, isAvailable as llmAvailable } from '@geo/geo-core';
-import { VARIANT_PLATFORMS, type VariantPlatform } from '@geo/shared';
+import { PLATFORM_HINT, VARIANT_PLATFORMS, type VariantPlatform } from '@geo/shared';
 import { requireRole } from '@/lib/tenant';
 import { getCurrentUser } from '@/lib/current-user';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
@@ -114,16 +114,7 @@ const PLATFORM_KB_GUIDE: Partial<Record<Platform, string>> = {
   douyin_script: '营销/渠道/抖音/风格指南.md',
 };
 
-const PLATFORM_HINT: Record<Platform, string> = {
-  xiaohongshu: '小红书:痛点开头钩子 + 个人化叙事 + 列表分点 + 结尾问句引发评论。300-600 字。',
-  douyin_script: '抖音脚本:15 秒钩子 + 视觉化场景 + 单核心信息 + CTA。配分镜建议。',
-  douyin_image_text: '抖音图文:抓人钩子开头 + 6-9 张图配套文字(每张 30-60 字)+ 末尾互动引导 + tag。350-600 字总文案。',
-  wechat_mp: '公众号:故事化引入 + 专业内容 + 结尾引导关注/留言。1200-2000 字。',
-  zhihu: '知乎:长文 + 权威引用 + 数据 + 逻辑解释。1500-3000 字。',
-  toutiao_article: '头条号:资讯感开头 + 结构化小标题 + 数据/案例 + SEO 关键词。800-1500 字。',
-  baijiahao: '百家号:类似头条号,资讯感 + SEO 友好。800-1500 字。',
-  souhu: '搜狐号:类似头条号,资讯感 + SEO 友好。800-1500 字。',
-};
+// PLATFORM_HINT moved to @geo/shared (DEBT-1) — see imports above.
 
 const REWRITE_SYSTEM = `你是医疗内容编辑,负责把一篇已通过医生 review 的内容,改写为不同平台风格,提高内容矩阵覆盖。
 
@@ -140,7 +131,12 @@ export async function deriveDraftsToOtherPlatforms(
   tenantSlug: string,
   parentContentItemId: string,
   targetPlatforms: Platform[],
-): Promise<{ created: DeriveResult[]; failed: Array<{ platform: Platform; error: string }> }> {
+): Promise<{
+  created: DeriveResult[];
+  failed: Array<{ platform: Platform; error: string }>;
+  /** DEBT-3 — platforms skipped because this parent already has a derivative for them. */
+  skipped: Platform[];
+}> {
   const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
 
   const validPlatforms = targetPlatforms.filter((p): p is Platform =>
@@ -168,12 +164,40 @@ export async function deriveDraftsToOtherPlatforms(
     .select('knowledge_source_id, excerpt_used, confidence')
     .eq('content_item_id', parentContentItemId);
 
+  // DEBT-3 — find existing derivatives so we don't silently re-create them.
+  // The topics column carries `derived_from:<platform>` markers we wrote
+  // last time, so a single SELECT on topics @> array tells us which
+  // platforms have already been derived. (Postgres array contains.)
+  const { data: existingDerivs } = await service
+    .from('content_items')
+    .select('id, topics')
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null);
+  const alreadyDerived = new Set<string>();
+  for (const d of existingDerivs ?? []) {
+    const topics = (d.topics as string[] | null) ?? [];
+    for (const t of topics) {
+      const m = t.match(/^derived_from:(.+)$/);
+      // Only count derivatives whose topics ALSO match the parent's topic
+      // set (i.e. the deriv was made FROM this parent specifically).
+      if (m && parent.topics && (parent.topics as string[]).every((pt) => topics.includes(pt))) {
+        alreadyDerived.add(m[1]!);
+      }
+    }
+  }
+
   const created: DeriveResult[] = [];
   const failed: Array<{ platform: Platform; error: string }> = [];
+  const skipped: Platform[] = [];
 
-  // Run platforms in parallel — independent LLM calls
+  // Run platforms in parallel — independent LLM calls. Skip any platform we
+  // already derived for THIS parent so a misclick doesn't double-bill.
   await Promise.all(
     validPlatforms.map(async (platform) => {
+      if (alreadyDerived.has(platform)) {
+        skipped.push(platform);
+        return;
+      }
       try {
         const newItem = await derivOne(
           tenant.id,
@@ -192,7 +216,7 @@ export async function deriveDraftsToOtherPlatforms(
 
   revalidatePath(`/t/${tenantSlug}/content`);
   revalidatePath(`/t/${tenantSlug}/content/${parentContentItemId}`);
-  return { created, failed };
+  return { created, failed, skipped };
 }
 
 async function derivOne(

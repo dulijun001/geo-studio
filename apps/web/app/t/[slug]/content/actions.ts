@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import PgBoss from 'pg-boss';
 import { revalidatePath } from 'next/cache';
 import { chat, isAvailable as llmAvailable } from '@geo/geo-core';
+import { PLATFORM_HINT } from '@geo/shared';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireRole } from '@/lib/tenant';
 
@@ -178,14 +179,7 @@ export type CreateAiDraftResult = {
   cited_paths: string[];
 };
 
-const PLATFORM_HINT: Record<CreateAiDraftInput['platform'], string> = {
-  xiaohongshu: '小红书：痛点开头钩子 + 个人化叙事 + 列表分点 + 结尾问句引发评论。300-600 字。',
-  douyin_script: '抖音脚本：15 秒钩子 + 视觉化场景描述 + 单个核心信息 + CTA。提供分镜建议。',
-  wechat_mp: '公众号：故事化引入 + 专业内容 + 结尾引导关注/留言。1200-2000 字。',
-  zhihu: '知乎：长文 + 权威引用 + 数据 + 逻辑解释 + 个人专业判断。1500-3000 字。',
-  toutiao_article:
-    '头条号：资讯感开头 + 结构化小标题 + 数据/案例 + SEO 友好关键词。800-1500 字。',
-};
+// PLATFORM_HINT moved to @geo/shared (DEBT-1) — see imports above.
 
 /**
  * Platforms with a customer-maintained style guide in the KB. Loaded at draft
