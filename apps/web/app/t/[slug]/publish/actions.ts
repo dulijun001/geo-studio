@@ -7,7 +7,83 @@ import { getCurrentUser } from '@/lib/current-user';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 
-const DEFAULT_DAILY_CAP = 2;
+/**
+ * DSP-1 — dispatch tunables, all read from tenants.settings.dispatch.
+ * Defaults preserved from the original hardcoded values so untouched tenants
+ * behave identically. Operators can override via raw settings JSON for now;
+ * a settings UI is deferred tech-debt.
+ */
+type DispatchSettings = {
+  /** Max tasks per staff per day. Default 2. */
+  daily_cap_per_staff: number;
+  /** Hours after dispatch that cancellation is still allowed. Default 2. */
+  cancel_grace_hours: number;
+  /** First-half time window. "HH:MM". Default 10:00 (or business_hours-derived). */
+  morning_at: string;
+  /** Second-half time window. "HH:MM". Default 15:00 (or business_hours-derived). */
+  afternoon_at: string;
+};
+
+const DISPATCH_DEFAULTS: DispatchSettings = {
+  daily_cap_per_staff: 2,
+  cancel_grace_hours: 2,
+  morning_at: '10:00',
+  afternoon_at: '15:00',
+};
+
+function resolveDispatchSettings(
+  tenantSettings: Record<string, unknown> | null | undefined,
+  businessHours: Record<string, unknown> | null | undefined,
+): DispatchSettings {
+  const raw = (tenantSettings?.dispatch ?? {}) as Record<string, unknown>;
+
+  // Derive sensible defaults from brand opening hours when explicit settings
+  // are absent. Pick a representative weekday (mon, fall back to any day with
+  // a HH:MM-HH:MM range). morning = 1h after opening; afternoon = 1h before
+  // closing — gives staff a buffer, avoids the "矩阵秒发同时段" anti-pattern.
+  let morningDefault = DISPATCH_DEFAULTS.morning_at;
+  let afternoonDefault = DISPATCH_DEFAULTS.afternoon_at;
+  for (const day of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+    const range = businessHours?.[day];
+    if (typeof range === 'string') {
+      const m = range.match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/);
+      if (m) {
+        const openH = Math.min(Math.max(Number(m[1]) + 1, 0), 23);
+        const closeH = Math.min(Math.max(Number(m[3]) - 1, 0), 23);
+        morningDefault = `${String(openH).padStart(2, '0')}:00`;
+        afternoonDefault = `${String(closeH).padStart(2, '0')}:00`;
+        break;
+      }
+    }
+  }
+
+  const dailyCap = Number(raw.daily_cap_per_staff);
+  const grace = Number(raw.cancel_grace_hours);
+
+  return {
+    daily_cap_per_staff:
+      Number.isFinite(dailyCap) && dailyCap > 0 && dailyCap <= 50
+        ? Math.floor(dailyCap)
+        : DISPATCH_DEFAULTS.daily_cap_per_staff,
+    cancel_grace_hours:
+      Number.isFinite(grace) && grace > 0 && grace <= 168
+        ? grace
+        : DISPATCH_DEFAULTS.cancel_grace_hours,
+    morning_at: typeof raw.morning_at === 'string' && /^\d{1,2}:\d{2}$/.test(raw.morning_at)
+      ? raw.morning_at
+      : morningDefault,
+    afternoon_at: typeof raw.afternoon_at === 'string' && /^\d{1,2}:\d{2}$/.test(raw.afternoon_at)
+      ? raw.afternoon_at
+      : afternoonDefault,
+  };
+}
+
+function applyHHMM(date: Date, hhmm: string): Date {
+  const [h, m] = hhmm.split(':').map(Number);
+  const d = new Date(date);
+  d.setHours(h ?? 10, m ?? 0, 0, 0);
+  return d;
+}
 
 /** 6-char activity code, base32 minus easily-confused chars (0/O, 1/I/L). */
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -18,8 +94,6 @@ function generateActivityCode(): string {
   }
   return out;
 }
-
-const CANCEL_GRACE_HOURS = 2;
 
 /**
  * Withdraw a misdispatched task. Allowed only on dispatched tasks within
@@ -40,6 +114,27 @@ export async function cancelDispatch(
   if (!user) throw new Error('Unauthenticated');
 
   const service = getSupabaseServiceClient();
+  // DSP-1 — dispatch settings + brand business hours feed the cancel
+  // grace window so different industries / clinics can tune their own
+  // tolerance without a code change.
+  const { data: tenantRow } = await service
+    .from('tenants')
+    .select('settings')
+    .eq('id', tenant.id)
+    .maybeSingle();
+  const { data: brandRow } = await service
+    .from('brands')
+    .select('business_hours')
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const dispatchSettings = resolveDispatchSettings(
+    tenantRow?.settings as Record<string, unknown> | null,
+    brandRow?.business_hours as Record<string, unknown> | null,
+  );
+
   const { data: task, error: tErr } = await service
     .from('publish_tasks')
     .select('id, tenant_id, status, created_at')
@@ -51,9 +146,9 @@ export async function cancelDispatch(
     throw new Error(`任务状态是 ${task.status},不是 dispatched/pending,不能撤回`);
   }
   const ageHours = (Date.now() - new Date(task.created_at).getTime()) / 3600 / 1000;
-  if (ageHours > CANCEL_GRACE_HOURS) {
+  if (ageHours > dispatchSettings.cancel_grace_hours) {
     throw new Error(
-      `任务派发已超 ${CANCEL_GRACE_HOURS} 小时,员工可能已经发布,不能撤回。请改用「跳过」或直接联系员工。`,
+      `任务派发已超 ${dispatchSettings.cancel_grace_hours} 小时,员工可能已经发布,不能撤回。请改用「跳过」或直接联系员工。`,
     );
   }
 
@@ -94,11 +189,21 @@ export type DispatchProposal = {
   time_window: 'morning' | 'afternoon';
 };
 
+export type DispatchUnmatched = {
+  variant_id: string;
+  variant_title: string;
+  variant_platform: string;
+  reason: string;
+};
+
 export type DispatchResult = {
   /** Detailed proposals for UI preview / display. */
   proposals: DispatchProposal[];
-  /** Variants the algorithm couldn't place (no matching staff). */
+  /** Aggregate count for the legacy summary row. */
   unmatched: number;
+  /** DSP-2 — per-variant unmatched detail so admin can see WHY each
+   *  variant didn't get assigned (e.g. "no staff supports platform X"). */
+  unmatched_details: DispatchUnmatched[];
   /** Staff that got nothing today (low fresh variant count or no platform fit). */
   idle_staff: number;
   /** Whether the rows were actually inserted. */
@@ -121,12 +226,12 @@ export async function dispatchToday(
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  // Parallel fetch: variants + all publish_tasks + active staff. All
-  // independent, all on the same tenant_id.
-  const [variantsRes, tasksRes, staffRes] = await Promise.all([
+  // Parallel fetch: variants + all publish_tasks + active staff + tenant
+  // settings + brand business_hours (for DSP-1 dispatch tunables).
+  const [variantsRes, tasksRes, staffRes, tenantRes, brandRes] = await Promise.all([
     service
       .from('content_variants')
-      .select('id, platform, content_item_id, updated_at')
+      .select('id, title, platform, content_item_id, updated_at')
       .eq('tenant_id', tenant.id)
       .in('compliance_status', ['auto_approved', 'manual_approved'])
       .not('status', 'in', '(archived,rejected)')
@@ -143,7 +248,21 @@ export async function dispatchToday(
       .eq('status', 'active')
       .eq('kind', 'operator')  // 0023: doctors don't receive dispatch tasks
       .is('deleted_at', null),
+    service.from('tenants').select('settings').eq('id', tenant.id).maybeSingle(),
+    service
+      .from('brands')
+      .select('business_hours')
+      .eq('tenant_id', tenant.id)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle(),
   ]);
+
+  const dispatchSettings = resolveDispatchSettings(
+    tenantRes.data?.settings as Record<string, unknown> | null,
+    brandRes.data?.business_hours as Record<string, unknown> | null,
+  );
 
   if (variantsRes.error) throw new Error(`加载变体失败: ${variantsRes.error.message}`);
   if (tasksRes.error) throw new Error(`加载任务失败: ${tasksRes.error.message}`);
@@ -161,7 +280,13 @@ export async function dispatchToday(
   const takenIds = new Set(allTasks.map((r) => r.variant_id as string));
   const freshVariants = variants.filter((v) => !takenIds.has(v.id as string));
   if (freshVariants.length === 0) {
-    return { proposals: [], unmatched: 0, idle_staff: 0, committed: false };
+    return {
+      proposals: [],
+      unmatched: 0,
+      unmatched_details: [],
+      idle_staff: 0,
+      committed: false,
+    };
   }
 
   // Today's tasks: count per staff for daily-cap enforcement.
@@ -218,7 +343,7 @@ export async function dispatchToday(
     })),
     staff,
     existing_assignments,
-    daily_cap_per_staff: DEFAULT_DAILY_CAP,
+    daily_cap_per_staff: dispatchSettings.daily_cap_per_staff,
     seed: startOfDay.toISOString().slice(0, 10),
   };
   const result = dispatchDaily(input);
@@ -245,20 +370,32 @@ export async function dispatchToday(
     };
   });
 
+  // DSP-2 — hydrate unmatched IDs into UI-displayable rows. The dispatcher
+  // already attached a per-row reason (no platform-capable staff / cap full /
+  // unknown); we just join the title+platform for display.
+  const unmatchedDetails: DispatchUnmatched[] = result.unmatched.map((u) => {
+    const v = variantById.get(u.variant_id);
+    return {
+      variant_id: u.variant_id,
+      variant_title: (v as { title?: string })?.title ?? '(无标题)',
+      variant_platform: (v as { platform?: string })?.platform ?? 'unknown',
+      reason: u.reason,
+    };
+  });
+
   // Dry-run path — return proposals without inserting.
   if (!confirm) {
     return {
       proposals: detailedProposals,
       unmatched: result.unmatched.length,
+      unmatched_details: unmatchedDetails,
       idle_staff: result.idle_staff.length,
       committed: false,
     };
   }
 
-  const morningAt = new Date(startOfDay);
-  morningAt.setHours(10, 0, 0, 0);
-  const afternoonAt = new Date(startOfDay);
-  afternoonAt.setHours(15, 0, 0, 0);
+  const morningAt = applyHHMM(startOfDay, dispatchSettings.morning_at);
+  const afternoonAt = applyHHMM(startOfDay, dispatchSettings.afternoon_at);
 
   const nowIso = new Date().toISOString();
   const rows = result.proposals.map((p) => ({
@@ -284,7 +421,7 @@ export async function dispatchToday(
           assigned: result.proposals.length,
           unmatched: result.unmatched,
           idle_staff_count: result.idle_staff.length,
-          daily_cap: DEFAULT_DAILY_CAP,
+          daily_cap: dispatchSettings.daily_cap_per_staff,
           pool_size: freshVariants.length,
           active_staff_count: staff.length,
         },
@@ -330,6 +467,7 @@ export async function dispatchToday(
   return {
     proposals: detailedProposals,
     unmatched: result.unmatched.length,
+    unmatched_details: unmatchedDetails,
     idle_staff: result.idle_staff.length,
     committed: true,
   };

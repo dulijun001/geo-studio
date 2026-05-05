@@ -14,6 +14,13 @@ const PLATFORM_LABEL: Record<string, string> = {
   souhu: '搜狐号',
 };
 
+type UnmatchedDetail = {
+  variant_id: string;
+  variant_title: string;
+  variant_platform: string;
+  reason: string;
+};
+
 export function DispatchButton({ tenantSlug }: { tenantSlug: string }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -22,6 +29,8 @@ export function DispatchButton({ tenantSlug }: { tenantSlug: string }) {
     unmatched: 0,
     idle_staff: 0,
   });
+  // DSP-2 — surface per-row unmatched reasons in the preview pane.
+  const [unmatchedDetails, setUnmatchedDetails] = useState<UnmatchedDetail[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -52,6 +61,7 @@ export function DispatchButton({ tenantSlug }: { tenantSlug: string }) {
         }
         setProposals(r.proposals);
         setMeta({ unmatched: r.unmatched, idle_staff: r.idle_staff });
+        setUnmatchedDetails(r.unmatched_details ?? []);
       } catch (e) {
         setErr(e instanceof Error ? e.message : '预览失败');
       }
@@ -95,6 +105,7 @@ export function DispatchButton({ tenantSlug }: { tenantSlug: string }) {
         <ReviewDialog
           proposals={proposals}
           meta={meta}
+          unmatchedDetails={unmatchedDetails}
           onCancel={() => setProposals(null)}
           onConfirm={onConfirm}
           isPending={isPending}
@@ -107,12 +118,14 @@ export function DispatchButton({ tenantSlug }: { tenantSlug: string }) {
 function ReviewDialog({
   proposals,
   meta,
+  unmatchedDetails,
   onCancel,
   onConfirm,
   isPending,
 }: {
   proposals: DispatchProposal[];
   meta: { unmatched: number; idle_staff: number };
+  unmatchedDetails: UnmatchedDetail[];
   onCancel: () => void;
   onConfirm: () => void;
   isPending: boolean;
@@ -180,6 +193,36 @@ function ReviewDialog({
               </li>
             ))}
           </ul>
+
+          {unmatchedDetails.length > 0 && (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+              <p className="mb-2 text-sm font-medium text-amber-900">
+                ⚠ {unmatchedDetails.length} 条变体没匹配上员工
+              </p>
+              <ul className="space-y-1.5">
+                {unmatchedDetails.slice(0, 8).map((u) => (
+                  <li
+                    key={u.variant_id}
+                    className="flex items-baseline gap-2 text-xs text-amber-900"
+                  >
+                    <span className="rounded bg-card px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-amber-700">
+                      {PLATFORM_LABEL[u.variant_platform] ?? u.variant_platform}
+                    </span>
+                    <span className="line-clamp-1 flex-1">{u.variant_title}</span>
+                    <span className="shrink-0 text-[11px] opacity-80">{u.reason}</span>
+                  </li>
+                ))}
+                {unmatchedDetails.length > 8 && (
+                  <li className="text-[11px] text-amber-800/80">
+                    …还有 {unmatchedDetails.length - 8} 条 — 派单确认后查看 audit_log 完整列表
+                  </li>
+                )}
+              </ul>
+              <p className="mt-2 text-[11px] text-amber-800/80">
+                常见原因:员工 platforms 字段没配该平台 / 员工今日已达 daily cap。先到「设置 → 员工管理」检查 platforms 配置。
+              </p>
+            </div>
+          )}
         </div>
 
         <footer className="flex items-center justify-between gap-3 border-t border-border bg-muted/30 px-6 py-3">
