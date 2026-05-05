@@ -9,7 +9,10 @@ import {
   deleteGroup,
   deleteKeywords,
   digKeywords,
+  editKeyword,
+  getGroupImpact,
   moveKeywords,
+  renameGroup,
   saveDugKeywords,
   type DigResult,
 } from './actions';
@@ -101,9 +104,41 @@ export function KeywordsUI({
               />
               <button
                 type="button"
-                title="删除分组(关键词会变为未分组)"
+                title="重命名"
                 onClick={async () => {
-                  if (!confirm(`删除分组"${g.name}"?(其中的关键词会变为未分组)`)) return;
+                  const next = window.prompt(`重命名分组「${g.name}」`, g.name);
+                  if (next === null || next.trim() === g.name) return;
+                  try {
+                    await renameGroup(tenantSlug, g.id, next);
+                    router.refresh();
+                  } catch (e) {
+                    alert(e instanceof Error ? e.message : '失败');
+                  }
+                }}
+                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                title="删除分组"
+                onClick={async () => {
+                  let warn = `删除分组「${g.name}」?其中的关键词会变为未分组。`;
+                  try {
+                    const impact = await getGroupImpact(tenantSlug, g.id);
+                    if (impact.child_groups > 0 || impact.keywords > 0) {
+                      warn = `「${g.name}」下有 ${impact.keywords} 个关键词` +
+                        (impact.child_groups > 0 ? ` + ${impact.child_groups} 个子分组` : '') +
+                        `。删除后关键词变为未分组` +
+                        (impact.child_groups > 0 ? ',子分组变成顶层' : '') +
+                        `。确认删除?`;
+                    }
+                  } catch {
+                    // Impact lookup is best-effort; fall back to generic warning.
+                  }
+                  if (!confirm(warn)) return;
                   try {
                     await deleteGroup(tenantSlug, g.id);
                     router.refresh();
@@ -280,7 +315,7 @@ export function KeywordsUI({
               {filtered.map((k) => (
                 <li
                   key={k.id}
-                  className="flex items-center gap-3 px-3 py-2 hover:bg-muted/30"
+                  className="group flex items-center gap-3 px-3 py-2 hover:bg-muted/30"
                 >
                   <input
                     type="checkbox"
@@ -288,6 +323,25 @@ export function KeywordsUI({
                     onChange={() => togglePick(k.id)}
                   />
                   <span className="flex-1 text-sm">{k.text}</span>
+                  <button
+                    type="button"
+                    title="编辑关键词"
+                    onClick={async () => {
+                      const next = window.prompt(`编辑关键词`, k.text);
+                      if (next === null || next.trim() === k.text) return;
+                      try {
+                        await editKeyword(tenantSlug, k.id, next);
+                        router.refresh();
+                      } catch (e) {
+                        alert(e instanceof Error ? e.message : '失败');
+                      }
+                    }}
+                    className="rounded p-1 text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
+                  </button>
                   <SourceTag source={k.source} />
                 </li>
               ))}

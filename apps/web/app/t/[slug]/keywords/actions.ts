@@ -94,6 +94,24 @@ export async function createGroup(
   const trimmed = name.trim();
   if (!trimmed) throw new Error('请填写分组名称');
   if (trimmed.length > 40) throw new Error('分组名过长');
+
+  // KW-1 — pre-check for same-name collision under same parent. Migration
+  // 0024 has a partial unique index on (tenant_id, COALESCE(parent_id, ...),
+  // name) WHERE deleted_at IS NULL, but Supabase JS upsert can't target a
+  // partial index, and a raw insert returns a verbose Postgres error. Pre-
+  // SELECT gives the user a clear message + race-window narrowed.
+  // Supabase JS uses .is() for NULL equality and .eq() for value equality —
+  // they cannot be unified into one expression, so we branch.
+  const collisionQ = parentId === null
+    ? service.from('keyword_groups').select('id').eq('tenant_id', tenant.id).eq('name', trimmed).is('parent_id', null).is('deleted_at', null)
+    : service.from('keyword_groups').select('id').eq('tenant_id', tenant.id).eq('name', trimmed).eq('parent_id', parentId).is('deleted_at', null);
+  const { data: existing, error: cErr } = await collisionQ;
+  if (cErr) throw new Error(`分组查重失败: ${cErr.message}`);
+  if ((existing ?? []).length > 0) {
+    const where = parentId ? '该父分组下' : '顶层';
+    throw new Error(`${where}已存在同名分组「${trimmed}」,请换一个名字或挂在其他父分组下`);
+  }
+
   const { data, error } = await service
     .from('keyword_groups')
     .insert({ tenant_id: tenant.id, name: trimmed, parent_id: parentId })
@@ -104,24 +122,114 @@ export async function createGroup(
   return { id: data.id as string };
 }
 
+/**
+ * KW-3 — rename a group in place, preserving keyword associations.
+ * Re-runs same-parent collision check.
+ */
+export async function renameGroup(
+  tenantSlug: string,
+  groupId: string,
+  newName: string,
+): Promise<void> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+  const service = getSupabaseServiceClient();
+  const trimmed = newName.trim();
+  if (!trimmed) throw new Error('请填写新名称');
+  if (trimmed.length > 40) throw new Error('分组名过长');
+
+  const { data: current } = await service
+    .from('keyword_groups')
+    .select('id, name, parent_id')
+    .eq('id', groupId)
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (!current) throw new Error('分组不存在');
+  if (current.name === trimmed) return; // no-op
+
+  // Same-parent collision check (excluding self).
+  const parentId = current.parent_id as string | null;
+  const verifyQ = parentId === null
+    ? service.from('keyword_groups').select('id').eq('tenant_id', tenant.id).eq('name', trimmed).is('parent_id', null).is('deleted_at', null).neq('id', groupId)
+    : service.from('keyword_groups').select('id').eq('tenant_id', tenant.id).eq('name', trimmed).eq('parent_id', parentId).is('deleted_at', null).neq('id', groupId);
+  const { data: dup } = await verifyQ;
+  if ((dup ?? []).length > 0) {
+    throw new Error(`已有同名分组「${trimmed}」,无法重命名`);
+  }
+
+  const { error } = await service
+    .from('keyword_groups')
+    .update({ name: trimmed, updated_at: new Date().toISOString() })
+    .eq('id', groupId)
+    .eq('tenant_id', tenant.id);
+  if (error) throw new Error(`重命名失败: ${error.message}`);
+  revalidatePath(`/t/${tenantSlug}/keywords`);
+}
+
+/**
+ * KW-2 — query a group's "blast radius" so the UI can warn before deletion.
+ * Returns child group count + (live) keyword count.
+ */
+export async function getGroupImpact(
+  tenantSlug: string,
+  groupId: string,
+): Promise<{ child_groups: number; keywords: number }> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+  const service = getSupabaseServiceClient();
+  const [{ count: c1 }, { count: c2 }] = await Promise.all([
+    service
+      .from('keyword_groups')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.id)
+      .eq('parent_id', groupId)
+      .is('deleted_at', null),
+    service
+      .from('keywords')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.id)
+      .eq('group_id', groupId)
+      .is('deleted_at', null),
+  ]);
+  return { child_groups: c1 ?? 0, keywords: c2 ?? 0 };
+}
+
 export async function deleteGroup(
   tenantSlug: string,
   groupId: string,
 ): Promise<void> {
   const tenant = await requireRole(tenantSlug, ['owner', 'admin']);
   const service = getSupabaseServiceClient();
-  const { error } = await service
+  const now = new Date().toISOString();
+
+  // KW-2 — pseudo-atomic two-phase delete with rollback on detach failure.
+  // Supabase JS doesn't expose multi-statement transactions; we compensate
+  // manually so a half-deleted state can't leave keyword rows pointing at
+  // a soft-deleted group (where they'd silently disappear from "未分组" UI
+  // because the JOIN drops the deleted group).
+  const { error: delErr } = await service
     .from('keyword_groups')
-    .update({ deleted_at: new Date().toISOString() })
+    .update({ deleted_at: now })
     .eq('id', groupId)
-    .eq('tenant_id', tenant.id);
-  if (error) throw new Error(`删除失败: ${error.message}`);
-  // Detach keywords from this group
-  await service
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null); // Avoid double-soft-delete races.
+  if (delErr) throw new Error(`删除失败: ${delErr.message}`);
+
+  const { error: detachErr } = await service
     .from('keywords')
     .update({ group_id: null })
     .eq('group_id', groupId)
     .eq('tenant_id', tenant.id);
+
+  if (detachErr) {
+    // Compensate: undo the soft-delete so we don't end with orphans.
+    await service
+      .from('keyword_groups')
+      .update({ deleted_at: null })
+      .eq('id', groupId)
+      .eq('tenant_id', tenant.id);
+    throw new Error(`关键词解绑失败,删除已回滚: ${detachErr.message}`);
+  }
+
   revalidatePath(`/t/${tenantSlug}/keywords`);
 }
 
@@ -392,6 +500,53 @@ export async function moveKeywords(
     .in('id', ids)
     .eq('tenant_id', tenant.id);
   if (error) throw new Error(`移动失败: ${error.message}`);
+  revalidatePath(`/t/${tenantSlug}/keywords`);
+}
+
+/**
+ * KW-4 — edit a keyword's text in place. Preserves group_id, source, intent,
+ * created_at + downstream content_items.keyword_ids references (FK is by id,
+ * not by text). Cross-tenant + own-tenant duplicate guarded.
+ */
+export async function editKeyword(
+  tenantSlug: string,
+  keywordId: string,
+  newText: string,
+): Promise<void> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+  const service = getSupabaseServiceClient();
+  const trimmed = normalizeTerm(newText);
+  if (!trimmed) throw new Error('请填写关键词');
+  if (trimmed.length > MAX_TEXT_LEN) throw new Error(`关键词过长(超过 ${MAX_TEXT_LEN} 字)`);
+
+  const { data: current } = await service
+    .from('keywords')
+    .select('id, text')
+    .eq('id', keywordId)
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (!current) throw new Error('关键词不存在');
+  if (current.text === trimmed) return; // no-op
+
+  // Same-tenant duplicate guard (excluding self).
+  const { data: dup } = await service
+    .from('keywords')
+    .select('id')
+    .eq('tenant_id', tenant.id)
+    .eq('text', trimmed)
+    .is('deleted_at', null)
+    .neq('id', keywordId);
+  if ((dup ?? []).length > 0) {
+    throw new Error(`已有同文关键词「${trimmed}」,无法修改`);
+  }
+
+  const { error } = await service
+    .from('keywords')
+    .update({ text: trimmed, updated_at: new Date().toISOString() })
+    .eq('id', keywordId)
+    .eq('tenant_id', tenant.id);
+  if (error) throw new Error(`修改失败: ${error.message}`);
   revalidatePath(`/t/${tenantSlug}/keywords`);
 }
 
