@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 import { InlineGuide } from '@/components/inline-guide';
 import { PageHeader } from '@/components/page-header';
-import { WizardClient, type WizardTemplate, type WizardKeyword, type WizardKbDoc } from './wizard-client';
+import { WizardClient, type WizardTemplate, type WizardKeyword, type WizardKbDoc, type WizardGroup } from './wizard-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +13,7 @@ export default async function WizardPage({ params }: { params: { slug: string } 
   const supabase = createSupabaseServerClient();
   const service = getSupabaseServiceClient();
 
-  const [systemTplRes, customTplRes, kwRes, kbRes, tenantRes] = await Promise.all([
+  const [systemTplRes, customTplRes, kwRes, kgRes, kbRes, tenantRes] = await Promise.all([
     service
       .from('writing_templates')
       .select('id, slug, name, description, structure_hint, is_system')
@@ -35,6 +35,14 @@ export default async function WizardPage({ params }: { params: { slug: string } 
       .is('deleted_at', null)
       .order('text', { ascending: true })
       .limit(2000),
+    // WIZ-2 — keyword groups so the picker can render by group instead of one
+    // flat wall of pills.
+    supabase
+      .from('keyword_groups')
+      .select('id, name')
+      .eq('tenant_id', tenant.id)
+      .is('deleted_at', null)
+      .order('name', { ascending: true }),
     supabase
       .from('knowledge_sources')
       .select('source_path, title, excerpt, category')
@@ -55,6 +63,7 @@ export default async function WizardPage({ params }: { params: { slug: string } 
   const customTemplates = (customTplRes.data ?? []) as WizardTemplate[];
   const templates = [...systemTemplates, ...customTemplates];
   const keywords = (kwRes.data ?? []) as WizardKeyword[];
+  const groups = (kgRes.data ?? []) as WizardGroup[];
   const kbDocs = (kbRes.data ?? []) as WizardKbDoc[];
 
   return (
@@ -106,6 +115,7 @@ export default async function WizardPage({ params }: { params: { slug: string } 
           tenantSlug={tenant.slug}
           templates={templates}
           keywords={keywords}
+          groups={groups}
           kbDocs={kbDocs}
         />
       )}

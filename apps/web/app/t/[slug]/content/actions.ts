@@ -163,6 +163,13 @@ export type CreateAiDraftInput = {
   writing_template_id?: string | null;
   /** ADR 007 — optional list of keyword ids to plant into the body. */
   keyword_ids?: string[];
+  /**
+   * WIZ-1 — paths the operator hand-picked in the wizard step 1. These get
+   * unconditional inclusion in the recall set; remaining slots up to
+   * DRAFT_RECALL_K are filled by topic-keyword scoring. Empty/undefined
+   * preserves legacy behavior (pure RAG by topic).
+   */
+  preferred_doc_paths?: string[];
 };
 
 export type CreateAiDraftResult = {
@@ -291,11 +298,34 @@ export async function createAiDraft(
     throw new Error('知识库为空,请等待同步完成或先填充内容');
   }
 
-  const ranked = candidates
+  // WIZ-1 — split into "user-pinned" (unconditional) and "score-ranked" (RAG fill).
+  const preferredSet = new Set(input.preferred_doc_paths ?? []);
+  const preferredHits = candidates.filter((c) => preferredSet.has(c.source_path));
+  const remainingPool = candidates.filter((c) => !preferredSet.has(c.source_path));
+
+  const scoredRest = remainingPool
     .map((c) => ({ ...c, score: scoreSource(`${topic} ${audience}`, c) }))
     .filter((c) => c.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, DRAFT_RECALL_K);
+    .sort((a, b) => b.score - a.score);
+
+  // Cap pinned slot to K-1 so RAG always has at least 1 chance to surface
+  // a topic-relevant doc the operator hadn't thought of. If user pinned > K
+  // we keep all of them (their explicit choice trumps).
+  const pinnedSlots = Math.min(preferredHits.length, DRAFT_RECALL_K - 1);
+  const fillCount = Math.max(DRAFT_RECALL_K - pinnedSlots, 0);
+  const ranked: Array<{
+    id: string; source_path: string; title: string | null; excerpt: string | null; score: number;
+  }> = [
+    ...preferredHits.slice(0, pinnedSlots).map((c) => ({ ...c, score: 1.0 })),
+    ...scoredRest.slice(0, fillCount),
+  ];
+  if (preferredHits.length > pinnedSlots) {
+    // Operator pinned more than K-1; respect their picks fully even if it
+    // means dropping RAG entirely.
+    ranked.length = 0;
+    ranked.push(...preferredHits.map((c) => ({ ...c, score: 1.0 })));
+    ranked.length = Math.min(ranked.length, DRAFT_RECALL_K);
+  }
 
   if (ranked.length === 0) {
     // Surface real candidate titles from this tenant's KB so the suggestions

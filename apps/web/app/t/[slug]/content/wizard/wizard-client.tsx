@@ -20,6 +20,8 @@ export type WizardKeyword = {
   source: 'manual' | 'combine' | 'ai_dig';
 };
 
+export type WizardGroup = { id: string; name: string };
+
 export type WizardKbDoc = {
   source_path: string;
   title: string | null;
@@ -43,11 +45,13 @@ export function WizardClient({
   tenantSlug,
   templates,
   keywords,
+  groups,
   kbDocs,
 }: {
   tenantSlug: string;
   templates: WizardTemplate[];
   keywords: WizardKeyword[];
+  groups: WizardGroup[];
   kbDocs: WizardKbDoc[];
 }) {
   const router = useRouter();
@@ -99,6 +103,7 @@ export function WizardClient({
           platform,
           writing_template_id: templateId,
           keyword_ids: [...pickedKeywords],
+          preferred_doc_paths: [...pickedDocs],
         });
         router.push(`/t/${tenantSlug}/content/${result.content_item_id}`);
       } catch (e) {
@@ -109,7 +114,7 @@ export function WizardClient({
 
   return (
     <div className="space-y-4">
-      <Stepper step={step} />
+      <Stepper step={step} setStep={setStep} step1Valid={step1Valid} />
 
       {step === 1 && (
         <div className="space-y-4 rounded-md border border-border bg-card p-5">
@@ -189,7 +194,7 @@ export function WizardClient({
               )}
             </div>
             <p className="text-[11px] text-muted-foreground">
-              注:V1.5/V1.6 的 RAG 召回会基于主题自动选 5 篇最相关素材。手动勾选只影响"我希望优先看见这些"的语义,具体仍由召回决定。
+              注:RAG 会基于主题自动选 5 篇最相关素材。**手动勾选的会被强制纳入**(优先于 RAG 排名),其余空位再用 RAG 召回填满。勾超 5 篇时全部纳入,RAG 让位。
             </p>
           </div>
 
@@ -229,33 +234,12 @@ export function WizardClient({
               添加;或跳过此步(不植入也可以继续)。
             </div>
           ) : (
-            <div className="flex max-h-80 flex-wrap gap-1.5 overflow-auto rounded-md border border-border bg-muted/20 p-3">
-              {filteredKw.map((k) => (
-                <button
-                  key={k.id}
-                  type="button"
-                  onClick={() =>
-                    setPickedKeywords((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(k.id)) next.delete(k.id);
-                      else next.add(k.id);
-                      return next;
-                    })
-                  }
-                  className={
-                    'rounded-full px-3 py-1 text-xs transition ' +
-                    (pickedKeywords.has(k.id)
-                      ? 'border border-foreground bg-foreground text-background'
-                      : 'border border-border bg-card hover:bg-muted')
-                  }
-                >
-                  {k.text}
-                </button>
-              ))}
-              {filteredKw.length === 0 && (
-                <div className="text-xs text-muted-foreground">没有匹配结果</div>
-              )}
-            </div>
+            <KeywordGroupedPicker
+              keywords={filteredKw}
+              groups={groups}
+              picked={pickedKeywords}
+              setPicked={setPickedKeywords}
+            />
           )}
 
           <p className="text-[11px] text-muted-foreground">
@@ -385,7 +369,15 @@ export function WizardClient({
   );
 }
 
-function Stepper({ step }: { step: 1 | 2 | 3 }) {
+function Stepper({
+  step,
+  setStep,
+  step1Valid,
+}: {
+  step: 1 | 2 | 3;
+  setStep: (n: 1 | 2 | 3) => void;
+  step1Valid: boolean;
+}) {
   const steps = ['确定参考资料', '植入关键词', '选写作要求'];
   return (
     <ol className="flex items-center gap-2 text-xs">
@@ -393,20 +385,39 @@ function Stepper({ step }: { step: 1 | 2 | 3 }) {
         const n = (i + 1) as 1 | 2 | 3;
         const active = n === step;
         const done = n < step;
+        // WIZ-3 — only let users jump back to a step they've already
+        // visited (done) or the active one. Forward-skipping (e.g. n=3
+        // from step 1) would bypass step1 validation.
+        const canJump = done || active;
+        // Disable jumping to step 2/3 when step 1 isn't valid yet — protects
+        // backward jump if user clears topic/audience while on step 3.
+        const blockedByValidation = n > 1 && !step1Valid;
+        const enabled = canJump && !blockedByValidation;
         return (
           <li key={i} className="flex items-center gap-2">
-            <span
+            <button
+              type="button"
+              disabled={!enabled}
+              onClick={() => enabled && setStep(n)}
               className={
                 'inline-flex h-6 w-6 items-center justify-center rounded-full ' +
                 (done
-                  ? 'bg-emerald-500 text-white'
+                  ? 'bg-emerald-500 text-white hover:bg-emerald-600'
                   : active
                     ? 'bg-foreground text-background'
-                    : 'bg-muted text-muted-foreground')
+                    : 'bg-muted text-muted-foreground') +
+                (enabled ? ' cursor-pointer' : ' cursor-not-allowed opacity-60')
+              }
+              title={
+                blockedByValidation
+                  ? '请先在第 1 步填写主题和受众'
+                  : enabled
+                    ? `跳到「${label}」`
+                    : '不能向前跳跃,请按顺序进行'
               }
             >
               {done ? '✓' : n}
-            </span>
+            </button>
             <span className={active ? 'font-medium' : 'text-muted-foreground'}>{label}</span>
             {n < 3 && <span className="mx-1 h-px w-4 bg-border" />}
           </li>
@@ -440,8 +451,122 @@ function SummaryCard({
         <li><span className="text-muted-foreground">写作要求:</span> {templateName}</li>
         <li><span className="text-muted-foreground">目标平台:</span> {platform}</li>
         <li><span className="text-muted-foreground">关键词:</span> {keywordCount} 个</li>
-        <li><span className="text-muted-foreground">手动勾选素材:</span> {docCount} 篇(自动召回会覆盖)</li>
+        <li><span className="text-muted-foreground">手动勾选素材:</span> {docCount} 篇(优先纳入,RAG 补足空位)</li>
       </ul>
+    </div>
+  );
+}
+
+/**
+ * WIZ-2 — group-organized keyword picker. Each group becomes a collapsible
+ * block with "全选 / 清空本组" shortcuts. Keywords without a group land in
+ * a virtual "未分组" block at the end. Filter applies before grouping.
+ */
+function KeywordGroupedPicker({
+  keywords,
+  groups,
+  picked,
+  setPicked,
+}: {
+  keywords: WizardKeyword[];
+  groups: WizardGroup[];
+  picked: Set<string>;
+  setPicked: (next: Set<string>) => void;
+}) {
+  const groupNameById = new Map(groups.map((g) => [g.id, g.name]));
+  const buckets = new Map<string, { name: string; items: WizardKeyword[] }>();
+  for (const k of keywords) {
+    const key = k.group_id ?? '__none__';
+    if (!buckets.has(key)) {
+      const name =
+        k.group_id === null ? '未分组' : (groupNameById.get(k.group_id) ?? '未分组');
+      buckets.set(key, { name, items: [] });
+    }
+    buckets.get(key)!.items.push(k);
+  }
+
+  // Order: groups in definition order, "未分组" last.
+  const orderedKeys: string[] = [];
+  for (const g of groups) if (buckets.has(g.id)) orderedKeys.push(g.id);
+  if (buckets.has('__none__')) orderedKeys.push('__none__');
+
+  const togglePick = (id: string) => {
+    const next = new Set(picked);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setPicked(next);
+  };
+
+  const selectAllInGroup = (ids: string[]) => {
+    const next = new Set(picked);
+    for (const id of ids) next.add(id);
+    setPicked(next);
+  };
+  const clearGroup = (ids: string[]) => {
+    const next = new Set(picked);
+    for (const id of ids) next.delete(id);
+    setPicked(next);
+  };
+
+  if (orderedKeys.length === 0) {
+    return <div className="text-xs text-muted-foreground">没有匹配结果</div>;
+  }
+
+  return (
+    <div className="max-h-96 space-y-3 overflow-auto rounded-md border border-border bg-muted/20 p-3">
+      {orderedKeys.map((key) => {
+        const bucket = buckets.get(key)!;
+        const ids = bucket.items.map((i) => i.id);
+        const pickedInGroup = ids.filter((id) => picked.has(id)).length;
+        return (
+          <div key={key} className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-foreground">
+                {bucket.name}{' '}
+                <span className="text-muted-foreground">({bucket.items.length})</span>
+                {pickedInGroup > 0 && (
+                  <span className="ml-1 text-emerald-700">· 已选 {pickedInGroup}</span>
+                )}
+              </span>
+              <span className="flex gap-2">
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() => selectAllInGroup(ids)}
+                >
+                  全选本组
+                </button>
+                {pickedInGroup > 0 && (
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => clearGroup(ids)}
+                  >
+                    清空本组
+                  </button>
+                )}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {bucket.items.map((k) => (
+                <button
+                  key={k.id}
+                  type="button"
+                  onClick={() => togglePick(k.id)}
+                  className={
+                    'rounded-full px-3 py-1 text-xs transition ' +
+                    (picked.has(k.id)
+                      ? 'border border-foreground bg-foreground text-background'
+                      : 'border border-border bg-card hover:bg-muted')
+                  }
+                >
+                  {k.text}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
