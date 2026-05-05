@@ -74,12 +74,11 @@ export default function StaffLoginPage({
 
 function decodeErrorMessage(code: string): string {
   const map: Record<string, string> = {
-    invalid: '手机号或密码不正确。',
-    no_password: '此账号还未设置密码,请联系管理员获取邀请链接。',
-    expired: '邀请链接已过期,请向管理员申请新的。',
-    consumed: '该邀请链接已使用过,请向管理员申请新的。',
-    not_found: '手机号未登记,请确认后重试。',
-    ambiguous: '此手机号关联了多个品牌,请让管理员处理。',
+    // STF-2: collapsed code — covers wrong-password / not-found / no-password /
+    // ambiguous / expired-invite / consumed-invite. We deliberately don't tell
+    // the user which case they hit so attackers can't enumerate registered phones.
+    invalid: '手机号或密码不正确。如未设置密码,请联系管理员获取邀请链接。',
+    rate_limited: '尝试次数过多,请稍后再试(默认锁 30 分钟)。',
     missing_secret: '系统未配置 STAFF_SESSION_SECRET,请联系管理员。',
     unknown: '登录失败,请稍后再试。',
   };

@@ -1,9 +1,35 @@
 'use server';
 
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { issueStaffSession } from '@/lib/staff-session';
 import { verifyPasscode, verifyPassword } from '@/lib/staff-passcode';
+import {
+  checkLoginAllowed,
+  clearLoginThrottle,
+  clientIpFromHeaders,
+  recordLoginFailure,
+} from '@/lib/login-throttle';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
+
+/**
+ * STF-2 — collapse all "user existence" branches into a single error code so
+ * an attacker can't tell from the response whether a phone number is registered.
+ * The legacy codes (not_found / no_password / ambiguous / expired) only differ
+ * to ops in the audit log, never to the user.
+ */
+function denyLogin(
+  phone: string,
+  reason: 'invalid' | 'rate_limited' | 'missing_secret' | 'unknown',
+  retryAfter?: number,
+): never {
+  const params = new URLSearchParams({
+    error: reason === 'rate_limited' ? 'rate_limited' : reason === 'missing_secret' ? 'missing_secret' : 'invalid',
+    phone,
+  });
+  if (retryAfter && retryAfter > 0) params.set('retry_after', String(retryAfter));
+  redirect(`/staff/login?${params.toString()}`);
+}
 
 /**
  * V1.6-3 default login flow: phone + self-chosen password.
@@ -19,10 +45,18 @@ export async function loginWithPassword(form: FormData): Promise<void> {
   const password = typeof passwordRaw === 'string' ? passwordRaw : '';
 
   if (!/^1[3-9]\d{9}$/.test(phone) || !password) {
-    redirect(`/staff/login?error=invalid&phone=${encodeURIComponent(phone)}`);
+    denyLogin(phone, 'invalid');
   }
   if (!process.env.STAFF_SESSION_SECRET || process.env.STAFF_SESSION_SECRET.length < 32) {
-    redirect('/staff/login?error=missing_secret');
+    denyLogin(phone, 'missing_secret');
+  }
+
+  // STF-1 — throttle BEFORE the credential check so attackers can't bypass
+  // it by causing an early abort on validation.
+  const ip = clientIpFromHeaders(headers());
+  const throttle = checkLoginAllowed(phone, ip);
+  if (!throttle.allowed) {
+    denyLogin(phone, 'rate_limited', throttle.retryAfterSec);
   }
 
   const client = getSupabaseServiceClient();
@@ -34,25 +68,25 @@ export async function loginWithPassword(form: FormData): Promise<void> {
     .is('deleted_at', null);
   if (staffErr) {
     console.error('[staff-login-pwd] lookup failed:', staffErr.message);
-    redirect(`/staff/login?error=unknown&phone=${encodeURIComponent(phone)}`);
+    denyLogin(phone, 'unknown');
   }
-  if (!staffRows || staffRows.length === 0) {
-    redirect(`/staff/login?error=not_found&phone=${encodeURIComponent(phone)}`);
-  }
-  if (staffRows.length > 1) {
-    redirect(`/staff/login?error=ambiguous&phone=${encodeURIComponent(phone)}`);
+  // STF-2 — collapse not_found / ambiguous / no_password / wrong_password into
+  // one indistinguishable error. Always record a failure, even for the
+  // not_found path, so brute-forcing different phones from the same IP still
+  // hits the throttle.
+  if (
+    !staffRows ||
+    staffRows.length === 0 ||
+    staffRows.length > 1 ||
+    !staffRows[0]?.password_hash ||
+    !verifyPassword(password, staffRows[0].password_hash)
+  ) {
+    recordLoginFailure(phone, ip);
+    denyLogin(phone, 'invalid');
   }
   const staff = staffRows[0]!;
 
-  if (!staff.password_hash) {
-    // Staff exists but has never set a password — they need a setup link
-    redirect(`/staff/login?error=no_password&phone=${encodeURIComponent(phone)}`);
-  }
-
-  if (!verifyPassword(password, staff.password_hash)) {
-    redirect(`/staff/login?error=invalid&phone=${encodeURIComponent(phone)}`);
-  }
-
+  clearLoginThrottle(phone, ip);
   issueStaffSession(staff.id, staff.tenant_id);
   redirect('/staff');
 }
@@ -71,11 +105,19 @@ export async function loginWithPasscode(form: FormData): Promise<void> {
   const passcode = typeof passcodeRaw === 'string' ? passcodeRaw.trim() : '';
 
   if (!/^1[3-9]\d{9}$/.test(phone) || !/^\d{6}$/.test(passcode)) {
-    redirect(`/staff/login?error=invalid&phone=${encodeURIComponent(phone)}`);
+    denyLogin(phone, 'invalid');
   }
 
   if (!process.env.STAFF_SESSION_SECRET || process.env.STAFF_SESSION_SECRET.length < 32) {
-    redirect('/staff/login?error=missing_secret');
+    denyLogin(phone, 'missing_secret');
+  }
+
+  // STF-1 — same throttle key as password path so an attacker can't switch
+  // between the two flows to dodge limits.
+  const ip = clientIpFromHeaders(headers());
+  const throttle = checkLoginAllowed(phone, ip);
+  if (!throttle.allowed) {
+    denyLogin(phone, 'rate_limited', throttle.retryAfterSec);
   }
 
   const client = getSupabaseServiceClient();
@@ -89,21 +131,15 @@ export async function loginWithPasscode(form: FormData): Promise<void> {
 
   if (staffErr) {
     console.error('[staff-login] staff lookup failed:', staffErr.message);
-    redirect(`/staff/login?error=unknown&phone=${encodeURIComponent(phone)}`);
+    denyLogin(phone, 'unknown');
   }
 
-  if (!staffRows || staffRows.length === 0) {
-    redirect(`/staff/login?error=not_found&phone=${encodeURIComponent(phone)}`);
+  // STF-2 — same collapse as password path; not_found / ambiguous become invalid.
+  if (!staffRows || staffRows.length !== 1) {
+    recordLoginFailure(phone, ip);
+    denyLogin(phone, 'invalid');
   }
-  if (staffRows.length > 1) {
-    // Multi-tenant collision — defer to admin-issued single-use links (not built in V1).
-    redirect(`/staff/login?error=ambiguous&phone=${encodeURIComponent(phone)}`);
-  }
-
-  const staff = staffRows[0];
-  if (!staff) {
-    redirect(`/staff/login?error=not_found&phone=${encodeURIComponent(phone)}`);
-  }
+  const staff = staffRows[0]!;
 
   // Load non-consumed, non-expired invites for this staff.
   const { data: invites, error: invErr } = await client
@@ -116,19 +152,18 @@ export async function loginWithPasscode(form: FormData): Promise<void> {
 
   if (invErr || !invites) {
     console.error('[staff-login] invite lookup failed:', invErr?.message);
-    redirect(`/staff/login?error=unknown&phone=${encodeURIComponent(phone)}`);
+    denyLogin(phone, 'unknown');
   }
 
   const now = Date.now();
-  const match = invites.find(
+  const match = invites!.find(
     (inv) =>
       new Date(inv.expires_at).getTime() > now && verifyPasscode(passcode, inv.passcode_hash),
   );
 
   if (!match) {
-    const anyExpired = invites.some((inv) => new Date(inv.expires_at).getTime() <= now);
-    const code = invites.length === 0 || !anyExpired ? 'invalid' : 'expired';
-    redirect(`/staff/login?error=${code}&phone=${encodeURIComponent(phone)}`);
+    recordLoginFailure(phone, ip);
+    denyLogin(phone, 'invalid');
   }
 
   // Consume this invite; invalidate siblings so one login burns the whole batch.
@@ -142,6 +177,7 @@ export async function loginWithPasscode(form: FormData): Promise<void> {
     // Non-fatal — session still issued; but we warn so double-logins are spotted.
   }
 
+  clearLoginThrottle(phone, ip);
   issueStaffSession(staff.id, staff.tenant_id);
   redirect('/staff');
 }
