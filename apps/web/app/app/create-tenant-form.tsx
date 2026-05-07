@@ -107,7 +107,7 @@ export function CreateTenantForm({
       </button>
 
       {error && (
-        <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+        <p className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] p-3 text-sm text-rose-300">
           {error}
         </p>
       )}

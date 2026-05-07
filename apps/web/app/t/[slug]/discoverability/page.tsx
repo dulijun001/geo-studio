@@ -246,7 +246,7 @@ function AuditCard({ audit, lastGenerated }: { audit: AuditReport; lastGenerated
     A: 'text-emerald-400 bg-emerald-500/[0.10] border-emerald-500/30',
     B: 'text-emerald-400 bg-sky-500/[0.10] border-sky-500/30',
     C: 'text-amber-300 bg-amber-500/[0.10] border-amber-500/30',
-    D: 'text-orange-700 bg-orange-50 border-orange-200',
+    D: 'text-amber-300 bg-amber-500/[0.10] border-amber-500/30',
     F: 'text-rose-300 bg-rose-500/[0.10] border-rose-500/30',
   } as const;
 

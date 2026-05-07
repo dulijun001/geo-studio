@@ -92,7 +92,7 @@ export function UploadForm({ tenantSlug }: { tenantSlug: string }) {
       </label>
       <span className="text-xs text-muted-foreground">支持 .docx / .doc / .pdf / .md / .txt · 最大 50MB</span>
       {error && (
-        <p className="mt-1 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+        <p className="mt-1 rounded-md border border-rose-500/30 bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">
           {error}
         </p>
       )}
