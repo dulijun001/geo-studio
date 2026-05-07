@@ -178,7 +178,7 @@ export function NewStaffForm({ tenantSlug }: { tenantSlug: string }) {
       </Field>
 
       <div className="flex items-center justify-end gap-2 pt-2">
-        {err ? <p className="mr-auto text-xs text-rose-700">{err}</p> : null}
+        {err ? <p className="mr-auto text-xs text-rose-300">{err}</p> : null}
         <button
           type="submit"
           disabled={pending}
@@ -224,7 +224,7 @@ function Field({
     <label className="block space-y-1.5">
       <span className="block text-xs font-medium text-foreground">
         {label}
-        {required ? <span className="ml-0.5 text-rose-500">*</span> : null}
+        {required ? <span className="ml-0.5 text-rose-400">*</span> : null}
       </span>
       {children}
       {hint ? <span className="block text-[11px] text-muted-foreground">{hint}</span> : null}

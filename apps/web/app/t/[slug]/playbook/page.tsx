@@ -253,7 +253,7 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
 
       {/* This week's 5 things — top action list */}
       {actions.length > 0 ? (
-        <section className="space-y-2 rounded-lg border border-indigo-200 bg-indigo-50/40 p-5">
+        <section className="space-y-2 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.08] p-5">
           <header className="flex items-baseline justify-between">
             <h2 className="text-base font-semibold">本周这 {actions.length} 件事最该做</h2>
             <p className="text-xs text-muted-foreground">按优先级排序,从上往下</p>
@@ -263,7 +263,7 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
               <li
                 key={i}
                 className={`flex items-start gap-3 rounded-md border bg-card px-3 py-2.5 ${
-                  a.tone === 'critical' ? 'border-rose-200' : a.tone === 'warning' ? 'border-amber-200' : 'border-border'
+                  a.tone === 'critical' ? 'border-rose-500/30' : a.tone === 'warning' ? 'border-amber-500/30' : 'border-border'
                 }`}
               >
                 <span
@@ -312,12 +312,12 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
         <section className="rounded-md border border-dashed border-border bg-muted/20 p-4 text-xs text-muted-foreground">
           最近一次 GEO 追踪 baseline:
           {fmtDateTime(latestSnap.asked_at)} ·{' '}
-          <Link href={`/t/${tenant.slug}/tracking`} className="text-indigo-700 hover:underline">
+          <Link href={`/t/${tenant.slug}/tracking`} className="text-emerald-400 hover:underline">
             去 GEO 追踪页看 SOV →
           </Link>
         </section>
       ) : (
-        <section className="rounded-md border border-dashed border-border bg-amber-50 p-4 text-xs text-amber-800">
+        <section className="rounded-md border border-dashed border-border bg-amber-500/[0.10] p-4 text-xs text-amber-300">
           还没跑过 GEO 追踪 baseline。等 worker 周一自动跑,或去{' '}
           <Link href={`/t/${tenant.slug}/tracking`} className="font-medium hover:underline">
             GEO 追踪页
@@ -331,7 +331,7 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
 
 function PhaseDot({ label, state }: { label: string; state: 'done' | 'current' | 'locked' }) {
   const cls = {
-    done: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+    done: 'bg-emerald-500/[0.12] text-emerald-300 border-emerald-500/40',
     current: 'bg-indigo-600 text-white border-indigo-700',
     locked: 'bg-muted text-muted-foreground border-border',
   }[state];
@@ -363,9 +363,9 @@ function PhaseSection({
   tenantSlug: string;
 }) {
   const stateBg = isDone
-    ? 'border-emerald-200 bg-emerald-50/40'
+    ? 'border-emerald-500/30 bg-emerald-500/[0.08]'
     : isCurrent
-    ? 'border-indigo-200 bg-card'
+    ? 'border-emerald-500/30 bg-card'
     : 'border-border bg-muted/30';
 
   return (
@@ -374,8 +374,8 @@ function PhaseSection({
         <div>
           <p className="text-xs uppercase tracking-wider text-muted-foreground">
             {phase.weekRange}
-            {isCurrent ? <span className="ml-2 text-indigo-700">· 当前</span> : null}
-            {isDone ? <span className="ml-2 text-emerald-700">· 已完成</span> : null}
+            {isCurrent ? <span className="ml-2 text-emerald-400">· 当前</span> : null}
+            {isDone ? <span className="ml-2 text-emerald-400">· 已完成</span> : null}
           </p>
           <h2 className="text-lg font-semibold">{phase.title}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{phase.goal}</p>
@@ -394,7 +394,7 @@ function PhaseSection({
                   key={task.id}
                   className={`flex items-start gap-2.5 rounded-md border px-3 py-2 text-sm ${
                     done
-                      ? 'border-emerald-200 bg-emerald-50'
+                      ? 'border-emerald-500/30 bg-emerald-500/[0.10]'
                       : 'border-border bg-background'
                   }`}
                 >
@@ -417,7 +417,7 @@ function PhaseSection({
           </ul>
           <Link
             href={`/t/${tenantSlug}/settings/geo-checklist`}
-            className="inline-block pt-1 text-xs text-indigo-700 hover:underline"
+            className="inline-block pt-1 text-xs text-emerald-400 hover:underline"
           >
             去维护 P0 / P1 →
           </Link>
@@ -442,10 +442,10 @@ function PhaseSection({
                     <span
                       className={`mr-1.5 inline-block rounded px-1 py-0.5 text-[9px] font-bold ${
                         PLATFORM_TIER[platform] === 'P2'
-                          ? 'bg-amber-100 text-amber-800'
+                          ? 'bg-amber-500/[0.10] text-amber-300 border border-amber-500/30'
                           : PLATFORM_TIER[platform] === 'P3'
-                          ? 'bg-rose-100 text-rose-800'
-                          : 'bg-sky-100 text-sky-800'
+                          ? 'bg-rose-500/[0.10] text-rose-300 border border-rose-500/30'
+                          : 'bg-sky-500/[0.10] text-sky-300 border border-sky-500/30'
                       }`}
                     >
                       {PLATFORM_TIER[platform]}
@@ -488,10 +488,10 @@ function PhaseSection({
                 prog?.sovPct === null || prog?.sovPct === undefined
                   ? null
                   : prog.sovPct >= 5
-                  ? { label: `${prog.sovPct.toFixed(1)}%`, cls: 'bg-emerald-100 text-emerald-800' }
+                  ? { label: `${prog.sovPct.toFixed(1)}%`, cls: 'bg-emerald-500/[0.12] text-emerald-300 border border-emerald-500/30' }
                   : prog.sovPct > 0
-                  ? { label: `${prog.sovPct.toFixed(1)}%`, cls: 'bg-amber-100 text-amber-800' }
-                  : { label: '0%', cls: 'bg-rose-100 text-rose-800' };
+                  ? { label: `${prog.sovPct.toFixed(1)}%`, cls: 'bg-amber-500/[0.10] text-amber-300 border border-amber-500/30' }
+                  : { label: '0%', cls: 'bg-rose-500/[0.10] text-rose-300 border border-rose-500/30' };
               return (
                 <li
                   key={q}

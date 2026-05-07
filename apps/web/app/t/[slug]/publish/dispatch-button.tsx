@@ -94,10 +94,10 @@ export function DispatchButton({ tenantSlug }: { tenantSlug: string }) {
           {isPending ? '处理中…' : '派单今日'}
         </button>
         {msg ? (
-          <p className="rounded-md bg-emerald-50 px-2 py-1 text-[11px] text-emerald-800">{msg}</p>
+          <p className="rounded-md bg-emerald-500/[0.10] px-2 py-1 text-[11px] text-emerald-300">{msg}</p>
         ) : null}
         {err ? (
-          <p className="rounded-md bg-rose-50 px-2 py-1 text-[11px] text-rose-700">{err}</p>
+          <p className="rounded-md bg-rose-500/[0.10] px-2 py-1 text-[11px] text-rose-300">{err}</p>
         ) : null}
       </div>
 
@@ -195,17 +195,17 @@ function ReviewDialog({
           </ul>
 
           {unmatchedDetails.length > 0 && (
-            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
-              <p className="mb-2 text-sm font-medium text-amber-900">
+            <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/[0.10] p-3">
+              <p className="mb-2 text-sm font-medium text-amber-200">
                 ⚠ {unmatchedDetails.length} 条变体没匹配上员工
               </p>
               <ul className="space-y-1.5">
                 {unmatchedDetails.slice(0, 8).map((u) => (
                   <li
                     key={u.variant_id}
-                    className="flex items-baseline gap-2 text-xs text-amber-900"
+                    className="flex items-baseline gap-2 text-xs text-amber-200"
                   >
-                    <span className="rounded bg-card px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-amber-700">
+                    <span className="rounded bg-card px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-amber-300">
                       {PLATFORM_LABEL[u.variant_platform] ?? u.variant_platform}
                     </span>
                     <span className="line-clamp-1 flex-1">{u.variant_title}</span>
@@ -213,12 +213,12 @@ function ReviewDialog({
                   </li>
                 ))}
                 {unmatchedDetails.length > 8 && (
-                  <li className="text-[11px] text-amber-800/80">
+                  <li className="text-[11px] text-amber-300/80">
                     …还有 {unmatchedDetails.length - 8} 条 — 派单确认后查看 audit_log 完整列表
                   </li>
                 )}
               </ul>
-              <p className="mt-2 text-[11px] text-amber-800/80">
+              <p className="mt-2 text-[11px] text-amber-300/80">
                 常见原因:员工 platforms 字段没配该平台 / 员工今日已达 daily cap。先到「设置 → 员工管理」检查 platforms 配置。
               </p>
             </div>

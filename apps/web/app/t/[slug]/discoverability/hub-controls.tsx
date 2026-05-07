@@ -36,8 +36,8 @@ export function PublicToggle({
     <div
       className={`rounded-md border p-4 ${
         enabled
-          ? 'border-emerald-200 bg-emerald-50/60'
-          : 'border-amber-200 bg-amber-50/60'
+          ? 'border-emerald-500/30 bg-emerald-500/[0.10]/60'
+          : 'border-amber-500/30 bg-amber-500/[0.10]'
       }`}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -75,7 +75,7 @@ export function PublicToggle({
       </div>
 
       {err && (
-        <div className="mt-3 text-xs text-rose-700">{err}</div>
+        <div className="mt-3 text-xs text-rose-300">{err}</div>
       )}
 
       {enabled && (
@@ -140,9 +140,9 @@ export function RegenerateButton({ tenantSlug }: { tenantSlug: string }) {
         {isPending ? '重建中…' : '立即重建'}
       </button>
       {done === 'enqueued' && (
-        <span className="text-xs text-emerald-700">✓ 已入队,worker 几秒内处理</span>
+        <span className="text-xs text-emerald-400">✓ 已入队,worker 几秒内处理</span>
       )}
-      {err && <span className="text-xs text-rose-700">{err}</span>}
+      {err && <span className="text-xs text-rose-300">{err}</span>}
     </div>
   );
 }

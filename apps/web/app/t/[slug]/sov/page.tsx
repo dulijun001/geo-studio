@@ -22,6 +22,8 @@ import { requireTenantMember } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { InlineGuide } from '@/components/inline-guide';
 import { PageHeader } from '@/components/page-header';
+import { AnimatedNumber } from '@/components/motion/animated-number';
+import { Reveal } from '@/components/motion/reveal';
 
 export const dynamic = 'force-dynamic';
 
@@ -183,6 +185,16 @@ export default async function SovHeatmapPage({ params }: { params: { slug: strin
     return { brand, comp, sov, coverage, total: rows.length };
   });
 
+  // Hero metric: 当前周 SOV vs 上周 SOV 变化
+  const currentSov = weeklyRollup[weeklyRollup.length - 1]?.sov ?? null;
+  const lastWeekSov = weeklyRollup[weeklyRollup.length - 2]?.sov ?? null;
+  const sovDelta =
+    currentSov !== null && lastWeekSov !== null
+      ? currentSov - lastWeekSov
+      : null;
+  const totalCoverage = weeklyRollup.reduce((sum, w) => sum + w.coverage, 0);
+  const totalPossible = weeklyRollup.reduce((sum, w) => sum + w.total, 0);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -202,9 +214,141 @@ export default async function SovHeatmapPage({ params }: { params: { slug: strin
         ]}
       />
 
-      {/* Top rollup — overall SOV trend */}
-      <section className="card-surface space-y-3 p-5">
-        <h2 className="text-sm font-medium">每周整体话语权</h2>
+      {/* Hero metric — 暗色舞台跟 dashboard 主战场一致 */}
+      <section
+        className="relative overflow-hidden rounded-2xl p-6 md:p-9"
+        style={{
+          background: '#08090a',
+          boxShadow:
+            '0 28px 60px -20px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.15), inset 0 0 0 1px rgba(255,255,255,0.06)',
+        }}
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-32 -right-24 h-[28rem] w-[28rem] rounded-full blur-3xl"
+          style={{ background: 'rgba(52,211,153,0.22)' }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            backgroundImage:
+              'radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px)',
+            backgroundSize: '24px 24px',
+            maskImage:
+              'radial-gradient(ellipse 80% 70% at 70% 0%, black 30%, transparent 100%)',
+            WebkitMaskImage:
+              'radial-gradient(ellipse 80% 70% at 70% 0%, black 30%, transparent 100%)',
+          }}
+        />
+        <div className="relative grid gap-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+          <div>
+            <div
+              className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.16em]"
+              style={{ color: '#34d399' }}
+            >
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{
+                  background: '#34d399',
+                  boxShadow: '0 0 0 3px rgba(52,211,153,0.2)',
+                }}
+              />
+              本周 SOV · 整体话语权
+            </div>
+            <div className="mt-4 flex items-baseline gap-3">
+              <span
+                className="text-7xl tabular-nums tracking-[-0.04em] md:text-8xl"
+                style={{
+                  fontStyle: 'italic',
+                  fontWeight: 500,
+                  backgroundImage:
+                    'linear-gradient(135deg, #fafafa 0%, #34d399 100%)',
+                  WebkitBackgroundClip: 'text',
+                  backgroundClip: 'text',
+                  color: 'transparent',
+                }}
+              >
+                {currentSov === null ? (
+                '—'
+              ) : (
+                <AnimatedNumber value={currentSov} decimals={0} />
+              )}
+              </span>
+              {currentSov !== null ? (
+                <span className="pb-2 text-3xl" style={{ color: '#a1a1aa' }}>
+                  %
+                </span>
+              ) : null}
+              {sovDelta !== null ? (
+                <span
+                  className="ml-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium"
+                  style={{
+                    border:
+                      sovDelta >= 0
+                        ? '1px solid rgba(52,211,153,0.30)'
+                        : '1px solid rgba(251,113,133,0.30)',
+                    background:
+                      sovDelta >= 0
+                        ? 'rgba(52,211,153,0.10)'
+                        : 'rgba(251,113,133,0.10)',
+                    color: sovDelta >= 0 ? '#34d399' : '#fb7185',
+                  }}
+                >
+                  {sovDelta >= 0 ? '↑' : '↓'} {Math.abs(sovDelta)}pt vs 上周
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-3 text-sm" style={{ color: '#a1a1aa' }}>
+              过去 {WEEKS_TO_SHOW} 周累计抓取{' '}
+              <span
+                className="font-semibold tabular-nums"
+                style={{ color: '#fafafa' }}
+              >
+                {totalCoverage}
+              </span>{' '}
+              次 / {totalPossible} 次预定 · 覆盖率{' '}
+              <span
+                className="font-semibold tabular-nums"
+                style={{ color: '#fafafa' }}
+              >
+                {totalPossible > 0
+                  ? Math.round((totalCoverage / totalPossible) * 100)
+                  : 0}
+                %
+              </span>
+            </p>
+          </div>
+
+          <div className="flex flex-col items-start gap-2 md:items-end">
+            <Link
+              href={`/t/${tenant.slug}/tracking`}
+              className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition"
+              style={{
+                color: '#fafafa',
+                border: '1px solid rgba(255,255,255,0.10)',
+                background: 'rgba(255,255,255,0.02)',
+              }}
+            >
+              去 GEO 追踪 ↗
+            </Link>
+            <Link
+              href={`/t/${tenant.slug}/citations`}
+              className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition hover:opacity-90"
+              style={{ background: '#fafafa', color: '#0a0a0a' }}
+            >
+              看引用源 →
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Top rollup — overall SOV trend (8 周分布) */}
+      <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <h2 className="mb-3 flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-emerald-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          每周整体话语权
+        </h2>
         <div className="grid grid-cols-8 gap-2">
           {weekStarts.map((start, i) => {
             const w = weeklyRollup[i]!;
@@ -213,13 +357,27 @@ export default async function SovHeatmapPage({ params }: { params: { slug: strin
             return (
               <div
                 key={i}
-                className={`rounded-md border p-2 text-center text-xs ${
-                  isCurrent ? 'border-foreground bg-foreground/5' : 'border-border bg-muted/20'
-                }`}
+                className="rounded-lg p-2.5 text-center text-xs transition"
+                style={{
+                  border: isCurrent
+                    ? '1px solid rgba(52,211,153,0.40)'
+                    : '1px solid rgba(255,255,255,0.06)',
+                  background: isCurrent
+                    ? 'rgba(52,211,153,0.08)'
+                    : 'rgba(255,255,255,0.02)',
+                  boxShadow: isCurrent
+                    ? '0 0 16px rgba(52,211,153,0.15)'
+                    : 'none',
+                }}
               >
                 <div className="text-[10px] text-muted-foreground">第 {i + 1} 周</div>
                 <div className="font-mono text-[10px] text-muted-foreground">{label}</div>
-                <div className="mt-1 text-lg font-semibold">
+                <div
+                  className="mt-1 text-lg font-semibold tabular-nums"
+                  style={{
+                    color: isCurrent ? '#34d399' : 'inherit',
+                  }}
+                >
                   {w.sov === null ? '—' : `${w.sov}%`}
                 </div>
                 <div className="text-[10px] text-muted-foreground">
@@ -229,37 +387,40 @@ export default async function SovHeatmapPage({ params }: { params: { slug: strin
             );
           })}
         </div>
-        <p className="text-xs text-muted-foreground">
+        <p className="mt-3 text-xs text-muted-foreground">
           SOV = 松鼠提及 / (松鼠 + 竞品)。无数据时显示 —。覆盖数 = 当周成功抓回的 query 数。
         </p>
       </section>
 
       {/* Heatmap */}
       {rows.length === 0 ? (
-        <section className="rounded-md border border-dashed border-border bg-muted/20 p-10 text-center text-sm text-muted-foreground">
+        <section className="rounded-2xl border border-dashed border-border bg-card/40 p-10 text-center text-sm text-muted-foreground">
           还没有 active question。先到「GEO 追踪」页加几条 query。
         </section>
       ) : (
-        <section className="card-surface p-5">
-          <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="text-sm font-medium">Query × 周 热力图</h2>
+        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <div className="mb-4 flex items-baseline justify-between">
+            <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              Query × 周 热力图
+            </h2>
             <Legend />
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[800px] border-separate border-spacing-0 text-xs">
               <thead>
                 <tr className="text-muted-foreground">
-                  <th className="sticky left-0 z-10 bg-background px-2 py-2 text-left font-normal">
+                  <th className="sticky left-0 z-10 bg-card px-2 py-2 text-left font-normal">
                     Query
                   </th>
-                  <th className="bg-background px-1 py-2 text-center font-normal">P</th>
+                  <th className="bg-card px-1 py-2 text-center font-normal">P</th>
                   {weekStarts.map((s, i) => {
                     const isCurrent = i === weekStarts.length - 1;
                     return (
                       <th
                         key={i}
-                        className={`px-1 py-2 text-center font-normal ${
-                          isCurrent ? 'text-foreground' : ''
+                        className={`px-1 py-2 text-center font-mono font-normal ${
+                          isCurrent ? 'text-emerald-400' : ''
                         }`}
                       >
                         {s.getUTCMonth() + 1}/{s.getUTCDate()}
@@ -270,11 +431,11 @@ export default async function SovHeatmapPage({ params }: { params: { slug: strin
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.question.id} className="hover:bg-muted/20">
-                    <td className="sticky left-0 z-10 max-w-xs truncate border-t border-border bg-background px-2 py-1.5">
+                  <tr key={r.question.id} className="transition hover:bg-white/[0.02]">
+                    <td className="sticky left-0 z-10 max-w-xs truncate border-t border-border bg-card px-2 py-1.5">
                       <Link
                         href={`/t/${tenant.slug}/tracking#q-${r.question.id}`}
-                        className="hover:underline"
+                        className="hover:text-emerald-400 hover:underline underline-offset-2"
                         title={r.question.text}
                       >
                         {r.question.text}
@@ -314,27 +475,75 @@ function stateFor(counts: { brand: number; competitor: number; doctor: number })
 
 function CellChip({ cell }: { cell: Cell }) {
   if (cell.state === 'no_data') {
-    return <div className="h-7 w-full rounded-sm bg-muted/40" title="本周无 baseline 数据" />;
+    return (
+      <div
+        className="h-7 w-full rounded-md"
+        style={{
+          background: 'rgba(255,255,255,0.025)',
+          border: '1px dashed rgba(255,255,255,0.04)',
+        }}
+        title="本周无 baseline 数据"
+      />
+    );
   }
-  const config: Record<Exclude<CellState, 'no_data'>, { bg: string; emoji: string; label: string }> = {
-    won: { bg: 'bg-emerald-200/70 hover:bg-emerald-300', emoji: '✓', label: '守住' },
-    fight: { bg: 'bg-sky-200/70 hover:bg-sky-300', emoji: '⚔', label: '拉锯' },
-    lost: { bg: 'bg-rose-200/70 hover:bg-rose-300', emoji: '✕', label: '失守' },
-    vacuum: { bg: 'bg-muted hover:bg-muted/80', emoji: '·', label: '真空' },
+  const config: Record<
+    Exclude<CellState, 'no_data'>,
+    { bg: string; border: string; glow: string; color: string; emoji: string; label: string }
+  > = {
+    won: {
+      bg: 'rgba(52,211,153,0.18)',
+      border: '1px solid rgba(52,211,153,0.45)',
+      glow: '0 0 12px rgba(52,211,153,0.3) inset',
+      color: '#34d399',
+      emoji: '✓',
+      label: '守住',
+    },
+    fight: {
+      bg: 'rgba(56,189,248,0.18)',
+      border: '1px solid rgba(56,189,248,0.45)',
+      glow: '0 0 12px rgba(56,189,248,0.25) inset',
+      color: '#7dd3fc',
+      emoji: '⚔',
+      label: '拉锯',
+    },
+    lost: {
+      bg: 'rgba(251,113,133,0.18)',
+      border: '1px solid rgba(251,113,133,0.45)',
+      glow: '0 0 12px rgba(251,113,133,0.25) inset',
+      color: '#fda4af',
+      emoji: '✕',
+      label: '失守',
+    },
+    vacuum: {
+      bg: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,255,255,0.06)',
+      glow: 'none',
+      color: 'rgba(255,255,255,0.35)',
+      emoji: '·',
+      label: '真空',
+    },
   };
   const c = config[cell.state];
   const tooltip = `${c.label}  brand=${cell.brand} comp=${cell.competitor}${cell.doctor > 0 ? ` doc=${cell.doctor}` : ''}`;
   return (
     <div
-      className={`flex h-7 w-full items-center justify-center rounded-sm font-mono text-[10px] font-medium transition-colors ${c.bg}`}
+      className="flex h-7 w-full items-center justify-center rounded-md font-mono text-[10px] font-medium transition-all"
+      style={{
+        background: c.bg,
+        border: c.border,
+        boxShadow: c.glow,
+        color: c.color,
+      }}
       title={tooltip}
     >
       {cell.brand > 0 || cell.competitor > 0 ? (
         <span>
-          {cell.brand}<span className="opacity-50">:</span>{cell.competitor}
+          {cell.brand}
+          <span className="opacity-50">:</span>
+          {cell.competitor}
         </span>
       ) : (
-        <span className="opacity-50">{c.emoji}</span>
+        <span className="opacity-70">{c.emoji}</span>
       )}
     </div>
   );
@@ -342,20 +551,36 @@ function CellChip({ cell }: { cell: Cell }) {
 
 function Legend() {
   return (
-    <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-      <LegendChip color="bg-emerald-200/70" label="✓ 守住 brand>0 comp=0" />
-      <LegendChip color="bg-sky-200/70" label="⚔ 拉锯 都有" />
-      <LegendChip color="bg-rose-200/70" label="✕ 失守 comp 独占" />
-      <LegendChip color="bg-muted" label="· 真空" />
-      <LegendChip color="bg-muted/40" label="无数据" />
+    <div className="flex items-center gap-3 text-[10.5px] text-muted-foreground">
+      <LegendChip bg="rgba(52,211,153,0.18)" border="rgba(52,211,153,0.45)" label="✓ 守住" />
+      <LegendChip bg="rgba(56,189,248,0.18)" border="rgba(56,189,248,0.45)" label="⚔ 拉锯" />
+      <LegendChip bg="rgba(251,113,133,0.18)" border="rgba(251,113,133,0.45)" label="✕ 失守" />
+      <LegendChip bg="rgba(255,255,255,0.04)" border="rgba(255,255,255,0.06)" label="· 真空" />
+      <LegendChip bg="rgba(255,255,255,0.025)" border="rgba(255,255,255,0.04)" label="无数据" dashed />
     </div>
   );
 }
 
-function LegendChip({ color, label }: { color: string; label: string }) {
+function LegendChip({
+  bg,
+  border,
+  label,
+  dashed,
+}: {
+  bg: string;
+  border: string;
+  label: string;
+  dashed?: boolean;
+}) {
   return (
-    <span className="inline-flex items-center gap-1">
-      <span className={`inline-block h-3 w-3 rounded-sm ${color}`} />
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className="inline-block h-3 w-3 rounded-sm"
+        style={{
+          background: bg,
+          border: dashed ? `1px dashed ${border}` : `1px solid ${border}`,
+        }}
+      />
       {label}
     </span>
   );

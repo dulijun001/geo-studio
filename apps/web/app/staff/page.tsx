@@ -51,7 +51,7 @@ export default async function StaffHomePage() {
 
   if (error) {
     return (
-      <div className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+      <div className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] p-4 text-sm text-rose-300">
         载入任务失败:{error.message}
       </div>
     );

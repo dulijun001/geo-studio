@@ -438,7 +438,7 @@ function Where({ children }: { children: React.ReactNode }) {
 
 function Tip({ children }: { children: React.ReactNode }) {
   return (
-    <p className="rounded-md border-l-2 border-blue-400 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+    <p className="rounded-md border-l-2 border-emerald-500/40 bg-sky-500/[0.10] px-3 py-2 text-xs text-sky-300">
       <span className="font-medium">提示 · </span>
       {children}
     </p>

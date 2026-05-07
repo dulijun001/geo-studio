@@ -81,7 +81,7 @@ export default async function TestimonialsListPage({
         linkHref={`/t/${tenant.slug}/help#compliance`}
       />
 
-      <div className="rounded-md border border-amber-200 bg-amber-50/60 p-4 text-xs text-amber-900">
+      <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.10] p-4 text-xs text-amber-200">
         <strong>⚠ 隐私红线:</strong> 所有 PII(姓名 / 手机 / 身份证 / 病历号)严禁存入。只用 <strong>化名 + 城市 + 年龄段</strong>。医疗个人信息保护法对此有明文约束,违反一次起罚十万。
       </div>
 

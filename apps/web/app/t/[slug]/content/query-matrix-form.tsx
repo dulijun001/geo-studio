@@ -22,9 +22,9 @@ const AUDIENCE_OPTIONS = [
 ];
 
 const TIER_BG: Record<MatrixIdea['tier'], string> = {
-  P2: 'bg-amber-100 text-amber-800 border-amber-200',
-  P3: 'bg-rose-100 text-rose-800 border-rose-200',
-  P4: 'bg-sky-100 text-sky-800 border-sky-200',
+  P2: 'bg-amber-500/[0.10] text-amber-300 border border-amber-500/30 border-amber-500/30',
+  P3: 'bg-rose-500/[0.10] text-rose-300 border border-rose-500/30 border-rose-500/30',
+  P4: 'bg-sky-500/[0.10] text-sky-300 border border-sky-500/30 border-sky-500/30',
 };
 
 const TIER_LABEL: Record<MatrixIdea['tier'], string> = {
@@ -109,7 +109,7 @@ export function QueryMatrixForm({ tenantSlug }: { tenantSlug: string }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+        className="rounded-md bg-foreground px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
       >
         Query 矩阵
       </button>
@@ -161,12 +161,12 @@ export function QueryMatrixForm({ tenantSlug }: { tenantSlug: string }) {
                   </select>
                 </label>
                 {proposeErr ? (
-                  <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                  <p className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">
                     {proposeErr}
                   </p>
                 ) : null}
                 {proposing ? (
-                  <p className="rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
+                  <p className="rounded-md border border-emerald-500/30 bg-emerald-500/[0.08] px-3 py-2 text-xs text-indigo-800">
                     AI 在思考矩阵布局…通常 30-60 秒。
                   </p>
                 ) : null}
@@ -184,7 +184,7 @@ export function QueryMatrixForm({ tenantSlug }: { tenantSlug: string }) {
                   <button
                     type="submit"
                     disabled={proposing}
-                    className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+                    className="rounded-md bg-foreground px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
                   >
                     {proposing ? '生成中…' : '生成矩阵建议'}
                   </button>
@@ -231,12 +231,12 @@ export function QueryMatrixForm({ tenantSlug }: { tenantSlug: string }) {
                           {status.state === 'done' ? (
                             <a
                               href={`/t/${tenantSlug}/content/${status.content_item_id}`}
-                              className="text-xs text-emerald-700 hover:underline"
+                              className="text-xs text-emerald-400 hover:underline"
                             >
                               ✓ 已生成,点击查看 →
                             </a>
                           ) : status.state === 'failed' ? (
-                            <span className="text-xs text-rose-700">{status.error}</span>
+                            <span className="text-xs text-rose-300">{status.error}</span>
                           ) : null}
                           <button
                             type="button"

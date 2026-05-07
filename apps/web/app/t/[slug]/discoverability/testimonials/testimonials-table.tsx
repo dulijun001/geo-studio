@@ -32,10 +32,10 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_BADGE: Record<string, string> = {
-  pending: 'bg-amber-100 text-amber-800',
-  approved: 'bg-emerald-100 text-emerald-800',
-  rejected: 'bg-rose-100 text-rose-800',
-  needs_review: 'bg-blue-100 text-blue-800',
+  pending: 'bg-amber-500/[0.10] text-amber-300 border border-amber-500/30',
+  approved: 'bg-emerald-500/[0.12] text-emerald-300 border border-emerald-500/30',
+  rejected: 'bg-rose-500/[0.10] text-rose-300 border border-rose-500/30',
+  needs_review: 'bg-sky-500/[0.10] text-sky-300 border border-sky-500/30',
 };
 
 const EMPTY: TestimonialInput & { id?: string } = {
@@ -167,7 +167,7 @@ export function TestimonialsTable({
                         alert(e instanceof Error ? e.message : '失败');
                       }
                     }}
-                    className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 hover:bg-rose-100"
+                    className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] px-2 py-1 text-xs text-rose-300 hover:bg-rose-500/[0.10]"
                   >
                     删除
                   </button>
@@ -211,8 +211,8 @@ function ComplianceButton({
       }}
       className={`rounded-md px-3 py-1.5 text-xs font-medium ${
         action === 'approved'
-          ? 'border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-          : 'border border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100'
+          ? 'border border-emerald-500/40 bg-emerald-500/[0.10] text-emerald-300 hover:bg-emerald-500/[0.12]'
+          : 'border border-rose-500/40 bg-rose-500/[0.10] text-rose-300 hover:bg-rose-500/[0.10]'
       } disabled:opacity-50`}
     >
       {pending ? '...' : label}
@@ -247,7 +247,7 @@ function VisibilityToggle({
         });
       }}
       className={`rounded-full px-2 py-0.5 text-xs ${
-        visible ? 'bg-emerald-100 text-emerald-800' : 'bg-muted text-muted-foreground'
+        visible ? 'bg-emerald-500/[0.12] text-emerald-300 border border-emerald-500/30' : 'bg-muted text-muted-foreground'
       } disabled:opacity-50`}
     >
       {visible ? '已公开' : '私有'}
@@ -351,7 +351,7 @@ function Form({
         <span className="font-mono"> geo_visible=false</span>。需要审过 + 显式开公开。
       </div>
 
-      {err && <div className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>}
+      {err && <div className="rounded-md bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">{err}</div>}
 
       <div className="flex justify-end gap-2 pt-1">
         <button

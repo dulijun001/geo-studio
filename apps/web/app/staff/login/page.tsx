@@ -51,7 +51,7 @@ export default function StaffLoginPage({
           </label>
 
           {searchParams.error ? (
-            <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+            <p className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">
               {decodeErrorMessage(searchParams.error)}
             </p>
           ) : null}

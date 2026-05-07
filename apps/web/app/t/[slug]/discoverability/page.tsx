@@ -243,11 +243,11 @@ export default async function DiscoverabilityHubPage({
 
 function AuditCard({ audit, lastGenerated }: { audit: AuditReport; lastGenerated: string | null }) {
   const colorByGrade = {
-    A: 'text-emerald-700 bg-emerald-50 border-emerald-200',
-    B: 'text-blue-700 bg-blue-50 border-blue-200',
-    C: 'text-amber-700 bg-amber-50 border-amber-200',
+    A: 'text-emerald-400 bg-emerald-500/[0.10] border-emerald-500/30',
+    B: 'text-emerald-400 bg-sky-500/[0.10] border-sky-500/30',
+    C: 'text-amber-300 bg-amber-500/[0.10] border-amber-500/30',
     D: 'text-orange-700 bg-orange-50 border-orange-200',
-    F: 'text-rose-700 bg-rose-50 border-rose-200',
+    F: 'text-rose-300 bg-rose-500/[0.10] border-rose-500/30',
   } as const;
 
   return (
@@ -291,7 +291,7 @@ function DimCard({ label, dim }: { label: string; dim: AuditReport['dimensions']
       <ul className="space-y-1 text-xs">
         {dim.checks.map((c) => (
           <li key={c.name} className="flex items-start gap-1.5">
-            <span className={c.passed ? 'text-emerald-600' : 'text-muted-foreground'}>
+            <span className={c.passed ? 'text-emerald-400' : 'text-muted-foreground'}>
               {c.passed ? '✓' : '○'}
             </span>
             <span className={c.passed ? '' : 'text-muted-foreground'}>{c.name}</span>

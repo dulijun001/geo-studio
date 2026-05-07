@@ -186,7 +186,7 @@ function Card({
       <div className="space-y-2 border-b border-border p-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{row.title}</span>
-          <span className="rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">
+          <span className="rounded-full border border-sky-500/30 bg-sky-500/[0.10] px-1.5 py-0.5 text-[10px] text-sky-300">
             {SOURCE_TYPE_LABELS[row.source_type]}
           </span>
           {!row.active && (
@@ -196,14 +196,14 @@ function Card({
           )}
           {claimsCount === 0 ? (
             <span
-              className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700"
+              className="rounded-full border border-amber-500/30 bg-amber-500/[0.10] px-1.5 py-0.5 text-[10px] text-amber-300"
               title="C1 数字幻觉裁判不会激活"
             >
               ⚠ 未配 key_claims
             </span>
           ) : (
             <span
-              className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700"
+              className="rounded-full border border-emerald-500/30 bg-emerald-500/[0.12] px-1.5 py-0.5 text-[10px] text-emerald-300"
               title="C1 LLM 裁判已激活"
             >
               ✓ {claimsCount} 条 key_claims
@@ -235,7 +235,7 @@ function Card({
           </details>
         )}
         {row.url && (
-          <a href={row.url} target="_blank" rel="noopener noreferrer" className="block truncate text-blue-600 hover:underline">
+          <a href={row.url} target="_blank" rel="noopener noreferrer" className="block truncate text-emerald-400 hover:underline underline-offset-2">
             {row.url}
           </a>
         )}
@@ -275,7 +275,7 @@ function Card({
                 alert(e instanceof Error ? e.message : '失败');
               }
             }}
-            className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 hover:bg-rose-100"
+            className="rounded-md border border-rose-500/30 bg-rose-500/[0.08] px-2 py-1 text-xs text-rose-300 hover:bg-rose-500/[0.15]"
           >
             删除
           </button>
@@ -430,7 +430,7 @@ function CitationForm({
         />
       </label>
 
-      {err && <div className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>}
+      {err && <div className="rounded-md border border-rose-500/30 bg-rose-500/[0.08] px-3 py-2 text-xs text-rose-300">{err}</div>}
 
       <div className="flex justify-end gap-2 pt-1">
         <button

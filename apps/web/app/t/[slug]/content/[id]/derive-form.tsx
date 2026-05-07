@@ -102,7 +102,7 @@ export function DeriveForm({
                 <div className="flex-1">
                   <p className="font-medium">{t.label}</p>
                   <p className="text-[10px] text-muted-foreground">{t.desc}</p>
-                  {isSelf ? <p className="text-[10px] text-rose-600">(原文平台)</p> : null}
+                  {isSelf ? <p className="text-[10px] text-rose-400">(原文平台)</p> : null}
                 </div>
               </label>
             );
@@ -110,7 +110,7 @@ export function DeriveForm({
         </div>
 
         {err ? (
-          <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+          <p className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">
             {err}
           </p>
         ) : null}
@@ -124,7 +124,7 @@ export function DeriveForm({
         {result ? (
           <div className="space-y-1.5">
             {result.created.length > 0 ? (
-              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+              <div className="rounded-md border border-emerald-500/30 bg-emerald-500/[0.10] px-3 py-2 text-xs text-emerald-200">
                 ✓ 已生成 {result.created.length} 个派生草稿:
                 {result.created.map((c) => (
                   <a
@@ -138,7 +138,7 @@ export function DeriveForm({
               </div>
             ) : null}
             {result.failed.length > 0 ? (
-              <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+              <div className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">
                 {result.failed.length} 个失败:{' '}
                 {result.failed.map((f) => `${f.platform}(${f.error})`).join(' / ')}
               </div>

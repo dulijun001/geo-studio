@@ -146,7 +146,7 @@ export function KeywordsUI({
                     alert(e instanceof Error ? e.message : '失败');
                   }
                 }}
-                className="rounded p-1 text-muted-foreground hover:bg-rose-50 hover:text-rose-600"
+                className="rounded p-1 text-muted-foreground hover:bg-rose-500/[0.10] hover:text-rose-400"
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
@@ -382,7 +382,7 @@ function GroupItem({
 function SourceTag({ source }: { source: KeywordRow['source'] }) {
   const map = {
     manual: { label: '手动', cls: 'bg-muted text-muted-foreground' },
-    combine: { label: '组合', cls: 'bg-blue-50 text-blue-700' },
+    combine: { label: '组合', cls: 'bg-sky-500/[0.10] text-emerald-400' },
     ai_dig: { label: 'AI', cls: 'bg-purple-50 text-purple-700' },
   } as const;
   const m = map[source];
@@ -422,9 +422,9 @@ function ManualForm({
         onChange={(e) => setText(e.target.value)}
         placeholder={'例:\n种植牙价格\n种植牙流程\n昆明儿童牙齿矫正'}
       />
-      {err && <div className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>}
+      {err && <div className="rounded-md bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">{err}</div>}
       {info && (
-        <div className="rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{info}</div>
+        <div className="rounded-md bg-emerald-500/[0.10] px-3 py-2 text-xs text-emerald-400">{info}</div>
       )}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onClose} className="rounded-md border border-border bg-background px-3 py-1.5 text-xs hover:bg-muted">取消</button>
@@ -493,7 +493,7 @@ function CombineForm({
     <div className="space-y-3 rounded-md border border-border bg-card p-4">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium">组合拓词 — 6 维笛卡尔积(留空轴自动跳过)</h4>
-        <span className={'text-xs ' + (total > 200 ? 'text-rose-700' : total > 0 ? 'text-emerald-700' : 'text-muted-foreground')}>
+        <span className={'text-xs ' + (total > 200 ? 'text-rose-300' : total > 0 ? 'text-emerald-400' : 'text-muted-foreground')}>
           预计生成 {total} 条{total > 200 ? '(超 200 上限)' : ''}
         </span>
       </div>
@@ -510,9 +510,9 @@ function CombineForm({
           </label>
         ))}
       </div>
-      {err && <div className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>}
+      {err && <div className="rounded-md bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">{err}</div>}
       {info && (
-        <div className="rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{info}</div>
+        <div className="rounded-md bg-emerald-500/[0.10] px-3 py-2 text-xs text-emerald-400">{info}</div>
       )}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onClose} className="rounded-md border border-border bg-background px-3 py-1.5 text-xs hover:bg-muted">取消</button>
@@ -610,8 +610,8 @@ function DigForm({
         </button>
       </div>
 
-      {err && <div className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>}
-      {info && <div className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">{info}</div>}
+      {err && <div className="rounded-md bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">{err}</div>}
+      {info && <div className="rounded-md bg-amber-500/[0.10] px-3 py-2 text-xs text-amber-300">{info}</div>}
 
       {result && (
         <div className="space-y-3">
@@ -648,11 +648,11 @@ function DigForm({
           </div>
 
           {result.rejected.length > 0 && (
-            <details className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs">
-              <summary className="cursor-pointer font-medium text-rose-700">
+            <details className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] px-3 py-2 text-xs">
+              <summary className="cursor-pointer font-medium text-rose-300">
                 合规过滤掉 {result.rejected.length} 个候选(展开看原因)
               </summary>
-              <ul className="mt-2 space-y-0.5 text-rose-700/80">
+              <ul className="mt-2 space-y-0.5 text-rose-300/80">
                 {result.rejected.map((r, i) => (
                   <li key={i}>
                     <span className="font-mono">{r.term}</span> — {r.reason}

@@ -30,7 +30,7 @@ export function DeleteButton({ tenantSlug, vocabId, term }: { tenantSlug: string
       onClick={onClick}
       disabled={pending}
       title={err ?? undefined}
-      className="rounded-md border border-border bg-card px-2 py-1 text-[11px] text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+      className="rounded-md border border-border bg-card px-2 py-1 text-[11px] text-rose-300 hover:bg-rose-500/[0.10] disabled:opacity-50"
     >
       {pending ? '…' : '删除'}
     </button>

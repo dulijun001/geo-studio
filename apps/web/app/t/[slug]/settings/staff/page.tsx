@@ -214,9 +214,9 @@ export default async function StaffSettingsPage({ params }: { params: { slug: st
 
 function StatusBadge({ status }: { status: string }) {
   const config: Record<string, { label: string; className: string }> = {
-    active: { label: '在岗', className: 'bg-emerald-100 text-emerald-800' },
-    paused: { label: '暂停', className: 'bg-amber-100 text-amber-800' },
-    offboarding: { label: '离职中', className: 'bg-rose-100 text-rose-800' },
+    active: { label: '在岗', className: 'bg-emerald-500/[0.12] text-emerald-300 border border-emerald-500/30' },
+    paused: { label: '暂停', className: 'bg-amber-500/[0.10] text-amber-300 border border-amber-500/30' },
+    offboarding: { label: '离职中', className: 'bg-rose-500/[0.10] text-rose-300 border border-rose-500/30' },
   };
   const c = config[status] ?? { label: status, className: 'bg-muted' };
   return (

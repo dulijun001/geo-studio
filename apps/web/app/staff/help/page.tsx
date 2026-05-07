@@ -108,9 +108,9 @@ export default function StaffHelpPage() {
 
       <hr className="border-border" />
 
-      <section className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-xs">
-        <p className="font-semibold text-amber-900">三件事一定要记得</p>
-        <ul className="list-disc space-y-1 pl-5 text-amber-800">
+      <section className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.10] p-4 text-xs">
+        <p className="font-semibold text-amber-200">三件事一定要记得</p>
+        <ul className="list-disc space-y-1 pl-5 text-amber-300">
           <li>暗号<strong>不要删</strong> — 删了等于白发,后续追踪不到</li>
           <li>发布完<strong>必须粘回链接</strong> — 不粘 = 系统认为你没发,会逾期扣考核</li>
           <li>不要把账号<strong>给别人用</strong> — 出问题责任在你(医疗广告法)</li>
@@ -160,7 +160,7 @@ function Sub({ label, children }: { label: string; children: React.ReactNode }) 
 
 function Tip({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-md border-l-2 border-blue-400 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+    <div className="rounded-md border-l-2 border-blue-400 bg-sky-500/[0.10] px-3 py-2 text-xs text-sky-300">
       <span className="font-medium">提示</span> · {children}
     </div>
   );

@@ -48,51 +48,106 @@ export default async function AppHomePage() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl space-y-8 px-6 py-16">
-      <header className="space-y-1">
-        <p className="text-sm text-muted-foreground">
-          <span className="font-mono">{user.email}</span>
-        </p>
-        <h1 className="text-3xl font-semibold">选择要进入的租户</h1>
-      </header>
-
-      <ul className="divide-y divide-border rounded-md border border-border">
-        {tenants.map((t) => (
-          <li key={t.id}>
-            <Link
-              href={`/t/${t.slug}`}
-              className="flex items-center justify-between px-4 py-3 hover:bg-muted/50"
+    <div className="relative min-h-screen overflow-hidden">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 -top-32 h-[44rem] w-[44rem] -translate-x-1/2 rounded-full blur-3xl"
+        style={{ background: 'rgba(52,211,153,0.14)' }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage:
+            'radial-gradient(rgba(255,255,255,0.045) 1px, transparent 1px)',
+          backgroundSize: '32px 32px',
+          maskImage:
+            'radial-gradient(ellipse 80% 50% at 50% 20%, black 50%, transparent 100%)',
+          WebkitMaskImage:
+            'radial-gradient(ellipse 80% 50% at 50% 20%, black 50%, transparent 100%)',
+        }}
+      />
+      <main className="relative mx-auto max-w-2xl space-y-8 px-6 py-20">
+        <header className="space-y-3">
+          <div className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-emerald-400">
+            <span
+              className="h-1.5 w-1.5 rounded-full"
+              style={{
+                background: '#34d399',
+                boxShadow: '0 0 0 3px rgba(52,211,153,0.2)',
+              }}
+            />
+            <span className="font-mono normal-case tracking-normal text-muted-foreground">
+              {user.email}
+            </span>
+          </div>
+          <h1 className="text-4xl font-semibold tracking-[-0.025em]">
+            选择要进入的
+            <span
+              className="italic font-medium"
+              style={{
+                backgroundImage:
+                  'linear-gradient(135deg, #fafafa 0%, #34d399 100%)',
+                WebkitBackgroundClip: 'text',
+                backgroundClip: 'text',
+                color: 'transparent',
+              }}
             >
-              <div>
-                <p className="font-medium">{t.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t.industry} · /{t.slug}
-                </p>
-              </div>
-              <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium">
-                {t.role}
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
+              租户
+            </span>
+          </h1>
+        </header>
 
-      <details className="rounded-md border border-border bg-muted/30 p-4">
-        <summary className="cursor-pointer text-sm font-medium">创建新租户</summary>
-        <div className="mt-4">
-          <CreateTenantForm defaultName="" defaultSlug="" />
-        </div>
-      </details>
+        <ul className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+          {tenants.map((t, i) => (
+            <li
+              key={t.id}
+              className={i > 0 ? 'border-t border-border' : ''}
+            >
+              <Link
+                href={`/t/${t.slug}`}
+                className="lift flex items-center justify-between px-5 py-4"
+              >
+                <div>
+                  <p className="font-medium">{t.name}</p>
+                  <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                    {t.industry} · /{t.slug}
+                  </p>
+                </div>
+                <span
+                  className="rounded-full px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider"
+                  style={{
+                    border: '1px solid rgba(52,211,153,0.30)',
+                    background: 'rgba(52,211,153,0.10)',
+                    color: '#34d399',
+                  }}
+                >
+                  {t.role}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
 
-      <form action="/auth/sign-out" method="post">
-        <button
-          type="submit"
-          className="text-xs text-muted-foreground underline underline-offset-2"
-        >
-          退出登录
-        </button>
-      </form>
-    </main>
+        <details className="rounded-2xl border border-border bg-card/40 p-5">
+          <summary className="cursor-pointer text-sm font-medium hover:text-emerald-400">
+            ＋ 创建新租户
+          </summary>
+          <div className="mt-5">
+            <CreateTenantForm defaultName="" defaultSlug="" />
+          </div>
+        </details>
+
+        <form action="/auth/sign-out" method="post">
+          <button
+            type="submit"
+            className="text-xs text-muted-foreground transition hover:text-foreground underline underline-offset-2"
+          >
+            退出登录
+          </button>
+        </form>
+      </main>
+    </div>
   );
 }
 

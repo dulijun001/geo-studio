@@ -93,7 +93,7 @@ export function AiDraftForm({ tenantSlug }: { tenantSlug: string }) {
             <form onSubmit={onSubmit} className="mt-4 space-y-3">
               <div>
                 <label className="mb-1 block text-xs font-medium" htmlFor="topic">
-                  主题 <span className="text-rose-600">*</span>
+                  主题 <span className="text-rose-400">*</span>
                 </label>
                 <input
                   id="topic"
@@ -149,7 +149,7 @@ export function AiDraftForm({ tenantSlug }: { tenantSlug: string }) {
               </div>
 
               {error ? (
-                <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                <div className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">
                   {error}
                 </div>
               ) : null}

@@ -39,7 +39,7 @@ export function ExportButton({
       >
         {pending ? '导出中…' : '导出 CSV'}
       </button>
-      {err ? <span className="text-[11px] text-rose-700">{err}</span> : null}
+      {err ? <span className="text-[11px] text-rose-300">{err}</span> : null}
     </div>
   );
 }

@@ -73,12 +73,12 @@ export function SidebarNav({
             className={
               'group flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ' +
               (isActive
-                ? 'bg-white text-foreground shadow-sm font-medium'
-                : 'text-muted-foreground hover:bg-white/70 hover:text-foreground')
+                ? 'bg-white/[0.06] text-foreground font-medium ring-1 ring-white/10'
+                : 'text-muted-foreground hover:bg-white/[0.04] hover:text-foreground')
             }
           >
             <IconCmp
-              className={isActive ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-600'}
+              className={isActive ? 'text-emerald-600' : 'text-slate-400 group-hover:text-slate-600'}
             />
             <span className="flex-1">{item.label}</span>
             {item.badge && item.badge > 0 ? (

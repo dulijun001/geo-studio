@@ -238,11 +238,11 @@ export function TaskCard({ task }: { task: TaskProps }) {
     <article
       className={`rounded-md border bg-background p-4 ${
         done
-          ? 'border-emerald-200 bg-emerald-50/40'
+          ? 'border-emerald-500/30 bg-emerald-500/[0.10]/40'
           : skipped
             ? 'border-border/50 opacity-60'
             : overdue
-              ? 'border-rose-300 bg-rose-50/40'
+              ? 'border-rose-500/40 bg-rose-500/[0.10]/40'
               : 'border-border'
       }`}
     >
@@ -253,9 +253,9 @@ export function TaskCard({ task }: { task: TaskProps }) {
         <span
           className={
             overdue
-              ? 'rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-800'
+              ? 'rounded-full bg-rose-500/[0.10] px-2 py-0.5 text-[11px] font-medium text-rose-300'
               : !done && !skipped && remainingMs < 6 * 3600 * 1000
-                ? 'rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800'
+                ? 'rounded-full bg-amber-500/[0.12] px-2 py-0.5 text-[11px] font-medium text-amber-300'
                 : 'text-xs text-muted-foreground'
           }
         >
@@ -277,7 +277,7 @@ export function TaskCard({ task }: { task: TaskProps }) {
       </p>
 
       {task.activity_code ? (
-        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+        <div className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/[0.10] px-3 py-2 text-xs text-amber-200">
           <div className="font-medium">📌 发布时记得带上暗号</div>
           <div className="mt-0.5">
             点「复制文案」会自动在末尾加一句话:
@@ -292,7 +292,7 @@ export function TaskCard({ task }: { task: TaskProps }) {
       ) : null}
 
       {done ? (
-        <div className="space-y-1 rounded-md bg-emerald-100 px-3 py-2 text-xs text-emerald-800">
+        <div className="space-y-1 rounded-md bg-emerald-500/[0.12] px-3 py-2 text-xs text-emerald-300">
           <div className="font-medium">已发布 ✓</div>
           {task.published_url ? (
             <a
@@ -378,7 +378,7 @@ export function TaskCard({ task }: { task: TaskProps }) {
               取消
             </button>
           </div>
-          {err ? <p className="text-xs text-rose-700">{err}</p> : null}
+          {err ? <p className="text-xs text-rose-300">{err}</p> : null}
         </div>
       ) : (
         <div className="space-y-2">
@@ -413,7 +413,7 @@ export function TaskCard({ task }: { task: TaskProps }) {
               取消
             </button>
           </div>
-          {err ? <p className="text-xs text-rose-700">{err}</p> : null}
+          {err ? <p className="text-xs text-rose-300">{err}</p> : null}
         </div>
       )}
     </article>

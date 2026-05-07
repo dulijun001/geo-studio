@@ -32,11 +32,11 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_CLASS: Record<string, string> = {
-  pending: 'bg-slate-100 text-slate-800',
-  dispatched: 'bg-sky-100 text-sky-800',
-  published: 'bg-emerald-100 text-emerald-800',
-  skipped: 'bg-amber-100 text-amber-800',
-  failed: 'bg-rose-100 text-rose-800',
+  pending: 'bg-white/[0.06] text-foreground',
+  dispatched: 'bg-sky-500/[0.10] text-sky-300 border border-sky-500/30',
+  published: 'bg-emerald-500/[0.12] text-emerald-300 border border-emerald-500/30',
+  skipped: 'bg-amber-500/[0.10] text-amber-300 border border-amber-500/30',
+  failed: 'bg-rose-500/[0.10] text-rose-300 border border-rose-500/30',
 };
 
 export default async function PublishPage({ params }: { params: { slug: string } }) {
@@ -158,7 +158,7 @@ export default async function PublishPage({ params }: { params: { slug: string }
                 const s = staffById.get(t.staff_account_id);
                 const overdue = isOverdue(t);
                 return (
-                <tr key={t.id} className={overdue ? 'bg-rose-50/40 hover:bg-rose-50' : 'hover:bg-muted/30'}>
+                <tr key={t.id} className={overdue ? 'bg-rose-500/[0.10]/40 hover:bg-rose-500/[0.10]' : 'hover:bg-muted/30'}>
                   <td className="max-w-[260px] truncate px-4 py-2.5 font-medium">
                     {v?.title ?? '(变体已删除)'}
                   </td>
@@ -178,7 +178,7 @@ export default async function PublishPage({ params }: { params: { slug: string }
                   </td>
                   <td className="px-4 py-2.5">
                     {codeByTask.get(t.id) ? (
-                      <code className="rounded bg-amber-50 px-1.5 py-0.5 font-mono text-xs text-amber-900">
+                      <code className="rounded bg-amber-500/[0.10] px-1.5 py-0.5 font-mono text-xs text-amber-200">
                         {codeByTask.get(t.id)}
                       </code>
                     ) : (
@@ -194,7 +194,7 @@ export default async function PublishPage({ params }: { params: { slug: string }
                     {overdue ? (
                       <span
                         title={`派发于 ${fmtDateTime(t.created_at)},超过 ${OVERDUE_HOURS} 小时未回填发布链接`}
-                        className="ml-1.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-800"
+                        className="ml-1.5 rounded-full bg-rose-500/[0.10] px-1.5 py-0.5 text-[10px] font-medium text-rose-300"
                       >
                         逾期
                       </span>
@@ -245,10 +245,10 @@ function Stat({
 }) {
   const bg: Record<string, string> = {
     default: 'bg-background',
-    slate: 'bg-slate-50',
-    emerald: 'bg-emerald-50',
-    amber: 'bg-amber-50',
-    rose: 'bg-rose-50',
+    slate: 'bg-white/[0.04]',
+    emerald: 'bg-emerald-500/[0.10]',
+    amber: 'bg-amber-500/[0.10]',
+    rose: 'bg-rose-500/[0.10]',
   };
   return (
     <div className={`rounded-md border border-border ${bg[accent]} p-3`}>

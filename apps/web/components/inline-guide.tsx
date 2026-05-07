@@ -43,12 +43,12 @@ export function InlineGuide({
   };
 
   return (
-    <aside className="relative overflow-hidden rounded-lg border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-violet-50 p-5">
+    <aside className="relative overflow-hidden rounded-lg border border-white/10 bg-gradient-to-br from-emerald-500/[0.08] via-transparent to-teal-500/[0.05] p-5">
       <button
         type="button"
         onClick={onClose}
         aria-label="关闭引导"
-        className="absolute right-3 top-3 rounded-md p-1 text-slate-400 hover:bg-white/60 hover:text-slate-600"
+        className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -82,10 +82,10 @@ export function InlineGuide({
           </svg>
         </div>
         <div className="min-w-0 flex-1 space-y-1.5">
-          <p className="font-medium text-slate-900">{title}</p>
-          {body ? <p className="text-sm leading-relaxed text-slate-700">{body}</p> : null}
+          <p className="font-medium text-foreground">{title}</p>
+          {body ? <p className="text-sm leading-relaxed text-muted-foreground">{body}</p> : null}
           {steps && steps.length > 0 ? (
-            <ol className="ml-1 list-decimal space-y-0.5 pl-4 text-sm text-slate-700 marker:text-slate-400">
+            <ol className="ml-1 list-decimal space-y-0.5 pl-4 text-sm text-muted-foreground marker:text-muted-foreground/60">
               {steps.map((s, i) => (
                 <li key={i}>{s}</li>
               ))}
@@ -94,7 +94,7 @@ export function InlineGuide({
           {linkLabel && linkHref ? (
             <Link
               href={linkHref}
-              className="inline-flex items-center gap-1 pt-1 text-sm font-medium text-indigo-700 hover:underline underline-offset-2"
+              className="inline-flex items-center gap-1 pt-1 text-sm font-medium text-emerald-400 hover:underline underline-offset-2"
             >
               {linkLabel} →
             </Link>

@@ -56,7 +56,7 @@ export function RunButton({
       >
         {pending ? '排队中…' : '跑这条'}
       </button>
-      {err ? <span className="text-xs text-rose-600">{err}</span> : null}
+      {err ? <span className="text-xs text-rose-400">{err}</span> : null}
     </span>
   );
 }

@@ -185,8 +185,8 @@ export function BrandForm({
         />
       </Section>
 
-      {err && <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{err}</div>}
-      {done && <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">✓ 保存成功 — artifacts 已自动重建入队</div>}
+      {err && <div className="rounded-md bg-rose-500/[0.10] px-3 py-2 text-sm text-rose-300">{err}</div>}
+      {done && <div className="rounded-md bg-emerald-500/[0.10] px-3 py-2 text-sm text-emerald-400">✓ 保存成功 — artifacts 已自动重建入队</div>}
 
       <div className="flex justify-end">
         <button
@@ -382,7 +382,7 @@ function CredentialsEditor({
           <button
             type="button"
             onClick={() => remove(i)}
-            className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 hover:bg-rose-100"
+            className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] px-2 py-1 text-xs text-rose-300 hover:bg-rose-500/[0.10]"
           >
             移除
           </button>

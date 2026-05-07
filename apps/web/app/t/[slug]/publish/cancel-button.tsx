@@ -37,11 +37,11 @@ export function CancelButton({
         onClick={onClick}
         disabled={pending}
         title={err ?? '只能撤回 2 小时内派出的任务'}
-        className="rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-rose-700 disabled:opacity-50"
+        className="rounded-md border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-rose-300 disabled:opacity-50"
       >
         {pending ? '…' : '撤回'}
       </button>
-      {err ? <span className="text-[10px] text-rose-700">{err}</span> : null}
+      {err ? <span className="text-[10px] text-rose-300">{err}</span> : null}
     </span>
   );
 }

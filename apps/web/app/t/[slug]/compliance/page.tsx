@@ -145,9 +145,9 @@ function ReviewTable({
   showCheckbox: boolean;
 }) {
   return (
-    <div className="overflow-hidden rounded-md border border-border">
+    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
       <table className="w-full text-sm">
-        <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
+        <thead className="bg-white/[0.02] text-left text-[10.5px] font-mono uppercase tracking-[0.12em] text-muted-foreground">
           <tr>
             {showCheckbox ? <th className="w-10 px-4 py-2" /> : null}
             <th className="px-4 py-2 font-medium">变体标题</th>
@@ -159,7 +159,7 @@ function ReviewTable({
         </thead>
         <tbody className="divide-y divide-border">
           {rows.map((r) => (
-            <tr key={r.id} className="hover:bg-muted/30">
+            <tr key={r.id} className="transition hover:bg-white/[0.02]">
               {showCheckbox ? (
                 <td className="px-4 py-2.5">
                   <BulkCheckbox variantId={r.id} />
@@ -168,7 +168,7 @@ function ReviewTable({
               <td className="px-4 py-2.5">
                 <Link
                   href={`/t/${tenantSlug}/compliance/${r.id}`}
-                  className="font-medium hover:underline"
+                  className="font-medium transition hover:text-emerald-400 hover:underline underline-offset-2"
                 >
                   {r.title}
                 </Link>
@@ -224,9 +224,9 @@ function InterceptReasonBadges({ row }: { row: Row }) {
     return <span className="text-[11px] text-muted-foreground">—</span>;
   }
   const toneCls: Record<'rose' | 'amber' | 'sky', string> = {
-    rose: 'bg-rose-100 text-rose-800',
-    amber: 'bg-amber-100 text-amber-800',
-    sky: 'bg-sky-100 text-sky-800',
+    rose: 'border border-rose-500/30 bg-rose-500/[0.10] text-rose-300',
+    amber: 'border border-amber-500/30 bg-amber-500/[0.10] text-amber-300',
+    sky: 'border border-sky-500/30 bg-sky-500/[0.10] text-sky-300',
   };
   return (
     <div className="flex flex-wrap gap-1">
@@ -244,12 +244,12 @@ function InterceptReasonBadges({ row }: { row: Row }) {
 
 function ComplianceBadge({ status }: { status: string }) {
   const config: Record<string, { label: string; className: string }> = {
-    pending: { label: '待人工', className: 'bg-amber-100 text-amber-800' },
-    rejected: { label: '已拒绝', className: 'bg-rose-100 text-rose-800' },
-    auto_approved: { label: '自动通过', className: 'bg-emerald-100 text-emerald-800' },
-    manual_approved: { label: '人工通过', className: 'bg-emerald-100 text-emerald-800' },
+    pending: { label: '待人工', className: 'border border-amber-500/30 bg-amber-500/[0.10] text-amber-300' },
+    rejected: { label: '已拒绝', className: 'border border-rose-500/30 bg-rose-500/[0.10] text-rose-300' },
+    auto_approved: { label: '自动通过', className: 'border border-emerald-500/30 bg-emerald-500/[0.12] text-emerald-300' },
+    manual_approved: { label: '人工通过', className: 'border border-emerald-500/30 bg-emerald-500/[0.12] text-emerald-300' },
   };
-  const c = config[status] ?? { label: status, className: 'bg-muted' };
+  const c = config[status] ?? { label: status, className: 'bg-muted text-muted-foreground' };
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${c.className}`}>
       {c.label}
@@ -264,7 +264,7 @@ function EmptyState({ activeTab }: { activeTab: string }) {
     approved: '还没有已通过的变体。',
   };
   return (
-    <div className="rounded-md border border-dashed border-border bg-muted/20 p-10 text-center text-sm text-muted-foreground">
+    <div className="rounded-2xl border border-dashed border-border bg-card/40 p-10 text-center text-sm text-muted-foreground">
       {messages[activeTab] ?? '暂无数据'}
     </div>
   );

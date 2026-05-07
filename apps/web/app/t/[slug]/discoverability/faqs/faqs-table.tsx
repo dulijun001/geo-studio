@@ -78,7 +78,7 @@ export function FaqsTable({ tenantSlug, rows }: { tenantSlug: string; rows: Row[
                       }
                     }}
                     className={`rounded-full px-2 py-0.5 text-xs ${
-                      r.geo_visible ? 'bg-emerald-100 text-emerald-800' : 'bg-muted text-muted-foreground'
+                      r.geo_visible ? 'bg-emerald-500/[0.12] text-emerald-300 border border-emerald-500/30' : 'bg-muted text-muted-foreground'
                     }`}
                   >
                     {r.geo_visible ? '公开' : '私有'}
@@ -111,7 +111,7 @@ export function FaqsTable({ tenantSlug, rows }: { tenantSlug: string; rows: Row[
                           alert(e instanceof Error ? e.message : '失败');
                         }
                       }}
-                      className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 hover:bg-rose-100"
+                      className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] px-2 py-1 text-xs text-rose-300 hover:bg-rose-500/[0.10]"
                     >
                       删除
                     </button>
@@ -197,7 +197,7 @@ function FaqForm({
         公开(参与 FAQPage schema)
       </label>
 
-      {err && <div className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>}
+      {err && <div className="rounded-md bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">{err}</div>}
 
       <div className="flex justify-end gap-2 pt-1">
         <button

@@ -138,7 +138,7 @@ export function ServiceForm({
         公开 — 创建后立即出现在 schema / llms.txt / feed
       </label>
 
-      {err && <div className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>}
+      {err && <div className="rounded-md bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">{err}</div>}
 
       <div className="flex items-center justify-end gap-2 pt-1">
         <button

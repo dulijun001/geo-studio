@@ -154,7 +154,7 @@ function VisibilityToggle({
       disabled={pending}
       className={`rounded-full px-2 py-0.5 text-xs ${
         visible
-          ? 'bg-emerald-100 text-emerald-800'
+          ? 'bg-emerald-500/[0.12] text-emerald-300 border border-emerald-500/30'
           : 'bg-muted text-muted-foreground'
       }`}
     >
@@ -191,7 +191,7 @@ function DeleteButton({
       type="button"
       onClick={onClick}
       disabled={pending}
-      className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+      className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] px-2 py-1 text-xs text-rose-300 hover:bg-rose-500/[0.10] disabled:opacity-50"
     >
       删除
     </button>

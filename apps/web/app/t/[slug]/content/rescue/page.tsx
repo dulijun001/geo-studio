@@ -111,7 +111,7 @@ export default async function RescuePage({ params }: { params: { slug: string } 
       </section>
 
       {candidates.length === 0 ? (
-        <div className="rounded-md border border-dashed border-emerald-200 bg-emerald-50 p-8 text-center text-sm text-emerald-900">
+        <div className="rounded-md border border-dashed border-emerald-500/30 bg-emerald-500/[0.10] p-8 text-center text-sm text-emerald-200">
           🎉 当前没有需要救援的变体,所有打分 ≥ {RESCUE_SCORE_THRESHOLD} 分。
         </div>
       ) : (
@@ -207,9 +207,9 @@ function BucketStat({
   tone: 'rose' | 'amber' | 'sky';
 }) {
   const cls = {
-    rose: 'border-rose-200 bg-rose-50 text-rose-900',
-    amber: 'border-amber-200 bg-amber-50 text-amber-900',
-    sky: 'border-sky-200 bg-sky-50 text-sky-900',
+    rose: 'border-rose-500/30 bg-rose-500/[0.10] text-rose-200',
+    amber: 'border-amber-500/30 bg-amber-500/[0.10] text-amber-200',
+    sky: 'border-sky-500/30 bg-sky-500/[0.10] text-sky-300',
   }[tone];
   return (
     <div className={`rounded-md border p-3 ${cls}`}>
@@ -220,7 +220,7 @@ function BucketStat({
 }
 
 function ScoreChip({ total }: { total: number }) {
-  const tone = total < 50 ? 'bg-rose-100 text-rose-800' : total < 65 ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800';
+  const tone = total < 50 ? 'bg-rose-500/[0.10] text-rose-300 border border-rose-500/30' : total < 65 ? 'bg-amber-500/[0.10] text-amber-300 border border-amber-500/30' : 'bg-sky-500/[0.10] text-sky-300 border border-sky-500/30';
   return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}>{total}</span>;
 }
 

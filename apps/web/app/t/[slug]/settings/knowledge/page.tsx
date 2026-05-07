@@ -176,7 +176,7 @@ export default async function KnowledgeSettingsPage({
                   <td className="px-4 py-2">
                     <div className="h-2 w-full max-w-xs overflow-hidden rounded-full bg-muted">
                       <div
-                        className="h-full rounded-full bg-indigo-500"
+                        className="h-full rounded-full bg-emerald-500/[0.08]"
                         style={{ width: `${(c.count / Math.max(...categoryStats.map((x) => x.count), 1)) * 100}%` }}
                       />
                     </div>
@@ -250,7 +250,7 @@ function Stat({
       <p className="text-xs uppercase tracking-wider text-muted-foreground">{label}</p>
       <p
         className={`mt-1 text-2xl font-semibold tabular-nums ${
-          tone === 'warn' ? 'text-amber-700' : 'text-foreground'
+          tone === 'warn' ? 'text-amber-300' : 'text-foreground'
         }`}
       >
         {value}

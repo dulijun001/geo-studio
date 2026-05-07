@@ -136,7 +136,7 @@ export function GenerateVariantsForm({
                     'ml-1 inline-block min-w-[1.25rem] rounded-full px-1 text-[10px] ' +
                     (on
                       ? 'bg-background/20 text-background'
-                      : 'bg-amber-100 text-amber-800')
+                      : 'bg-amber-500/[0.10] text-amber-300 border border-amber-500/30')
                   }
                 >
                   {existing}
@@ -146,8 +146,8 @@ export function GenerateVariantsForm({
           );
         })}
       </div>
-      {error && <p className="text-xs text-rose-600">{error}</p>}
-      {message && <p className="text-xs text-emerald-700">{message}</p>}
+      {error && <p className="text-xs text-rose-400">{error}</p>}
+      {message && <p className="text-xs text-emerald-400">{message}</p>}
     </div>
   );
 }

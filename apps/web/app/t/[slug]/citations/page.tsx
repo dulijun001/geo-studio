@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { requireRole } from '@/lib/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { InlineGuide } from '@/components/inline-guide';
@@ -34,6 +35,14 @@ export default async function CitationsPage({
       <PageHeader
         title="引用源白名单"
         subtitle={`${citations.length} 条引用源 · ${claimsFilled} 条已配置 key_claims(C1 数字幻觉裁判依赖)`}
+        actions={
+          <Link
+            href={`/t/${tenant.slug}/citations/discover`}
+            className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition hover:opacity-90"
+          >
+            🔍 自动发现引用源
+          </Link>
+        }
       />
 
       <InlineGuide

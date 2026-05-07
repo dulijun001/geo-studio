@@ -34,6 +34,12 @@ export default async function ContentPage({ params }: { params: { slug: string }
           canEdit ? (
             <div className="flex items-center gap-2">
               <Link
+                href={`/t/${tenant.slug}/content/batch`}
+                className="inline-flex items-center gap-1 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+              >
+                ⚡ 今日批量生成
+              </Link>
+              <Link
                 href={`/t/${tenant.slug}/content/wizard`}
                 className="inline-flex items-center gap-1 rounded-md border border-foreground bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
               >
@@ -120,10 +126,10 @@ function ContentTable({ items, canEdit: _canEdit }: { items: Item[]; canEdit: bo
 
 function StatusBadge({ status }: { status: string }) {
   const config: Record<string, { label: string; className: string }> = {
-    draft: { label: '待解析', className: 'bg-amber-100 text-amber-800' },
+    draft: { label: '待解析', className: 'bg-amber-500/[0.10] text-amber-300 border border-amber-500/30' },
     ai_drafted: { label: 'AI 草稿', className: 'bg-violet-100 text-violet-800' },
-    parsed: { label: '已解析', className: 'bg-emerald-100 text-emerald-800' },
-    variant_generated: { label: '已改写', className: 'bg-blue-100 text-blue-800' },
+    parsed: { label: '已解析', className: 'bg-emerald-500/[0.12] text-emerald-300 border border-emerald-500/30' },
+    variant_generated: { label: '已改写', className: 'bg-sky-500/[0.10] text-sky-300 border border-sky-500/30' },
     archived: { label: '已归档', className: 'bg-muted text-muted-foreground' },
   };
   const c = config[status] ?? { label: status, className: 'bg-muted' };

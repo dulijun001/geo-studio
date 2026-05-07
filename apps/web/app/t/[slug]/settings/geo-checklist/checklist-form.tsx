@@ -148,10 +148,10 @@ export function ChecklistForm({
           {pending ? '保存中…' : '保存'}
         </button>
         {savedAt ? (
-          <span className="text-xs text-emerald-700">已保存 {savedAt}</span>
+          <span className="text-xs text-emerald-400">已保存 {savedAt}</span>
         ) : null}
         {err ? (
-          <span className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-800">
+          <span className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] px-2 py-1 text-xs text-rose-300">
             {err}
           </span>
         ) : null}

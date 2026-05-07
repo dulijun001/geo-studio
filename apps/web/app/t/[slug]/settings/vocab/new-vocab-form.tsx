@@ -102,7 +102,7 @@ export function NewVocabForm({ tenantSlug }: { tenantSlug: string }) {
 
       <label className="block space-y-1.5">
         <span className="text-xs font-medium">
-          主名 <span className="text-rose-500">*</span>
+          主名 <span className="text-rose-400">*</span>
         </span>
         <input
           type="text"
@@ -137,7 +137,7 @@ export function NewVocabForm({ tenantSlug }: { tenantSlug: string }) {
       </label>
 
       <div className="flex items-center justify-end gap-2">
-        {err ? <p className="mr-auto text-xs text-rose-700">{err}</p> : null}
+        {err ? <p className="mr-auto text-xs text-rose-300">{err}</p> : null}
         <button type="submit" disabled={pending} className="btn-primary disabled:opacity-60">
           {pending ? '提交中…' : '保存'}
         </button>

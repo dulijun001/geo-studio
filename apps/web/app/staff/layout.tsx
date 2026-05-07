@@ -8,7 +8,7 @@ import { PwaRegister } from './pwa-register';
 export const metadata = {
   title: 'GEO Studio · 员工端',
   manifest: '/manifest.webmanifest',
-  themeColor: '#6366f1',
+  themeColor: '#08090a',
   appleWebApp: { capable: true, statusBarStyle: 'default', title: 'GEO 员工' },
   icons: { icon: '/icon-192.svg', apple: '/icon-512.svg' },
 };
@@ -26,12 +26,19 @@ export default async function StaffLayout({ children }: { children: ReactNode })
   const ctx = session ? await getStaffContext() : null;
 
   return (
-    <div className="min-h-screen bg-muted/20">
+    <div className="min-h-screen bg-background">
       <PwaRegister />
-      <header className="border-b border-border bg-background px-4 py-3">
-        <div className="mx-auto flex max-w-md items-center justify-between">
-          <Link href="/staff" className="text-sm font-semibold">
-            GEO Studio · 员工端
+      <header
+        className="sticky top-0 z-40 border-b backdrop-blur-md"
+        style={{ background: 'rgba(8,9,10,0.78)', borderColor: 'rgba(255,255,255,0.06)' }}
+      >
+        <div className="mx-auto flex max-w-md items-center justify-between px-4 py-3">
+          <Link href="/staff" className="flex items-center gap-2 text-sm font-semibold">
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ background: '#34d399', boxShadow: '0 0 0 3px rgba(52,211,153,0.2)' }}
+            />
+            员工端
           </Link>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <Link href="/staff/help" className="hover:text-foreground">

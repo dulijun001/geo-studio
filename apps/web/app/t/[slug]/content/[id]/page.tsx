@@ -98,7 +98,7 @@ export default async function ContentDetailPage({
       </header>
 
       {item.status === 'draft' && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.10] p-4 text-sm text-amber-200">
           <p className="font-medium">正在解析中</p>
           <p className="mt-1 text-xs">Worker 正在处理这个文件。30 秒内刷新应该能看到内容。</p>
         </div>
@@ -182,7 +182,7 @@ function VariantsTable({ variants, tenantSlug }: { variants: VariantRow[]; tenan
               <td className="px-4 py-2.5 text-xs uppercase tracking-wider text-muted-foreground">
                 {v.platform.replace(/_/g, ' ')}
                 {v.extra_assets?.llm_provider === 'stub' && (
-                  <span className="ml-1.5 rounded-sm bg-amber-100 px-1 text-[10px] text-amber-800">
+                  <span className="ml-1.5 rounded-sm bg-amber-500/[0.12] px-1 text-[10px] text-amber-300">
                     STUB
                   </span>
                 )}
@@ -227,10 +227,10 @@ function VariantsTable({ variants, tenantSlug }: { variants: VariantRow[]; tenan
 
 function ComplianceBadge({ status }: { status: string }) {
   const config: Record<string, { label: string; className: string }> = {
-    pending: { label: '审查中', className: 'bg-amber-100 text-amber-800' },
-    rejected: { label: '已拒绝', className: 'bg-rose-100 text-rose-800' },
-    auto_approved: { label: '自动通过', className: 'bg-emerald-100 text-emerald-800' },
-    manual_approved: { label: '人工通过', className: 'bg-emerald-100 text-emerald-800' },
+    pending: { label: '审查中', className: 'bg-amber-500/[0.10] text-amber-300 border border-amber-500/30' },
+    rejected: { label: '已拒绝', className: 'bg-rose-500/[0.10] text-rose-300 border border-rose-500/30' },
+    auto_approved: { label: '自动通过', className: 'bg-emerald-500/[0.12] text-emerald-300 border border-emerald-500/30' },
+    manual_approved: { label: '人工通过', className: 'bg-emerald-500/[0.12] text-emerald-300 border border-emerald-500/30' },
   };
   const c = config[status] ?? { label: status, className: 'bg-muted' };
   return (

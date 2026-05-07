@@ -219,11 +219,11 @@ function Card({
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium">{row.name}</span>
             {row.is_system ? (
-              <span className="rounded-full border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">
+              <span className="rounded-full border border-sky-500/30 bg-sky-500/[0.10] px-1.5 py-0.5 text-[10px] text-emerald-400">
                 系统预设
               </span>
             ) : (
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700">
+              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/[0.10] px-1.5 py-0.5 text-[10px] text-emerald-400">
                 自定义
               </span>
             )}
@@ -234,7 +234,7 @@ function Card({
             )}
             {usage > 0 && (
               <span
-                className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700"
+                className="rounded-full border border-amber-500/30 bg-amber-500/[0.10] px-1.5 py-0.5 text-[10px] text-amber-300"
                 title="此模板已被多少篇 content_items 选用"
               >
                 用过 {usage}
@@ -336,7 +336,7 @@ function Card({
                     alert(e instanceof Error ? e.message : '失败');
                   }
                 }}
-                className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 hover:bg-rose-100"
+                className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] px-2 py-1 text-xs text-rose-300 hover:bg-rose-500/[0.10]"
               >
                 删除
               </button>
@@ -451,7 +451,7 @@ function TemplateForm({
         </label>
       </div>
 
-      {err && <div className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>}
+      {err && <div className="rounded-md bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">{err}</div>}
 
       <div className="flex justify-end gap-2 pt-1">
         <button
@@ -551,14 +551,14 @@ function PreviewModal({
         </header>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.10] px-3 py-2 text-[11px] text-amber-200">
             预览用示例参数:平台 = {data.platform}、关键词 = 种植牙 / 主题示例。实际起草时
             源素材会被 RAG 召回的真实知识库 markdown 替换,prompt 结构不变。
           </div>
 
           <section>
             <div className="mb-2 flex items-center gap-2">
-              <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+              <span className="rounded-full border border-sky-500/30 bg-sky-500/[0.10] px-2 py-0.5 text-[11px] text-emerald-400">
                 system
               </span>
               <span className="text-xs text-muted-foreground">
@@ -575,7 +575,7 @@ function PreviewModal({
 
           <section>
             <div className="mb-2 flex items-center gap-2">
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
+              <span className="rounded-full border border-emerald-500/30 bg-emerald-500/[0.10] px-2 py-0.5 text-[11px] text-emerald-400">
                 user
               </span>
               <span className="text-xs text-muted-foreground">

@@ -32,7 +32,7 @@ export function RescueButton({
 
   if (done) {
     return (
-      <span className="text-xs text-emerald-700">
+      <span className="text-xs text-emerald-400">
         ✓ 新版 {done.newScore} 分,已进合规队列
       </span>
     );
@@ -48,7 +48,7 @@ export function RescueButton({
       >
         {pending ? 'AI 改写中…' : 'AI 救援'}
       </button>
-      {err && <span className="text-xs text-rose-600">{err}</span>}
+      {err && <span className="text-xs text-rose-400">{err}</span>}
     </span>
   );
 }

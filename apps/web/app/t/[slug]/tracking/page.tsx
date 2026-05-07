@@ -32,11 +32,11 @@ type LatestSnapshot = {
 };
 
 const STATUS_BADGE: Record<string, string> = {
-  pending: 'bg-slate-100 text-slate-800',
-  running: 'bg-sky-100 text-sky-800',
-  done: 'bg-emerald-100 text-emerald-800',
-  failed: 'bg-rose-100 text-rose-800',
-  rate_limited: 'bg-amber-100 text-amber-800',
+  pending: 'bg-white/[0.06] text-foreground',
+  running: 'bg-sky-500/[0.10] text-sky-300 border border-sky-500/30',
+  done: 'bg-emerald-500/[0.12] text-emerald-300 border border-emerald-500/30',
+  failed: 'bg-rose-500/[0.10] text-rose-300 border border-rose-500/30',
+  rate_limited: 'bg-amber-500/[0.10] text-amber-300 border border-amber-500/30',
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -233,9 +233,9 @@ export default async function TrackingPage({ params }: { params: { slug: string 
                     <td className="px-4 py-2.5 text-xs">
                       {latest && latest.status === 'done' ? (
                         <span>
-                          <span className="font-medium text-emerald-700">{latest.own_count}</span>
+                          <span className="font-medium text-emerald-400">{latest.own_count}</span>
                           <span className="text-muted-foreground"> / </span>
-                          <span className="font-medium text-rose-700">{latest.comp_count}</span>
+                          <span className="font-medium text-rose-300">{latest.comp_count}</span>
                         </span>
                       ) : (
                         <span className="text-muted-foreground">—</span>
@@ -312,10 +312,10 @@ function TrackerHealthBanner({ health }: { health: TrackerHealth }) {
   if (health.level === 'no_data') return null;
   if (health.level === 'healthy') {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900">
+      <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/[0.10] px-4 py-2 text-sm text-emerald-200">
         <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
         <span className="font-medium">豆包追踪健康</span>
-        <span className="text-xs text-emerald-800/70">
+        <span className="text-xs text-emerald-300/70">
           最近 {health.total} 次成功率 {health.successRate}%
           {health.lastSuccessAt && ` · 最后成功 ${fmtDateShort(health.lastSuccessAt)}`}
         </span>
@@ -324,16 +324,16 @@ function TrackerHealthBanner({ health }: { health: TrackerHealth }) {
   }
   if (health.level === 'login_required') {
     return (
-      <div className="space-y-2 rounded-md border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+      <div className="space-y-2 rounded-md border border-rose-500/30 bg-rose-500/[0.10] p-4 text-sm text-rose-200">
         <div className="flex items-center gap-2 font-medium">
           <span className="inline-block h-2 w-2 rounded-full bg-rose-500" />
           豆包登录态过期,追踪已全部失败
         </div>
-        <p className="text-xs text-rose-900/80">
+        <p className="text-xs text-rose-200/80">
           最近 5 次 snapshot 都失败在「login required」。豆包要求登录用户才能提问,
           cookie 失效需重新登录(通常 30-90 天一次)。
         </p>
-        <div className="rounded-sm bg-rose-100 px-3 py-2 font-mono text-[11px] text-rose-900">
+        <div className="rounded-sm bg-rose-500/[0.10] px-3 py-2 font-mono text-[11px] text-rose-200">
           # 在你 Mac 终端跑这个命令(打开 Chrome 让你扫码登录){'\n'}
           cd apps/worker && pnpm doubao:login
         </div>
@@ -342,11 +342,11 @@ function TrackerHealthBanner({ health }: { health: TrackerHealth }) {
   }
   // degraded
   return (
-    <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+    <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/[0.10] px-4 py-2 text-sm text-amber-200">
       <span className="mt-1 inline-block h-2 w-2 rounded-full bg-amber-500" />
       <div className="space-y-0.5">
         <div className="font-medium">追踪部分失败</div>
-        <div className="text-xs text-amber-900/80">
+        <div className="text-xs text-amber-200/80">
           最近 {health.total} 次成功率 {health.successRate}%(健康阈值 80%)。
           {health.loginFailures > 0 && ` 其中 ${health.loginFailures} 次因登录态过期失败,可能要重新跑 pnpm doubao:login。`}
         </div>

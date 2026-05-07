@@ -236,7 +236,7 @@ export default async function JourneyDetailPage({
           <ul className="space-y-1.5 text-xs">
             {conversions.map((c) => (
               <li key={c.id} className="flex items-center gap-3">
-                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
+                <span className="rounded-full bg-emerald-500/[0.12] px-2 py-0.5 text-[10px] font-medium text-emerald-300">
                   {STAGE_LABEL[c.stage] ?? c.stage}
                 </span>
                 <span className="text-muted-foreground">{fmtDateTime(c.stage_at)}</span>

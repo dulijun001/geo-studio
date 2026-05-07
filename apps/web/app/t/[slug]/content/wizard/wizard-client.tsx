@@ -293,7 +293,7 @@ export function WizardClient({
                     <div className="flex items-center gap-1.5">
                       <span className="font-medium">{t.name}</span>
                       {t.is_system && (
-                        <span className="rounded-full border border-blue-200 bg-blue-50 px-1.5 text-[10px] text-blue-700">
+                        <span className="rounded-full border border-sky-500/30 bg-sky-500/[0.10] px-1.5 text-[10px] text-emerald-400">
                           系统
                         </span>
                       )}
@@ -343,7 +343,7 @@ export function WizardClient({
             docCount={pickedDocs.size}
           />
 
-          {err && <div className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{err}</div>}
+          {err && <div className="rounded-md bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">{err}</div>}
 
           <div className="flex justify-between pt-2">
             <button
@@ -402,7 +402,7 @@ function Stepper({
               className={
                 'inline-flex h-6 w-6 items-center justify-center rounded-full ' +
                 (done
-                  ? 'bg-emerald-500 text-white hover:bg-emerald-600'
+                  ? 'bg-emerald-500 text-white hover:bg-emerald-500'
                   : active
                     ? 'bg-foreground text-background'
                     : 'bg-muted text-muted-foreground') +
@@ -525,7 +525,7 @@ function KeywordGroupedPicker({
                 {bucket.name}{' '}
                 <span className="text-muted-foreground">({bucket.items.length})</span>
                 {pickedInGroup > 0 && (
-                  <span className="ml-1 text-emerald-700">· 已选 {pickedInGroup}</span>
+                  <span className="ml-1 text-emerald-400">· 已选 {pickedInGroup}</span>
                 )}
               </span>
               <span className="flex gap-2">
