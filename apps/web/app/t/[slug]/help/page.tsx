@@ -429,7 +429,7 @@ function Section({
 
 function Where({ children }: { children: React.ReactNode }) {
   return (
-    <p className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900">
+    <p className="rounded-md border border-emerald-500/30 bg-emerald-500/[0.10] px-3 py-2 text-xs text-emerald-200">
       <span className="font-medium">在 GEO Studio 哪里看 · </span>
       {children}
     </p>

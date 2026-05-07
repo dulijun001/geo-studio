@@ -105,7 +105,7 @@ export function InlineAiRewriteCta({
               <button
                 type="button"
                 onClick={onConfirm}
-                className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
+                className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
               >
                 开始改写
               </button>
@@ -153,7 +153,7 @@ export function AiRewriteButton({
         type="button"
         onClick={() => setConfirmOpen(true)}
         disabled={pending}
-        className="w-full rounded-md bg-violet-600 px-3 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
+        className="w-full rounded-md bg-emerald-500 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
       >
         {pending ? 'AI 正在改写,通常 60-120s…' : '让 AI 改写一版(自动重交合规)'}
       </button>
@@ -191,7 +191,7 @@ export function AiRewriteButton({
               <button
                 type="button"
                 onClick={onConfirm}
-                className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
+                className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
               >
                 开始改写
               </button>

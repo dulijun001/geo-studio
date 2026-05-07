@@ -67,7 +67,7 @@ export function DeriveForm({
   };
 
   return (
-    <div className="rounded-md border border-violet-200 bg-violet-50/50 p-4">
+    <div className="rounded-md border border-emerald-500/30 bg-emerald-500/[0.06] p-4">
       <header className="mb-3">
         <h3 className="text-sm font-semibold">📤 一键派生其他平台</h3>
         <p className="mt-0.5 text-xs text-muted-foreground">
@@ -88,7 +88,7 @@ export function DeriveForm({
                   isSelf
                     ? 'border-border bg-muted/40 opacity-50 cursor-not-allowed'
                     : checked
-                    ? 'border-violet-400 bg-card'
+                    ? 'border-emerald-500/40 bg-card'
                     : 'border-border bg-card hover:bg-muted/30'
                 }`}
               >
@@ -116,7 +116,7 @@ export function DeriveForm({
         ) : null}
 
         {pending ? (
-          <p className="rounded-md border border-violet-200 bg-violet-100 px-3 py-2 text-xs text-violet-800">
+          <p className="rounded-md border border-emerald-500/30 bg-emerald-500/[0.12] px-3 py-2 text-xs text-emerald-300">
             AI 在并行改写 {selected.size} 个平台,通常 30-90s。请勿关闭页面。
           </p>
         ) : null}
@@ -150,7 +150,7 @@ export function DeriveForm({
           <button
             type="submit"
             disabled={pending || selected.size === 0}
-            className="rounded-md bg-violet-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-60"
+            className="rounded-md bg-emerald-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
           >
             {pending
               ? '改写中…'

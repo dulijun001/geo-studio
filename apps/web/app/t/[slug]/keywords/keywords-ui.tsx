@@ -383,7 +383,7 @@ function SourceTag({ source }: { source: KeywordRow['source'] }) {
   const map = {
     manual: { label: '手动', cls: 'bg-muted text-muted-foreground' },
     combine: { label: '组合', cls: 'bg-sky-500/[0.10] text-emerald-400' },
-    ai_dig: { label: 'AI', cls: 'bg-purple-50 text-purple-700' },
+    ai_dig: { label: 'AI', cls: 'bg-emerald-500/[0.10] text-emerald-300 border border-emerald-500/30' },
   } as const;
   const m = map[source];
   return <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${m.cls}`}>{m.label}</span>;

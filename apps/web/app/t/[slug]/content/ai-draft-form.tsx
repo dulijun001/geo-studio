@@ -74,7 +74,7 @@ export function AiDraftForm({ tenantSlug }: { tenantSlug: string }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-md bg-violet-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-700"
+        className="rounded-md bg-emerald-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500"
       >
         AI 草稿
       </button>
@@ -100,7 +100,7 @@ export function AiDraftForm({ tenantSlug }: { tenantSlug: string }) {
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                   placeholder="例:糖尿病人能种植牙吗"
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   required
                   minLength={2}
                   disabled={busy}
@@ -116,7 +116,7 @@ export function AiDraftForm({ tenantSlug }: { tenantSlug: string }) {
                   value={audience}
                   onChange={(e) => setAudience(e.target.value)}
                   disabled={busy}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 >
                   {AUDIENCE_OPTIONS.map((a) => (
                     <option key={a} value={a}>
@@ -135,7 +135,7 @@ export function AiDraftForm({ tenantSlug }: { tenantSlug: string }) {
                   value={platform}
                   onChange={(e) => setPlatform(e.target.value as CreateAiDraftInput['platform'])}
                   disabled={busy}
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 >
                   {PLATFORM_OPTIONS.map((p) => (
                     <option key={p.value} value={p.value} title={p.reason}>
@@ -155,7 +155,7 @@ export function AiDraftForm({ tenantSlug }: { tenantSlug: string }) {
               ) : null}
 
               {busy ? (
-                <div className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-800">
+                <div className="rounded-md border border-emerald-500/30 bg-emerald-500/[0.10] px-3 py-2 text-xs text-emerald-300">
                   正在生成,通常 60-120 秒(平台调性 + GEO 9 法 prompt 较长)。AI 在阅读知识库 + 撰写,请稍候…
                 </div>
               ) : null}
@@ -175,7 +175,7 @@ export function AiDraftForm({ tenantSlug }: { tenantSlug: string }) {
                 <button
                   type="submit"
                   disabled={busy || topic.trim().length < 2}
-                  className="rounded-md bg-violet-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
+                  className="rounded-md bg-emerald-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
                 >
                   {busy ? '生成中…' : '生成草稿'}
                 </button>

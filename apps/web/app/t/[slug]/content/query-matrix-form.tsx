@@ -242,7 +242,7 @@ export function QueryMatrixForm({ tenantSlug }: { tenantSlug: string }) {
                             type="button"
                             disabled={status.state === 'pending' || status.state === 'done'}
                             onClick={() => onCreateDraft(i, idea)}
-                            className="rounded-md bg-violet-600 px-2 py-1 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-60"
+                            className="rounded-md bg-emerald-500 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
                           >
                             {status.state === 'pending'
                               ? '生成中… 60-90s'
