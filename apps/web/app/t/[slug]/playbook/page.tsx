@@ -269,10 +269,10 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
                 <span
                   className={`mt-0.5 inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
                     a.tone === 'critical'
-                      ? 'bg-rose-600 text-white'
+                      ? 'bg-rose-500/[0.15] text-rose-300 border border-rose-500/40'
                       : a.tone === 'warning'
-                      ? 'bg-amber-500 text-white'
-                      : 'bg-indigo-600 text-white'
+                      ? 'bg-amber-500/[0.12] text-amber-300 border border-amber-500/40'
+                      : 'bg-foreground text-background'
                   }`}
                 >
                   {i + 1}
@@ -332,7 +332,7 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
 function PhaseDot({ label, state }: { label: string; state: 'done' | 'current' | 'locked' }) {
   const cls = {
     done: 'bg-emerald-500/[0.12] text-emerald-300 border-emerald-500/40',
-    current: 'bg-indigo-600 text-white border-indigo-700',
+    current: 'bg-foreground text-background border-foreground',
     locked: 'bg-muted text-muted-foreground border-border',
   }[state];
   return (
@@ -515,7 +515,7 @@ function PhaseSection({
                   </span>
                   <Link
                     href={`/t/${tenantSlug}/content?prefill_query=${encodeURIComponent(q)}`}
-                    className="rounded-md bg-indigo-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-indigo-700"
+                    className="rounded-md bg-foreground px-2 py-1 text-[10px] font-medium text-background hover:opacity-90"
                   >
                     去生成 →
                   </Link>

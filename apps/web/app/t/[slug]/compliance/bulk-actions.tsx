@@ -106,8 +106,8 @@ export function BulkActions({ tenantSlug }: { tenantSlug: string }) {
     mode === 'approve' && hallucinationCount > 0 && !acknowledgeHallucinations;
 
   return (
-    <div className="sticky top-2 z-10 flex flex-wrap items-center gap-3 rounded-lg border border-indigo-200 bg-indigo-50/80 px-4 py-2.5 shadow-md backdrop-blur">
-      <span className="text-sm font-medium text-indigo-900">已选 {count} 条</span>
+    <div className="sticky top-2 z-10 flex flex-wrap items-center gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.08] px-4 py-2.5 shadow-md backdrop-blur">
+      <span className="text-sm font-medium text-emerald-300">已选 {count} 条</span>
       {mode === 'idle' ? (
         <>
           <button
@@ -198,7 +198,7 @@ export function BulkCheckbox({ variantId }: { variantId: string }) {
       data-bulk-variant={variantId}
       onChange={() => window.__geoBulkRefresh?.()}
       onClick={(e) => e.stopPropagation()}
-      className="h-4 w-4 cursor-pointer rounded border-border accent-indigo-600"
+      className="h-4 w-4 cursor-pointer rounded border-border accent-emerald-500"
       aria-label="选择此变体进行批量操作"
     />
   );

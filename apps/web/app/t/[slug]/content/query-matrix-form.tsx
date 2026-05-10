@@ -142,7 +142,7 @@ export function QueryMatrixForm({ tenantSlug }: { tenantSlug: string }) {
                     minLength={4}
                     placeholder="例:昆明种植牙哪家好"
                     disabled={proposing}
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   />
                 </label>
                 <label className="block space-y-1.5">
@@ -151,7 +151,7 @@ export function QueryMatrixForm({ tenantSlug }: { tenantSlug: string }) {
                     value={audience}
                     onChange={(e) => setAudience(e.target.value)}
                     disabled={proposing}
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
                     {AUDIENCE_OPTIONS.map((a) => (
                       <option key={a} value={a}>
@@ -166,7 +166,7 @@ export function QueryMatrixForm({ tenantSlug }: { tenantSlug: string }) {
                   </p>
                 ) : null}
                 {proposing ? (
-                  <p className="rounded-md border border-emerald-500/30 bg-emerald-500/[0.08] px-3 py-2 text-xs text-indigo-800">
+                  <p className="rounded-md border border-emerald-500/30 bg-emerald-500/[0.08] px-3 py-2 text-xs text-emerald-300">
                     AI 在思考矩阵布局…通常 30-60 秒。
                   </p>
                 ) : null}

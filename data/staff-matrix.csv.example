@@ -1,0 +1,7 @@
+# Drop your real data into data/staff-matrix.csv (this .example is the template).
+# Run: pnpm --filter @geo/db tsx src/_dev/seed-staff-matrix.ts demo-dental
+# Empty handle = skip that platform for that person.
+real_name,phone,role,toutiao_handle,wechat_mp_handle,zhihu_handle
+张医生,13800000001,doctor,zhang_yi_zhongzhi,gh_zhang_yi,zhihu_zhangyi
+李护士长,13800000002,other,li_huzhang,gh_li_huzhang,zhihu_lihuzhang
+王医生,13800000003,doctor,wang_yi_eya,,zhihu_wangyi
