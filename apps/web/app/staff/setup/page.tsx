@@ -48,10 +48,13 @@ export default async function StaffSetupPage({
           </h1>
           <p className="text-sm text-muted-foreground">
             你好,{inspection.staff_name}。
-            {isReset ? '为账号 ' : '欢迎加入。请为账号 '}
-            <code className="font-mono">{inspection.phone}</code> 设置一个密码,
-            之后用手机号 + 密码登录。
+            {isReset ? '请填写你的注册手机号 + 设置新密码。' : '欢迎加入。请填写你的注册手机号 + 设置一个密码,之后用手机号 + 密码登录。'}
           </p>
+          {inspection.phone_tail ? (
+            <p className="text-xs text-muted-foreground">
+              提示:管理员档案里你的手机号尾号是 <code className="font-mono">****{inspection.phone_tail}</code>(完整 11 位由你填写,系统会校验)。
+            </p>
+          ) : null}
         </header>
 
         <SetupForm token={token} isReset={isReset} />
@@ -67,7 +70,7 @@ export default async function StaffSetupPage({
 function reasonLabel(reason: 'invalid' | 'expired' | 'consumed'): string {
   return {
     invalid: '链接不正确或已被替换。',
-    expired: '链接已过期(超过 24 小时未使用)。',
+    expired: '链接已过期(超过 7 天未使用)。',
     consumed: '链接已经使用过,不能重复设置密码。',
   }[reason];
 }

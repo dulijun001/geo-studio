@@ -13,7 +13,12 @@ import {
 } from '@/lib/staff-passcode';
 
 const INVITE_TTL_MINUTES = 15;
-const SETUP_LINK_TTL_HOURS = 24;
+// 7 days — long enough that admins can re-send via WeChat without rushing,
+// short enough that a leaked link doesn't stay valid for a month.
+// Phone-binding check (apps/web/app/staff/setup/actions.ts) is the second
+// line of defense: even if the link leaks, the receiver must enter the
+// pre-registered phone or the setup is rejected.
+const SETUP_LINK_TTL_HOURS = 24 * 7;
 
 const STAFF_ROLES = ['doctor', 'consultant', 'receptionist', 'marketing', 'nurse', 'other'] as const;
 type StaffRole = (typeof STAFF_ROLES)[number];

@@ -15,7 +15,7 @@ import { getSupabaseServiceClient } from '@/lib/supabase/service';
  * the form vs an "expired/invalid" message.
  */
 export async function inspectSetupToken(token: string): Promise<
-  | { ok: true; staff_name: string; phone: string; kind: 'setup' | 'reset' }
+  | { ok: true; staff_name: string; phone_tail: string; kind: 'setup' | 'reset' }
   | { ok: false; reason: 'invalid' | 'expired' | 'consumed' }
 > {
   if (!token || token.length < 16) return { ok: false, reason: 'invalid' };
@@ -44,10 +44,17 @@ export async function inspectSetupToken(token: string): Promise<
     .single();
   if (!staff) return { ok: false, reason: 'invalid' };
 
+  // Don't return full phone — leaking it defeats the binding check (anyone
+  // with the link could just read the phone and type it back). Return last
+  // 4 digits only as a hint so the right person knows they're at the right
+  // page, but anyone forwarding the link can't bypass the check.
+  const phone = (staff.phone as string) ?? '';
+  const phone_tail = phone.length >= 4 ? phone.slice(-4) : '';
+
   return {
     ok: true,
     staff_name: staff.real_name as string,
-    phone: (staff.phone as string) ?? '',
+    phone_tail,
     kind: match.kind as 'setup' | 'reset',
   };
 }
@@ -62,12 +69,16 @@ export type SetupResult = { ok: true } | { ok: false; error: string };
  */
 export async function setupStaffPassword(input: {
   token: string;
+  phone: string;
   password: string;
   confirm: string;
 }): Promise<SetupResult> {
-  const { token, password, confirm } = input;
+  const { token, phone, password, confirm } = input;
 
   if (!token) return { ok: false, error: '链接缺失,请重新打开邀请链接' };
+  if (!phone || !/^\d{11}$/.test(phone.trim())) {
+    return { ok: false, error: '请填写 11 位手机号' };
+  }
   if (password !== confirm) return { ok: false, error: '两次输入的密码不一致' };
 
   const strength = validatePasswordStrength(password);
@@ -93,7 +104,35 @@ export async function setupStaffPassword(input: {
   if (!match) return { ok: false, error: '邀请链接不正确或已被替换' };
   if (match.consumed_at) return { ok: false, error: '邀请链接已使用过' };
   if (new Date(match.expires_at).getTime() <= Date.now()) {
-    return { ok: false, error: '邀请链接已过期(超过 24 小时)' };
+    return { ok: false, error: '邀请链接已过期(超过 7 天)' };
+  }
+
+  // Phone binding check — defends against link forwarding/leak.
+  // Looks up the pre-registered phone on staff_accounts and rejects setup
+  // if the entered phone doesn't match. Mismatches go into audit log so we
+  // can spot phishing attempts.
+  const { data: staff } = await service
+    .from('staff_accounts')
+    .select('phone')
+    .eq('id', match.staff_account_id)
+    .single();
+  const expectedPhone = (staff?.phone as string | null) ?? '';
+  const enteredPhone = phone.trim();
+  if (!expectedPhone) {
+    return { ok: false, error: '该员工档案未绑定手机号,请联系管理员' };
+  }
+  if (expectedPhone !== enteredPhone) {
+    await service.from('audit_logs').insert({
+      tenant_id: match.tenant_id,
+      action: 'staff.setup_phone_mismatch',
+      target_type: 'staff_account',
+      target_id: match.staff_account_id,
+      payload: { entered_tail: enteredPhone.slice(-4) },
+    });
+    return {
+      ok: false,
+      error: '手机号不匹配。请填写你向管理员注册时提供的那个手机号(注:链接里只显示尾号 4 位)',
+    };
   }
 
   console.log(`[staff-setup] step 1: consuming token ${match.id}`);

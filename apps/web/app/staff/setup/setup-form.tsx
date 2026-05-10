@@ -9,22 +9,19 @@ export function SetupForm({ token, isReset }: { token: string; isReset: boolean 
 
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // Read directly from FormData so autofill / paste / IME edge cases all
-    // hand us the current input value — no React state lag.
     const fd = new FormData(e.currentTarget);
+    const phone = ((fd.get('phone') as string | null) ?? '').trim();
     const password = (fd.get('password') as string | null) ?? '';
     const confirm = (fd.get('confirm') as string | null) ?? '';
 
     setErr(null);
     start(async () => {
       try {
-        const result = await setupStaffPassword({ token, password, confirm });
+        const result = await setupStaffPassword({ token, phone, password, confirm });
         if (!result.ok) {
           setErr(result.error);
           return;
         }
-        // Full page navigation — the server has already set the session
-        // cookie, so the next GET /staff sees a logged-in user.
         window.location.href = '/staff';
       } catch (e) {
         setErr(e instanceof Error ? e.message : '保存失败,请重试');
@@ -34,6 +31,22 @@ export function SetupForm({ token, isReset }: { token: string; isReset: boolean 
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
+      <label className="block space-y-1.5">
+        <span className="text-sm font-medium">手机号(注册时填给管理员的那个)</span>
+        <input
+          name="phone"
+          type="tel"
+          inputMode="numeric"
+          pattern="\d{11}"
+          required
+          maxLength={11}
+          autoComplete="tel"
+          placeholder="11 位手机号"
+          disabled={pending}
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-foreground/10 disabled:opacity-60"
+        />
+      </label>
+
       <label className="block space-y-1.5">
         <span className="text-sm font-medium">新密码</span>
         <input
