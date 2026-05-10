@@ -5,10 +5,12 @@ import { getSupabaseServiceClient } from '@/lib/supabase/service';
 import { requireRole } from '@/lib/tenant';
 import { fmtDateTime } from '@/lib/format';
 import { EeatCard } from '@/components/eeat-card';
+import { lookupNeedlesInKb, type NeedleVerdict } from '@/lib/kb-needle-lookup';
 import { ReviewActions } from './review-actions';
 import { HighlightedBody } from './highlighted-body';
 import { EditForm } from './edit-form';
 import { AiRewriteButton, InlineAiRewriteCta } from './ai-rewrite-button';
+import { CitationRewriteButton } from './citation-rewrite-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,6 +85,19 @@ export default async function ComplianceDetailPage({
   const canAct = !isTerminal;
   const editLocked = ['dispatched', 'published'].includes(variant.status);
 
+  // Resolve "is this needle in KB or true hallucination" for the
+  // suspected_hallucination panel.
+  const cc = variant.citation_check as
+    | { verdict?: string; unmatched?: Array<{ needle: string }> }
+    | null;
+  const unmatchedNeedles =
+    cc?.verdict === 'suspected_hallucination' && Array.isArray(cc.unmatched)
+      ? cc.unmatched.map((u) => u.needle).filter(Boolean)
+      : [];
+  const needleVerdicts = unmatchedNeedles.length
+    ? await lookupNeedlesInKb(unmatchedNeedles)
+    : [];
+
   return (
     <div className="space-y-6">
       <div>
@@ -128,7 +143,13 @@ export default async function ComplianceDetailPage({
           {variant.geo_score && typeof variant.geo_score.total === 'number' ? (
             <EeatCard score={variant.geo_score as unknown as import('@geo/geo-core').GeoScore} compact />
           ) : null}
-          <CitationCheckPanel check={variant.citation_check} />
+          <CitationCheckPanel
+            check={variant.citation_check}
+            kbVerdicts={needleVerdicts}
+            tenantSlug={tenant.slug}
+            variantId={variant.id}
+            canRewrite={!editLocked}
+          />
           <NumericCheckPanel check={variant.numeric_check} />
           <DiffLabelPanel extraAssets={variant.extra_assets} />
           <ReviewTimeline reviews={reviewRows} reviewerEmails={reviewerEmails} />
@@ -479,7 +500,20 @@ function CaseMatchPanel({ match }: { match: CaseMatch | null | undefined }) {
   );
 }
 
-function CitationCheckPanel({ check }: { check: CitationCheck | null | undefined }) {
+function CitationCheckPanel({
+  check,
+  kbVerdicts,
+  tenantSlug,
+  variantId,
+  canRewrite,
+}: {
+  check: CitationCheck | null | undefined;
+  kbVerdicts: NeedleVerdict[];
+  tenantSlug: string;
+  variantId: string;
+  canRewrite: boolean;
+}) {
+  const verdictByNeedle = new Map(kbVerdicts.map((v) => [v.needle, v]));
   if (!check) return null;
   if (check.verdict === 'whitelist_empty') {
     return (
@@ -510,23 +544,64 @@ function CitationCheckPanel({ check }: { check: CitationCheck | null | undefined
   // suspected_hallucination
   return (
     <div className="rounded-md border-2 border-rose-300 bg-rose-50 p-3 text-xs text-rose-900">
-      <p className="font-medium">⚠️ 引用核实 — {check.unmatched.length} 条疑似 AI 编造</p>
+      <p className="font-medium">⚠️ 引用核实 — {check.unmatched.length} 条白名单未匹配</p>
       <p className="mt-1 opacity-90">
-        以下引用在租户的白名单({check.whitelist_size} 条)里<strong className="font-semibold">找不到</strong>,可能是模型幻觉。审批面板里勾选「我已手工核实」复选框可强制放行,操作会写入审计日志。
+        以下引用在 verified_citations 白名单({check.whitelist_size} 条)里<strong className="font-semibold">找不到</strong>。
+        每条已自动溯源:🟢 = KB 里有(运营核实后可加入白名单),🔴 = KB 里也没有(LLM 真编)。
       </p>
-      <ul className="mt-2 space-y-1.5">
-        {check.unmatched.map((u, i) => (
-          <li key={i} className="rounded-sm bg-rose-100/60 p-1.5">
-            <div className="font-mono font-medium">{u.needle}</div>
-            <div className="mt-0.5 text-[11px] opacity-80">…{u.context_snippet}…</div>
-          </li>
-        ))}
+      <ul className="mt-2 space-y-2">
+        {check.unmatched.map((u, i) => {
+          const v = verdictByNeedle.get(u.needle);
+          const inKb = v?.in_kb ?? false;
+          return (
+            <li
+              key={i}
+              className={`rounded-sm p-2 ${inKb ? 'bg-amber-100/70 border border-amber-300' : 'bg-rose-100/70 border border-rose-300'}`}
+            >
+              <div className="flex items-start gap-2">
+                <span className="text-base leading-none">{inKb ? '🟢' : '🔴'}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-mono font-medium">{u.needle}</div>
+                  <div className="mt-0.5 text-[11px] opacity-80">…{u.context_snippet}…</div>
+                  {inKb && v ? (
+                    <div className="mt-1.5 rounded border border-amber-300 bg-white/60 px-2 py-1.5">
+                      <div className="text-[11px] font-medium text-amber-800">
+                        ⓘ KB 里找到这段话(共 {v.hits.length} 处),AI 是<strong>忠实引用</strong>。说明 KB 内容本身需要审核:
+                      </div>
+                      <ul className="mt-1 space-y-0.5 font-mono text-[10px] text-amber-900">
+                        {v.hits.map((h, j) => (
+                          <li key={j} className="truncate">
+                            <span className="opacity-60">{h.source_path}</span>
+                            <span className="opacity-50">:{h.line}</span>
+                            <div className="ml-2 break-all opacity-70 font-sans">
+                              "{h.context}"
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="mt-1 text-[10px] text-amber-700">
+                        建议:① 真实 → 把这条加入 verified_citations 白名单 ② 营销话术 → 让运营改 KB 这段话
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-1.5 text-[11px] text-rose-700">
+                      KB 里也没有这段话 — 是 LLM 真编造,建议 reject 让 worker 重写。
+                    </div>
+                  )}
+                </div>
+              </div>
+            </li>
+          );
+        })}
       </ul>
       {check.matches.length > 0 && (
         <p className="mt-2 text-[11px] opacity-70">
           (另有 {check.matches.length} 条引用核实通过)
         </p>
       )}
+      {canRewrite ? (
+        <CitationRewriteButton tenantSlug={tenantSlug} variantId={variantId} />
+      ) : null}
     </div>
   );
 }

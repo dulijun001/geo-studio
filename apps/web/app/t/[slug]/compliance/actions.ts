@@ -9,6 +9,7 @@ import {
   scoreGeo,
   type GeoScore,
 } from '@geo/geo-core';
+import { lookupNeedlesInKb } from '@/lib/kb-needle-lookup';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/current-user';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
@@ -639,4 +640,163 @@ export async function aiRewriteForGeoScore(
   revalidatePath(`/t/${tenantSlug}/compliance`);
   revalidatePath(`/t/${tenantSlug}/compliance/${variantId}`);
   return { ok: true };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Citation-targeted rewrite (V1.9)
+//
+// Scoped to the "引用核实 — 疑似 AI 编造" panel. Different from
+// aiRewriteVariant (which addresses keyword-stage rejections):
+//   - Trigger: citation_check.verdict = 'suspected_hallucination'
+//   - Two needle classes:
+//      🟢 in-KB     → KB has it but verified_citations white-list doesn't.
+//                     LLM softens marketing phrasing (e.g. "国内唯一" → "云南较早一批").
+//      🔴 not-in-KB → True LLM fabrication. LLM REMOVES the sentence with the
+//                     fabricated citation, or replaces with "据相关临床指南" generic.
+//   - Works on any non-final compliance_status (pending / auto_approved /
+//     manual_approved). Does NOT require rejected status.
+// ─────────────────────────────────────────────────────────────────────────
+
+const CITATION_REWRITE_SYSTEM = `你是医疗内容编辑,任务是把一篇文章里**白名单未匹配**的可疑引用清理掉,同时保留其余所有事实和结构。
+
+铁律:
+1. 输出必须仍然合规(不引入"最/根治/100%/无痛"等违规词)
+2. 数字、医生姓名、其他段落不要乱动 — 只针对指定的可疑引用修改
+3. 输出严格 JSON: { "title": "新标题", "body": "新正文 markdown", "changes": ["原句 → 改后" 字符串数组] }`;
+
+export async function aiRewriteCitations(
+  tenantSlug: string,
+  variantId: string,
+): Promise<{ ok: true; changes: string[] } | { ok: false; reason: string }> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'auditor']);
+  if (!llmAvailable()) {
+    return { ok: false, reason: 'LLM 未配置(ARK_API_KEY 缺失)' };
+  }
+
+  const service = getSupabaseServiceClient();
+  const user = await getCurrentUser();
+
+  const { data: variant, error: vErr } = await service
+    .from('content_variants')
+    .select('id, tenant_id, title, body, platform, status, compliance_status, citation_check')
+    .eq('id', variantId)
+    .single();
+  if (vErr || !variant) return { ok: false, reason: '变体不存在' };
+  if (variant.tenant_id !== tenant.id) return { ok: false, reason: 'Tenant mismatch' };
+  if (['dispatched', 'published'].includes(variant.status as string)) {
+    return { ok: false, reason: '已派发或发布,不能改写' };
+  }
+
+  const cc = variant.citation_check as
+    | { verdict?: string; unmatched?: Array<{ needle: string; context_snippet?: string }> }
+    | null;
+  if (cc?.verdict !== 'suspected_hallucination' || !cc.unmatched?.length) {
+    return { ok: false, reason: '该变体没有可疑引用,无需改写' };
+  }
+
+  const needles = cc.unmatched.map((u) => u.needle).filter(Boolean);
+  const verdicts = await lookupNeedlesInKb(needles);
+
+  const inKbList = verdicts.filter((v) => v.in_kb);
+  const notInKbList = verdicts.filter((v) => !v.in_kb);
+
+  const instructions: string[] = [];
+  if (inKbList.length) {
+    instructions.push(
+      `## 🟢 这些引用 KB 里有(医院营销话术,但没获得第三方背书),**软化措辞**不要直接抄:\n` +
+        inKbList
+          .map(
+            (v) =>
+              `- "${v.needle}" → 改成弱化表达(如"国内唯一一家"→"云南较早一批","X 项国际金标准"→"X 项内部质控流程","包治牙周炎"→"针对性诊疗牙周炎")`,
+          )
+          .join('\n'),
+    );
+  }
+  if (notInKbList.length) {
+    instructions.push(
+      `## 🔴 这些引用 KB 里也没有(LLM 真编造),**整句删除或替换为"据相关临床指南"**这种通用表述:\n` +
+        notInKbList.map((v) => `- "${v.needle}"`).join('\n'),
+    );
+  }
+
+  const userPrompt =
+    `# 平台\n${variant.platform}\n\n` +
+    `# 原始标题\n${variant.title}\n\n` +
+    `# 原始正文\n${variant.body}\n\n` +
+    `# 引用核实问题\n\n` +
+    instructions.join('\n\n') +
+    `\n\n# 输出 JSON\n` +
+    `- title: 标题(可保持不变)\n` +
+    `- body: 改写后的正文(其他段落原样保留,只动指定引用所在的句子)\n` +
+    `- changes: 列出每处实际改动的字符串数组`;
+
+  let parsed: { title?: string; body?: string; changes?: string[] };
+  try {
+    const result = await chat({
+      messages: [
+        { role: 'system', content: CITATION_REWRITE_SYSTEM },
+        { role: 'user', content: userPrompt },
+      ],
+      model: process.env.ARK_MODEL_FAST,
+      temperature: 0.4,
+      max_tokens: 4000,
+      response_format: 'json_object',
+      timeout_ms: 120_000,
+    });
+    parsed = JSON.parse(result.content);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, reason: `LLM 调用/解析失败: ${msg.slice(0, 150)}` };
+  }
+
+  const newTitle = (parsed.title ?? variant.title).trim().slice(0, 200);
+  const newBody = (parsed.body ?? '').trim();
+  if (newBody.length < 30) {
+    return { ok: false, reason: 'LLM 返回的正文过短,改写失败' };
+  }
+
+  const { error: upErr } = await service
+    .from('content_variants')
+    .update({
+      title: newTitle,
+      body: newBody,
+      citation_check: null,
+      compliance_status: 'pending',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', variantId);
+  if (upErr) return { ok: false, reason: `保存失败: ${upErr.message}` };
+
+  await service.from('audit_logs').insert({
+    tenant_id: tenant.id,
+    actor_user_id: user?.id ?? null,
+    action: 'compliance.ai_rewrite_citations',
+    target_type: 'content_variant',
+    target_id: variantId,
+    payload: {
+      changes: parsed.changes ?? [],
+      in_kb_needles: inKbList.map((v) => v.needle),
+      not_in_kb_needles: notInKbList.map((v) => v.needle),
+    },
+  });
+
+  const databaseUrl = process.env.DATABASE_URL;
+  if (databaseUrl) {
+    const boss = new PgBoss({ connectionString: databaseUrl, schema: 'pgboss' });
+    await boss.start();
+    try {
+      await boss.createQueue('compliance.review');
+      await boss.send('compliance.review', {
+        variant_id: variantId,
+        tenant_id: tenant.id,
+        triggered_by: user?.id ?? null,
+      });
+    } finally {
+      await boss.stop({ graceful: true, timeout: 5000 });
+    }
+  }
+
+  revalidatePath(`/t/${tenantSlug}/compliance`);
+  revalidatePath(`/t/${tenantSlug}/compliance/${variantId}`);
+  return { ok: true, changes: parsed.changes ?? [] };
 }
