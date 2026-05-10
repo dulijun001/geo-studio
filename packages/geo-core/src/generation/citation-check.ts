@@ -54,9 +54,14 @@ function extractCitationCandidates(body: string): Array<{ needle: string; offset
       out.push({ needle, offset: m.index ?? 0 });
     }
   }
-  // pattern 2: 指南/共识/标准/白皮书/规范/建议 (preceded by 2-12 chinese chars or letters/digits)
+  // pattern 2: 指南/共识/白皮书 — only真"引用语义"的后缀。
+  // 之前的版本包含 "标准 / 规范 / 建议",但这 3 个词在中文医疗文中
+  // 90% 是日常名词(操作规范、饮食建议、8 项金标准),不是引用。
+  // 抓它们造成大量误报("引用幻觉 ×11")。"国际金标准"等真营销话术
+  // 改由 packages/geo-core/.../compliance/sanitize-absolute.ts 的
+  // ABSOLUTE_PATTERNS 拦截 + 自动软化,双层防护更准。
   for (const m of body.matchAll(
-    /((?:[一-龥A-Za-z0-9]{2,14})(?:指南|共识|标准|白皮书|规范|建议))/g,
+    /((?:[一-龥A-Za-z0-9]{2,14})(?:指南|共识|白皮书))/g,
   )) {
     const needle = m[1] ?? '';
     // Skip if already captured inside 《》
