@@ -57,3 +57,15 @@ tmp/
 
 # Claude Code local state (per-project handoffs, never share via git)
 .claude/
+
+# Sensitive ops files — contain real employee phones, account handles,
+# or unredacted KB compliance violations. Never push to remote.
+ops/账号注册表.md
+ops/账号注册表.xlsx
+ops/staff-matrix*.csv
+ops/staff-matrix*.xlsx
+ops/kb-compliance-report.md
+
+# Real data goes in data/. Only the .example template is committed.
+data/*
+!data/*.example
