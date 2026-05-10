@@ -11,6 +11,7 @@
  */
 import PgBoss from 'pg-boss';
 import { reportError } from '@geo/shared';
+import { setSharedBoss } from './lib/boss-ref';
 import { registerJobs } from './jobs/index';
 
 process.on('unhandledRejection', (reason) => {
@@ -29,6 +30,10 @@ async function main() {
     schema: 'pgboss',
     retryLimit: 3,
     retryBackoff: true,
+    // Self-hosted Supabase pooler (D13) runs in session mode with limited
+    // pool_size. Cap pg-boss at 3 conns; with batchSize=5 polling that's
+    // enough to keep all teamSize=5 jobs flowing without exhausting upstream.
+    max: 3,
   });
 
   boss.on('error', (err) => {
@@ -38,6 +43,7 @@ async function main() {
   await boss.start();
   console.log('[worker] pg-boss started');
 
+  setSharedBoss(boss);
   await registerJobs(boss);
   console.log('[worker] jobs registered');
 

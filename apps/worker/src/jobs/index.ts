@@ -1,4 +1,5 @@
 import type PgBoss from 'pg-boss';
+import { handleBatchDraftItem, type BatchDraftItemJob } from './batch-draft-item';
 import { handleComplianceReview, type ComplianceReviewJob } from './compliance-review';
 import { handleDailyReport, type DailyReportJob } from './daily-report';
 import {
@@ -26,6 +27,7 @@ export const JOBS = {
   KNOWLEDGE_WEEKLY: 'knowledge.weekly_report', // V1.5-10
   GEO_WEEKLY_BASELINE: 'geo.weekly_baseline', // V1.6-2
   DISCOVERABILITY_REGENERATE: 'discoverability.regenerate', // V1.7
+  BATCH_DRAFT_ITEM: 'content.batch_draft_item', // V1.9
 } as const;
 
 export async function registerJobs(boss: PgBoss): Promise<void> {
@@ -75,6 +77,19 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
     async ([job]) => {
       if (!job?.data) return;
       await handleDiscoverabilityRegenerate(job.data);
+    },
+  );
+
+  // V1.9 — Batch AI-draft worker. pg-boss v10 dropped teamSize; concurrency
+  // comes from batchSize (fetch N jobs per poll) + Promise.all in handler.
+  // 5 concurrent LLM calls = safe Doubao Pro QPS water-line.
+  await boss.work<BatchDraftItemJob>(
+    JOBS.BATCH_DRAFT_ITEM,
+    { batchSize: 5 },
+    async (jobs) => {
+      await Promise.all(
+        jobs.map((job) => (job?.data ? handleBatchDraftItem(job.data) : Promise.resolve())),
+      );
     },
   );
 

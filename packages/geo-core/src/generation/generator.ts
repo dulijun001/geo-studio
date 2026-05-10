@@ -10,6 +10,7 @@
  */
 
 import type { GeoTacticId, VariantPlatform } from '@geo/shared';
+import { sanitizeAbsoluteWords } from '../compliance/sanitize-absolute';
 import { chat, isAvailable, type ChatResult } from '../llm/doubao';
 import { buildVariantPrompt, type PromptContext } from './prompt-builder';
 
@@ -84,12 +85,14 @@ export async function generateVariant(input: GenerateInput): Promise<GenerateRes
   try {
     const result = await chat({
       messages,
+      // Variant rewrite is content generation; FAST (non-reasoning) is
+      // sufficient and 10-20× faster than the Seed 1.8 reasoning endpoint.
+      // Falls back to ARK_MODEL_PRO when ARK_MODEL_FAST is unset.
+      model: process.env.ARK_MODEL_FAST,
       temperature: 0.7,
       max_tokens: input.max_tokens ?? 2500,
       response_format: 'json_object',
-      // 180s: Seed 1.8 on a 1500-char Chinese rewrite + JSON wrap lands 90-130s.
-      // Don't push lower — timeouts here burn tokens with no output.
-      timeout_ms: 180_000,
+      timeout_ms: 90_000,
     });
 
     const parsed = parseResponse(result.content);
@@ -101,11 +104,22 @@ export async function generateVariant(input: GenerateInput): Promise<GenerateRes
       };
     }
 
+    // Anti-fabrication safety net — soften absolute/marketing words that
+    // LLM may have copied verbatim from KB (国内唯一 / 8 项国际金标准 etc).
+    const titleSan = sanitizeAbsoluteWords(parsed.title ?? '');
+    const bodySan = sanitizeAbsoluteWords(parsed.body ?? '');
+    if (titleSan.hits.length > 0 || bodySan.hits.length > 0) {
+      console.warn(
+        `[generator] absolute-words softened platform=${input.platform} hits=`,
+        [...titleSan.hits, ...bodySan.hits].map((h) => `${h.reason}×${h.count}`).join(', '),
+      );
+    }
+
     return {
       ok: true,
       variant: {
-        title: parsed.title,
-        body: parsed.body,
+        title: titleSan.cleaned,
+        body: bodySan.cleaned,
         tactics_applied: filterValidTactics(parsed.tactics_applied, input.tactics),
         notes: parsed.notes,
         provider: 'doubao',

@@ -264,10 +264,12 @@ async function derivOne(
             `# 输出要求\n严格输出 JSON: { title, body, tactics }`,
         },
       ],
+      // Cross-platform rewrite is content generation; use FAST model.
+      model: process.env.ARK_MODEL_FAST,
       temperature: 0.7,
       max_tokens: 2500,
       response_format: 'json_object',
-      timeout_ms: 120_000,
+      timeout_ms: 90_000,
     });
     try {
       const parsed = JSON.parse(result.content) as {

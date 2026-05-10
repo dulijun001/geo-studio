@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
-    "dev": "tsx watch --env-file=../../.env src/index.ts",
+    "dev": "tsx watch --env-file=../../.env --env-file-if-exists=../../.env.local src/index.ts",
     "dev-smoke-tracker": "tsx src/trackers/_dev/smoke.ts",
     "doubao:login": "tsx src/trackers/_dev/doubao-login.ts",
     "doubao:probe": "tsx src/trackers/_dev/probe-dom.ts",
