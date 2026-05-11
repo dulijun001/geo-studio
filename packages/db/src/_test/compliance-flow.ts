@@ -34,7 +34,22 @@ type Fixture = {
     variant_status: 'rejected' | 'pending_review' | 'auto_approved';
     /** Stages we expect to find in compliance_reviews for this variant. */
     stages: Array<'keyword' | 'llm'>;
+    /** If set, also assert content_variants.case_match matched ≥ 1 case. */
+    case_match?: boolean;
   };
+};
+
+// Seeded fake compliance case for the case-match fixture below. Patterns are
+// non-keyword to avoid getting blocked by the keyword scan first — the goal
+// is to exercise the third gate independently. jurisdiction='_TEST_' tags it
+// so accidental survivors in compliance_cases are easy to find and clean.
+const TEST_CASE_SEED = {
+  title: '[TEST] case-match smoke seed',
+  violation_patterns: ['三个月内自然变白', '院长每周亲诊一次', '德国进口微创无痛'],
+  violation_category: 'guarantee',
+  jurisdiction: '_TEST_',
+  fine_yuan: 99999,
+  active: true,
 };
 
 const FIXTURES: Fixture[] = [
@@ -66,6 +81,22 @@ const FIXTURES: Fixture[] = [
       compliance_status: 'auto_approved',
       variant_status: 'auto_approved',
       stages: ['keyword'],
+    },
+  },
+  {
+    // Third-gate validation: hits seeded case patterns but no A/B keyword,
+    // so flow exits as auto_approved while content_variants.case_match
+    // captures the hit + audit_logs records compliance.case_match.
+    // Current behavior (V1.9.1): case-match is informational, doesn't flip
+    // status — recovering "match → force human" is a separate ticket.
+    label: 'case-match hit',
+    title: '美白服务介绍',
+    body: '我们诊所提供美白服务。临床数据显示三个月内自然变白的概率较高。另外院长每周亲诊一次,确保每位顾客方案都经过评估。术后请按医嘱定期复查。',
+    expect: {
+      compliance_status: 'auto_approved',
+      variant_status: 'auto_approved',
+      stages: ['keyword'],
+      case_match: true,
     },
   },
 ];
@@ -102,6 +133,18 @@ async function main() {
     .single();
   if (iErr || !item) throw new Error(`content_item: ${iErr?.message}`);
   const contentItemId = item.id as string;
+
+  // Seed the third-gate fixture's match target. jurisdiction='_TEST_' makes
+  // accidental survivors trivially findable: SELECT FROM compliance_cases
+  // WHERE jurisdiction='_TEST_'.
+  const { data: seededCase, error: cErr } = await admin
+    .from('compliance_cases')
+    .insert(TEST_CASE_SEED)
+    .select('id, title')
+    .single();
+  if (cErr || !seededCase) throw new Error(`compliance_case seed: ${cErr?.message}`);
+  const seededCaseId = seededCase.id as string;
+  const seededCaseTitle = seededCase.title as string;
 
   const variantIds: Record<string, string> = {};
   const boss = new PgBoss({ connectionString: databaseUrl!, schema: 'pgboss' });
@@ -196,6 +239,39 @@ async function main() {
         actions.length > 0,
         `actions=[${actions.join(',')}]`,
       );
+
+      // Third-gate-specific assertions: the case_match column captured the hit,
+      // the top match is our seeded case, and audit_logs picked up the
+      // compliance.case_match action (3-year retention requirement).
+      if (fx.expect.case_match) {
+        const { data: variantRow } = await admin
+          .from('content_variants')
+          .select('case_match')
+          .eq('id', vid)
+          .single();
+        const cm = variantRow?.case_match as {
+          matches?: Array<{ title?: string; similarity?: number }>;
+          cases_evaluated?: number;
+        } | null;
+        const matchCount = cm?.matches?.length ?? 0;
+        record(
+          `${fx.label}: content_variants.case_match has ≥ 1 hit`,
+          matchCount >= 1,
+          `matches=${matchCount} evaluated=${cm?.cases_evaluated ?? '?'}`,
+        );
+        const topMatch = cm?.matches?.[0];
+        record(
+          `${fx.label}: top match is the seeded case`,
+          topMatch?.title === seededCaseTitle,
+          `top=${topMatch?.title ?? 'null'} expected=${seededCaseTitle}`,
+        );
+        const caseMatchAudits = actions.filter((a) => a === 'compliance.case_match');
+        record(
+          `${fx.label}: audit_logs include compliance.case_match`,
+          caseMatchAudits.length >= 1,
+          `count=${caseMatchAudits.length}`,
+        );
+      }
     }
   } finally {
     await boss.stop({ graceful: true, timeout: 5000 });
@@ -207,6 +283,7 @@ async function main() {
     }
     await admin.from('content_items').delete().eq('id', contentItemId);
     await admin.from('tenants').delete().eq('id', tenantId);
+    await admin.from('compliance_cases').delete().eq('id', seededCaseId);
   }
 
   console.log('');

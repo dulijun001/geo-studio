@@ -133,9 +133,23 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
       .update({ case_match: caseMatch })
       .eq('id', variant_id);
     if (caseMatch.matches.length > 0) {
+      const top = caseMatch.matches[0]!;
       console.log(
-        `[compliance-review] case-match hit ${caseMatch.matches.length} of ${cases.length} cases (top: ${caseMatch.matches[0]!.title.slice(0, 30)} sim=${caseMatch.matches[0]!.similarity})`,
+        `[compliance-review] case-match hit ${caseMatch.matches.length} of ${cases.length} cases (top: ${top.title.slice(0, 30)} sim=${top.similarity})`,
       );
+      // Medical compliance requires a 3-year audit trail (D5). Without this
+      // write the only persistence of a case match is content_variants.case_match
+      // — invisible to audit_logs filters and exports, so a regulator request
+      // can't prove the gate ran. Write it.
+      await writeAudit(tenant_id, triggered_by, 'compliance.case_match', variant_id, {
+        matches: caseMatch.matches.length,
+        cases_evaluated: caseMatch.cases_evaluated,
+        top_case_id: top.case_id,
+        top_case_title: top.title,
+        top_similarity: top.similarity,
+        top_fine_yuan: top.fine_yuan,
+        top_jurisdiction: top.jurisdiction,
+      });
     }
   }
 
