@@ -130,12 +130,10 @@ geo-studio/
 所有用户可见的内容发布前必走**四道门**(D5 + D12):
 1. 关键词黑名单(同步,< 50ms,按平台作用域过滤)
 2. 豆包 LLM 语义审查(异步,< 3s)
-3. 历史违规案例匹配(向量检索 `compliance_cases`,锚定真实罚单)
+3. 历史违规案例匹配(Jaccard 相似度 on `compliance_cases.violation_patterns`,锚定真实罚单,跨租户共享)
 4. 高/中风险 → 管理员人工审批
 
-**审计日志保留 ≥ 3 年**(医疗广告法诉讼时效)。
-
-> ⚠️ `docs/03-compliance.md` 文档段落仍是三道门时代写法,代码已落地四道门。文档展开见后续工单(B 阶段技术债)。
+**审计日志保留 ≥ 3 年**(医疗广告法诉讼时效)。详细设计见 `docs/03-compliance.md`(2026-05-11 已对齐四道门版本)。
 
 ## 八、协作准则(和用户约定)
 
@@ -146,7 +144,7 @@ geo-studio/
 5. 所有 commit 保留 `Co-Authored-By: Claude`,不隐藏 AI 参与
 6. 涉及金钱/合规/隐私的变更,必须和用户确认后才推进
 
-## 九、当前状态(2026-05-01 更新)
+## 九、当前状态(2026-05-11 更新)
 
 ### 已完成
 - **V0 骨架**(2026-04-23):docs/ 五份 + CLAUDE.md + monorepo 立起
@@ -166,15 +164,43 @@ geo-studio/
   - `createAiDraft` 扩展同两参数,系统模板 prompt_skeleton 拼到 SYSTEM_PROMPT 之后
   - 三个新 admin 页:写作要求库 / 关键词词库(含 6 维组合 + AI 智能挖掘 + 合规第一道门入库前过滤)/ 创作向导(3 步:参考资料 → 关键词 → 写作要求)
   - 抓词GEO 的 "GEO 排名优化" 模板**未照抄**(软广堆砌,踩医疗合规),作为后续工单单独评估改造为 `geo-ranking-objective`
+- **V1.8.x 增量补强**(2026-05-04 → 2026-05-10):
+  - migration 0025 `numeric_fact_check` — 数值类事实检查,防止杜撰统计
+  - migration 0026 `brand_service_areas` — 品牌服务区域多对多
+  - migration 0027 `kb_multitenancy_and_observability` — KB 多租户隔离 + 观测字段
+  - 反幻觉:上游断源 + 双层 sanitizer + 收紧引用检测(commits 3f3abce / 6fdb14e)
+  - UI 暗色 cinematic redesign 跨 landing/tenant/staff(9ee7ddc + 两个 stragglers 修复)
+  - 安全:暴破限速 + 用户枚举修复 + URL 域名白名单(ac2629e)、gitignore 真实员工 handle(fd57823)
+  - 员工邀请链接 TTL 24h → 7d + 手机号绑定校验(56b0c1d,D11 衍生)
+- **V1.9 batch AI drafting**(2026-05-10,migration 0028 `draft_batches`,commit 4bba685):
+  N 题 × M 平台一键派发,把"逐题逐平台调 LLM"折叠成单次批处理 job
+- **V1.9.1 工程纪律补强**(2026-05-11,本次会话):
+  - kb-sync `URI too long` 修复(unchangedIds 分批 100 / batch,commit ed616b0)
+  - 测试 hardening:`_test/_runner.ts` 全局 unhandled-rejection guard + 90s per-test timeout,3 个失败测试加入 guard(commit 3e7eaff)
+  - 顺手清:next.config `trustHostHeader`(Next 15 only,14 no-op)、/staff themeColor 拆 viewport
+  - test-auth marker 改为 OR 探测(V1.7 cinematic redesign 后 stale 的 marker 复活)
 
 ### 当前阶段
-- **V1.7 + V1.8 完成,等待部署**(本地 main,V1.7 5+ 条 commit + V1.8 一批新文件)
+- **本地 main 上多批未部署 commit**(V1.6 文档对齐 / V1.7 全套 / V1.8 / V1.8.x / V1.9 / V1.9.1)
 - **V2 反爬基础设施可启动**:多引擎 + 账号池 + 代理 + 指纹隔离(ADR 004)
+- 生产环境:`47.98.131.138:9443`(自托管 web)+ `47.98.131.138:8000`(自托管 Supabase,见 D13)— 已在跑流量,但**版本可能落后于本地 main**
 
-### 阻塞 / 待澄清
-- V1 W8 真实数据验收(40 人打卡率、5 起到店转化追溯、医院见证)未归档,需业务侧推进
-- `docs/03-compliance.md` 仍是三道门版本,需回填四道门细节(技术债)
-- 自上次 demo 起未部署的 commit:V1.6 文档对齐 + tracking SUPPORTED_ENGINES 修复 + format.ts TZ 防御 + 中间件短路 + tenant_memberships FK migration + V1.7 全套
+### 阻塞 / 待澄清 / 已知技术债
+- **W8 真实数据验收未归档**(40 人打卡率、5 起到店转化追溯、医院见证)。Stub 见本节末
+- **可观测性 0 接通**(P0):`.env` 有 `SENTRY_DSN` / `AXIOM_TOKEN` / `AXIOM_DATASET`,`packages/shared/src/observability.ts` 提供 `reportError` / `reportEvent` 抽象,但**代码 0 处 import 调用**。生产 error 当前仅走 console.error 单行 JSON。详见 `docs/observability-setup.md`,实操工单待开
+- **自托管 Postgres `:shutdown, :db_termination`**:test-content 接近完成时被 server 主动断连。怀疑 connection pool 没释放 / max_connections 偏低 / idle timeout 过短。需要单独 infra 工单
+- **测试自洁缺失**:`content-flow` / `compliance-llm` / `variant-flow` 创建的 tenant 没 cascade delete,每轮 kb-sync 都要 skip。需在测试 finally 里清理
+- **3 个 smoke test 仍需深挖**:test-content 卡 `:db_termination`(infra)、test-compliance-llm 偶发卡住、test-auth 跑生产 URL 不跑本地(默认 fallback 链路待优化)
+
+### W8 验收追踪(stub,业务侧填写)
+
+| 指标 | 目标 | 当前 | 责任人 | Deadline |
+|---|---|---|---|---|
+| 员工矩阵打卡率 | 40 人 ≥ 80% | _ | _ | _ |
+| 到店转化追溯案例 | ≥ 5 起完整闭环 | _ | _ | _ |
+| 医院公开见证(背书) | ≥ 1 篇 | _ | _ | _ |
+| GEO 引用率(8 周热力图) | 基线 SOV ≥ 15% | _ | _ | _ |
+| 合规审批 SLA | < 4h 中位数 | _ | _ | _ |
 
 ## 十、参考
 

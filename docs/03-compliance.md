@@ -51,7 +51,9 @@
 | 医生简介(仅含注册信息、擅长领域)| 自动放行 |
 | 就医流程介绍 | 自动放行 |
 
-## 三道门详细设计
+## 四道门详细设计
+
+> 历史背景:V1 时只有三道门(关键词 / LLM / 人工)。2026-04-29(D12 / migration 0012)在 LLM 后加入"历史违规案例匹配",形成四道门。理由见 migration 0012 注释。
 
 ```
                    ┌─────────────────────────────┐
@@ -62,6 +64,7 @@
                 │  第一道:关键词黑名单(同步)   │
                 │  • 输入:variant.title + body  │
                 │  • 匹配:A 级词表 + B 级词表   │
+                │  • 按平台作用域过滤(D12.b)    │
                 │  • 耗时:< 50ms                │
                 └───────────────┬────────────────┘
                                 │
@@ -87,18 +90,42 @@
             高风险              中风险                低风险
               │                    │                    │
               ▼                    ▼                    ▼
-       verdict=reject      verdict=warn         verdict=pass
-       推送改写建议        进入第三道            status=auto_approved
-       status=rejected                           直接发布
-                                │
-                                ▼
-                    ┌───────────────────────────┐
-                    │  第三道:管理员人工审批    │
-                    │  • 审批人:租户管理员     │
-                    │  • SLA:4 小时            │
-                    │  • 界面:高亮风险段 + LLM 改写建议 │
-                    │  • 决定:approve / reject / 手改后 approve │
-                    └───────────────────────────┘
+       verdict=reject      verdict=warn         进入第三道
+       推送改写建议             │                      │
+       status=rejected          │                      │
+                                ▼                      ▼
+                    ┌──────────────────────────────────┐
+                    │  第三道:历史违规案例匹配(同步)  │
+                    │  • 池:compliance_cases 表        │
+                    │       (跨租户共享真实罚单)       │
+                    │  • 算法:Jaccard on              │
+                    │       violation_patterns 数组    │
+                    │  • 命中阈值:≥ 50% patterns      │
+                    │  • 耗时:< 100ms                 │
+                    └──────────────┬───────────────────┘
+                                   │
+              ┌────────────────────┼────────────────────┐
+              │                    │                    │
+       命中 ≥ 1 历史案例     未命中(原 LLM 中风险)   原 LLM 低风险
+              │                    │                    │
+              ▼                    ▼                    ▼
+       verdict=suspected      进入第四道           verdict=pass
+       附"跟 XX 案例(罚                          status=auto_approved
+       款 N 万)相似"警告                          直接发布
+              │
+              ▼
+       进入第四道(强制)
+              │
+              ▼
+                    ┌────────────────────────────────┐
+                    │  第四道:管理员人工审批         │
+                    │  • 审批人:租户管理员           │
+                    │  • SLA:4 小时                  │
+                    │  • 界面:高亮风险段 + LLM 改写  │
+                    │    建议 + 命中案例 + 案例罚款   │
+                    │  • 决定:approve / reject /     │
+                    │    手改后 approve              │
+                    └────────────────────────────────┘
                                 │
                                 ▼
                     status=manual_approved
@@ -184,7 +211,58 @@ type ComplianceKeyword = {
 2. 便宜 10 倍
 3. 数据合规(医疗内容留在境内)
 
-## 第三道:人工审批台
+## 第三道:历史违规案例匹配
+
+### 为什么需要这一道
+
+关键词和 LLM 都是"抽象规则"。**真实罚单**是另一种锚:
+- 2024 昆明某口腔诊所因"手术时间最短"被罚 5 万
+- 2023 北京某医院因"100% 零失误"被处广告法 5 万
+
+这些是公开判例,候选文案很可能犯同样的错。把这些违规要素加进比对池,命中 → 弹"跟 XX 案例(罚款 XX 万)相似"警告,强制进人工二审。
+
+### 表结构(migration 0012 · 跨租户共享)
+
+```sql
+compliance_cases (
+  id UUID,
+  title TEXT,                     -- "2024 昆明某口腔诊所"
+  violation_patterns TEXT[],      -- ["手术时间最短","包治","百分百零失误"]
+  violation_category TEXT,        -- 'guarantee' / 'absolute' / 'testimonial'
+  jurisdiction TEXT,              -- "云南省/昆明市"
+  fine_yuan INTEGER,              -- 50000
+  punished_at DATE,
+  case_url TEXT,                  -- 公示链接
+  notes TEXT,                     -- 教训
+  active BOOLEAN                  -- 法规过期可软关
+)
+```
+
+跨租户共享 — 案例是公开信息,所有租户都能学习。与 `verified_citations`(每租户自维)相反。
+
+### 案例来源(公开)
+- 国家市场监督管理总局 · 行政处罚信息公示
+- 卫健委 · 医疗广告违规公告
+- 各地市监局公示
+- 地方医疗机构信用档案
+
+### 匹配算法
+
+Jaccard 相似度 on `violation_patterns` 数组(代码 `packages/geo-core/src/compliance/case-match.ts`):
+
+```
+similarity = |candidate_terms ∩ case_patterns| / |candidate_terms ∪ case_patterns|
+```
+
+- 命中 ≥ 50% patterns → `suspected_match`(进强制人工审批)
+- 命中 < 50% → 不报警
+- 不用向量嵌入(case 描述短,Jaccard 在精度和召回上都够用,且零模型成本)
+
+### 输出
+- 命中时 audit_log 写 `compliance.case_match`,payload 含 `case_id`、`similarity`、`fine_yuan`、`case_url`
+- UI 在审批台高亮显示"跟 XX 案例相似"+ 一键跳转公示页
+
+## 第四道:人工审批台
 
 ### 界面要素(给管理员)
 - 左栏:原始内容(标题+正文)
@@ -192,6 +270,7 @@ type ComplianceKeyword = {
   - 关键词命中高亮(红/黄色块)
   - LLM 分析结果(风险等级 + 具体违规点)
   - LLM 给出的改写版(可一键采用)
+  - **历史案例命中**(若有):标题 + 罚款金额 + 案例链接 + Jaccard 分数
 - 底部 3 个按钮:
   - **批准发布**(记录审批人 + 原因)
   - **手改后批准**(允许现场编辑后批准)
@@ -208,8 +287,9 @@ type ComplianceKeyword = {
 
 | action | 何时触发 | 关键字段 |
 |---|---|---|
-| `compliance.keyword_hit` | 第一道命中 | level, hit_terms |
-| `compliance.llm_review` | 第二道完成 | risk_level, llm_raw_response |
+| `compliance.keyword_hit` | 第一道命中 | level, hit_terms, platform |
+| `compliance.llm_review` | 第二道完成 | risk_level, llm_raw_response, tokens |
+| `compliance.case_match` | 第三道命中历史案例 | case_id, similarity, fine_yuan, case_url |
 | `compliance.manual_approve` | 管理员批准 | reviewer_id, rationale |
 | `compliance.manual_reject` | 管理员拒绝 | reviewer_id, reason |
 | `compliance.auto_approve` | 系统自动放行 | stage_path |
@@ -221,7 +301,7 @@ type ComplianceKeyword = {
 
 ## 事后风控(Post-hoc)
 
-三道门不是万无一失的最后一道防线。配套机制:
+四道门不是万无一失的最后一道防线。配套机制:
 
 ### 1. 发布后扫描(每日)
 - 对过去 24 小时内所有 `published` 状态任务,重新跑 LLM 审查(规则可能迭代、LLM 能力在进化)
@@ -255,9 +335,12 @@ type ComplianceKeyword = {
 
 - [ ] A 级关键词库(200+ 条,法务评审过)
 - [ ] B 级关键词库(500+ 条)
+- [ ] 关键词按平台作用域过滤(D12.b · 抖音/小红书规则差异)
 - [ ] LLM 审查 prompt + 接入豆包 API
-- [ ] 管理员审批台 UI(左右栏高亮)
-- [ ] 审计日志 7 个核心动作
+- [ ] 历史违规案例库初始化(50+ 条公开判例,按 category 分布均衡)
+- [ ] 案例 Jaccard 匹配 + 强制人工审批挂钩
+- [ ] 管理员审批台 UI(左右栏高亮 + 命中案例展示)
+- [ ] 审计日志 8 个核心动作(含 `compliance.case_match`)
 - [ ] 发布后每日扫描 cron
 - [ ] 撤稿流程(推送+打卡)
-- [ ] 租户合规仪表盘(通过率、高风险分布、审批时效)
+- [ ] 租户合规仪表盘(通过率、高风险分布、审批时效、案例命中分布)
