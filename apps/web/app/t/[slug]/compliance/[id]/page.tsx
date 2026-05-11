@@ -7,10 +7,11 @@ import { fmtDateTime } from '@/lib/format';
 import { EeatCard } from '@/components/eeat-card';
 import { lookupNeedlesInKb, type NeedleVerdict } from '@/lib/kb-needle-lookup';
 import { ReviewActions } from './review-actions';
-import { HighlightedBody } from './highlighted-body';
 import { EditForm } from './edit-form';
+import { InlineEditBody } from './inline-edit-body';
 import { AiRewriteButton, InlineAiRewriteCta } from './ai-rewrite-button';
 import { CitationRewriteButton } from './citation-rewrite-button';
+import { OverrideRejectionButton } from './override-rejection-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -123,15 +124,15 @@ export default async function ComplianceDetailPage({
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr),380px]">
-        <section className="space-y-3">
-          <h2 className="text-sm font-medium text-muted-foreground">正文(命中红黄高亮)</h2>
-          <div className="rounded-md border border-border bg-background p-5 text-sm leading-relaxed">
-            <HighlightedBody body={variant.body} findings={findings} />
-          </div>
-          {findings.length === 0 && (
-            <p className="text-xs text-muted-foreground">关键词扫描未命中任何词。</p>
-          )}
-        </section>
+        <InlineEditBody
+          tenantSlug={tenant.slug}
+          variantId={variant.id}
+          initialTitle={variant.title}
+          initialBody={variant.body}
+          findings={findings}
+          disabled={editLocked}
+          disabledReason="变体已派发给员工,改文案会让员工手里版本不一致。先撤回派单或废弃变体。"
+        />
 
         <aside className="space-y-5">
           <CaseMatchPanel match={variant.case_match} />
@@ -160,7 +161,10 @@ export default async function ComplianceDetailPage({
               citationCheck={variant.citation_check as { verdict?: string; unmatched?: Array<{ needle: string }> } | null}
             />
           ) : variant.compliance_status === 'rejected' ? (
-            <AiRewriteButton tenantSlug={tenant.slug} variantId={variant.id} />
+            <div className="space-y-2">
+              <AiRewriteButton tenantSlug={tenant.slug} variantId={variant.id} />
+              <OverrideRejectionButton tenantSlug={tenant.slug} variantId={variant.id} />
+            </div>
           ) : (
             <div className="rounded-md border border-border bg-muted/30 p-4 text-xs text-muted-foreground">
               变体已处于终态({variant.compliance_status}),不再接受审批动作。

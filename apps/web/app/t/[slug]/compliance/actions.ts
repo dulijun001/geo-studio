@@ -102,6 +102,90 @@ export async function approveVariant(
   await transition(tenantSlug, variantId, 'approve', rationale, options);
 }
 
+/**
+ * Manual override on a rejected variant. Escape hatch for the case where the
+ * automated four-gate flow rejects something the business needs to publish
+ * (false positive / off-platform context / legal sign-off out of band).
+ *
+ * Deliberately stricter than approveVariant:
+ *   - Role: owner|admin only. Auditor (legal) is excluded — they're typically
+ *     the ones whose review WAS the rejection, so self-overriding their own
+ *     no-go defeats the purpose.
+ *   - Rationale ≥ 20 chars: regulator-readable, not "ok lgtm".
+ *   - Distinct audit action: 'compliance.manual_override_approve'
+ *     so dashboards can surface override rate separately from normal approvals.
+ *
+ * Bypasses transition()'s "already terminal" guard since that's literally the
+ * state we're acting on.
+ */
+export async function overrideRejection(
+  tenantSlug: string,
+  variantId: string,
+  rationale: string,
+): Promise<void> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin']);
+  if (rationale.trim().length < 20) {
+    throw new Error('翻案理由至少 20 字 — 这是医疗合规底线,必须可追溯。');
+  }
+  const supabase = createSupabaseServerClient();
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Unauthenticated');
+
+  const { data: variant, error: vErr } = await supabase
+    .from('content_variants')
+    .select('id, tenant_id, compliance_status, compliance_review_id')
+    .eq('id', variantId)
+    .single();
+  if (vErr || !variant) throw new Error('变体不存在');
+  if (variant.tenant_id !== tenant.id) throw new Error('Tenant mismatch');
+  if (variant.compliance_status !== 'rejected') {
+    throw new Error(`只有 rejected 状态可翻案,当前: ${variant.compliance_status}`);
+  }
+
+  const { data: review, error: rErr } = await supabase
+    .from('compliance_reviews')
+    .insert({
+      tenant_id: tenant.id,
+      target_type: 'content_variant',
+      target_id: variantId,
+      stage: 'manual',
+      verdict: 'pass',
+      risk_level: 'low',
+      findings: [],
+      reviewer_id: user.id,
+      rationale: `[OVERRIDE] ${rationale}`,
+    })
+    .select('id')
+    .single();
+  if (rErr || !review) throw new Error(`Insert review: ${rErr?.message}`);
+
+  const { error: upErr } = await supabase
+    .from('content_variants')
+    .update({
+      compliance_status: 'manual_approved',
+      compliance_review_id: review.id,
+      status: 'manual_approved',
+    })
+    .eq('id', variantId);
+  if (upErr) throw new Error(`Update variant: ${upErr.message}`);
+
+  await supabase.from('audit_logs').insert({
+    tenant_id: tenant.id,
+    actor_user_id: user.id,
+    action: 'compliance.manual_override_approve',
+    target_type: 'content_variant',
+    target_id: variantId,
+    payload: {
+      review_id: review.id,
+      rationale,
+      previous_review_id: variant.compliance_review_id,
+    },
+  });
+
+  revalidatePath(`/t/${tenantSlug}/compliance`);
+  revalidatePath(`/t/${tenantSlug}/compliance/${variantId}`);
+}
+
 export async function rejectVariant(
   tenantSlug: string,
   variantId: string,
