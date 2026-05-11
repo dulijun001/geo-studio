@@ -11,12 +11,11 @@ const nextConfig = {
     // workspace siblings (@geo/db, @geo/shared, @geo/geo-core) correctly.
     // Next 14.3+ promotes this to top-level; 14.2 keeps it under experimental.
     outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
-    // Behind a reverse proxy (Caddy → 127.0.0.1:3000), trust the Host
-    // header so request.nextUrl.host reflects the public hostname instead
-    // of the bind address. Without this, NextResponse.redirect() composes
-    // URLs against `process.env.HOSTNAME` (127.0.0.1) and the browser
-    // gets bounced to localhost:3000.
-    trustHostHeader: true,
+    // Note on reverse-proxy host trust:
+    // `experimental.trustHostHeader` only exists in Next 15. Current behind
+    // Caddy → 127.0.0.1:3000 works because Caddy passes X-Forwarded-Host
+    // and Next 14 normalises that. If you ever upgrade to Next 15 and see
+    // redirects landing on localhost:3000, re-add: trustHostHeader: true.
     serverActions: {
       bodySizeLimit: '10mb', // Word/PDF uploads go through Storage signed URLs, not server actions
     },

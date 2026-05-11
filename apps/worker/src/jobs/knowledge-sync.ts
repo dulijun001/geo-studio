@@ -324,13 +324,19 @@ export async function handleKnowledgeSync(
 
     // Bulk-touch last_synced_at for unchanged rows so the "最近同步" badge
     // reflects when sync ran, not when content last changed.
-    if (unchangedIds.length > 0) {
+    // Chunked: PostgREST encodes IN-list as ?id=in.(uuid,uuid,...) — at ~363
+    // uuids the URL exceeded server limits ("URI too long"). 100/batch keeps
+    // each request well under 8KB even with full UUIDs.
+    const CHUNK = 100;
+    for (let i = 0; i < unchangedIds.length; i += CHUNK) {
+      const slice = unchangedIds.slice(i, i + CHUNK);
       const { error } = await client
         .from('knowledge_sources')
         .update({ last_synced_at: now })
-        .in('id', unchangedIds);
+        .in('id', slice);
       if (error) {
         console.error(`[kb-sync] bulk last_synced_at touch failed:`, error);
+        break;
       }
     }
 

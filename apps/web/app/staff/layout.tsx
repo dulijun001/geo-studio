@@ -8,9 +8,13 @@ import { PwaRegister } from './pwa-register';
 export const metadata = {
   title: 'GEO Studio · 员工端',
   manifest: '/manifest.webmanifest',
-  themeColor: '#08090a',
   appleWebApp: { capable: true, statusBarStyle: 'default', title: 'GEO 员工' },
   icons: { icon: '/icon-192.svg', apple: '/icon-512.svg' },
+};
+
+// Next 14 moved themeColor out of metadata to a dedicated viewport export.
+export const viewport = {
+  themeColor: '#08090a',
 };
 
 /**
