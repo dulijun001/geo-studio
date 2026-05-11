@@ -202,7 +202,11 @@ export function TaskCard({ task }: { task: TaskProps }) {
     setErr(null);
     startTransition(async () => {
       try {
-        await markTaskPublished(task.id, input);
+        const r = await markTaskPublished(task.id, input);
+        if (!r.ok) {
+          setErr(r.error);
+          return;
+        }
         setMode('idle');
         setInput('');
       } catch (e) {
@@ -215,7 +219,11 @@ export function TaskCard({ task }: { task: TaskProps }) {
     setErr(null);
     startTransition(async () => {
       try {
-        await markTaskSkipped(task.id, input);
+        const r = await markTaskSkipped(task.id, input);
+        if (!r.ok) {
+          setErr(r.error);
+          return;
+        }
         setMode('idle');
         setInput('');
       } catch (e) {

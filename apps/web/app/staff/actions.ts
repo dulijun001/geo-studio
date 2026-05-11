@@ -31,6 +31,17 @@ function hostnameMatches(hostname: string, allow: string[]): boolean {
   return allow.some((d) => h === d || h.endsWith(`.${d}`));
 }
 
+/**
+ * Result envelope for user-visible errors. Next 14 production builds REDACT
+ * any `throw new Error('中文')` from a server action — the staff only sees
+ * "An error occurred in the Server Components render…". Returning a
+ * { ok: false, error } object preserves the human-readable message.
+ *
+ * `requireStaff()` and system-level throws are unchanged — those are
+ * "unexpected" errors and redaction is correct for them.
+ */
+export type ActionResult = { ok: true } | { ok: false; error: string };
+
 export async function logoutStaff(): Promise<void> {
   clearStaffSession();
   redirect('/staff/login');
@@ -39,13 +50,19 @@ export async function logoutStaff(): Promise<void> {
 /**
  * Record that the staff member has published the task.
  * Input: the URL where the content was posted (for later GEO attribution).
+ *
+ * Returns ActionResult — see comment on that type. All user-facing validation
+ * failures return { ok: false, error: '...' } so the staff sees Chinese.
  */
-export async function markTaskPublished(taskId: string, urlRaw: string): Promise<void> {
+export async function markTaskPublished(taskId: string, urlRaw: string): Promise<ActionResult> {
   const ctx = await requireStaff();
   const url = urlRaw.trim();
 
   if (!/^https?:\/\//i.test(url)) {
-    throw new Error('请粘贴完整链接(以 http 或 https 开头)');
+    return {
+      ok: false,
+      error: '请只粘贴完整链接(以 http:// 或 https:// 开头),不要把标题和链接一起粘进来。',
+    };
   }
 
   const client = getSupabaseServiceClient();
@@ -56,10 +73,10 @@ export async function markTaskPublished(taskId: string, urlRaw: string): Promise
     .select('id, staff_account_id, tenant_id, status, variant_id')
     .eq('id', taskId)
     .single();
-  if (tErr || !task) throw new Error('任务不存在');
-  if (task.staff_account_id !== ctx.staff_id) throw new Error('这不是分派给你的任务');
-  if (task.tenant_id !== ctx.tenant_id) throw new Error('租户不匹配');
-  if (task.status === 'published') return; // idempotent
+  if (tErr || !task) return { ok: false, error: '任务不存在' };
+  if (task.staff_account_id !== ctx.staff_id) return { ok: false, error: '这不是分派给你的任务' };
+  if (task.tenant_id !== ctx.tenant_id) return { ok: false, error: '租户不匹配' };
+  if (task.status === 'published') return { ok: true }; // idempotent
 
   // STF-3 — verify hostname matches the variant's target platform. Prevents
   // staff from pasting arbitrary URLs (their personal blog, mistyped, etc.)
@@ -69,20 +86,22 @@ export async function markTaskPublished(taskId: string, urlRaw: string): Promise
     .select('platform, content_item_id')
     .eq('id', task.variant_id as string)
     .single<{ platform: string; content_item_id: string }>();
-  if (!variantRow) throw new Error('变体不存在,请联系管理员');
+  if (!variantRow) return { ok: false, error: '变体不存在,请联系管理员' };
   const allow = PLATFORM_DOMAINS[variantRow.platform];
   if (allow && allow.length > 0) {
     let hostname: string;
     try {
       hostname = new URL(url).hostname;
     } catch {
-      throw new Error('链接格式异常');
+      return { ok: false, error: '链接格式异常 — 检查只粘了 URL,前后没多余文字' };
     }
     if (!hostnameMatches(hostname, allow)) {
-      throw new Error(
-        `链接域名不属于「${variantRow.platform}」平台(应包含 ${allow.join(' / ')})。` +
+      return {
+        ok: false,
+        error:
+          `链接域名不属于「${variantRow.platform}」平台(应包含 ${allow.join(' / ')})。` +
           `如果你确实发到了对应平台,请贴完整 URL;如果发错了平台,请改用「跳过」并备注原因。`,
-      );
+      };
     }
   }
 
@@ -94,7 +113,7 @@ export async function markTaskPublished(taskId: string, urlRaw: string): Promise
       published_at: new Date().toISOString(),
     })
     .eq('id', taskId);
-  if (upErr) throw new Error(`打卡失败: ${upErr.message}`);
+  if (upErr) return { ok: false, error: `打卡失败: ${upErr.message}` };
 
   await client.from('audit_logs').insert({
     tenant_id: ctx.tenant_id,
@@ -137,12 +156,13 @@ export async function markTaskPublished(taskId: string, urlRaw: string): Promise
   }
 
   revalidatePath('/staff');
+  return { ok: true };
 }
 
-export async function markTaskSkipped(taskId: string, reasonRaw: string): Promise<void> {
+export async function markTaskSkipped(taskId: string, reasonRaw: string): Promise<ActionResult> {
   const ctx = await requireStaff();
   const reason = reasonRaw.trim().slice(0, 200);
-  if (reason.length < 2) throw new Error('请填写跳过原因(2 字以上)');
+  if (reason.length < 2) return { ok: false, error: '请填写跳过原因(2 字以上)' };
 
   const client = getSupabaseServiceClient();
 
@@ -151,10 +171,10 @@ export async function markTaskSkipped(taskId: string, reasonRaw: string): Promis
     .select('id, staff_account_id, tenant_id, status, variant_id')
     .eq('id', taskId)
     .single();
-  if (tErr || !task) throw new Error('任务不存在');
-  if (task.staff_account_id !== ctx.staff_id) throw new Error('这不是分派给你的任务');
-  if (task.tenant_id !== ctx.tenant_id) throw new Error('租户不匹配');
-  if (task.status === 'published') throw new Error('该任务已发布,不能跳过');
+  if (tErr || !task) return { ok: false, error: '任务不存在' };
+  if (task.staff_account_id !== ctx.staff_id) return { ok: false, error: '这不是分派给你的任务' };
+  if (task.tenant_id !== ctx.tenant_id) return { ok: false, error: '租户不匹配' };
+  if (task.status === 'published') return { ok: false, error: '该任务已发布,不能跳过' };
 
   // STF-3 — pull variant platform for audit context. Cheap; same query
   // shape as markTaskPublished. Without this, "为什么这条变体被多个员工
@@ -170,7 +190,7 @@ export async function markTaskSkipped(taskId: string, reasonRaw: string): Promis
     .from('publish_tasks')
     .update({ status: 'skipped', skip_reason: reason })
     .eq('id', taskId);
-  if (upErr) throw new Error(`跳过失败: ${upErr.message}`);
+  if (upErr) return { ok: false, error: `跳过失败: ${upErr.message}` };
 
   await client.from('audit_logs').insert({
     tenant_id: ctx.tenant_id,
@@ -186,4 +206,5 @@ export async function markTaskSkipped(taskId: string, reasonRaw: string): Promis
   });
 
   revalidatePath('/staff');
+  return { ok: true };
 }
