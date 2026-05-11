@@ -26,6 +26,8 @@ import {
   checkNumericFacts,
   chat,
   isAvailable as llmAvailable,
+  scanKeywords,
+  type KeywordRow,
   type VerifiedCitation,
 } from '@geo/geo-core';
 import { RECOMMENDED_COMBO, type GeoTacticId, type VariantPlatform } from '@geo/shared';
@@ -134,6 +136,26 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
     key_claims: (r.key_claims as string[] | null) ?? [],
   }));
 
+  // Prompt-time compliance scan setup (V1.9.1 anti-rejection feature).
+  // Load A-level keywords ONCE so each platform's first-pass output can be
+  // scanned synchronously; if it breaches, the retry hint includes the exact
+  // offending spans, which the LLM cooperates with much better than the
+  // abstract red-line list in SYSTEM_PROMPT. Cuts demo-dental's reject rate
+  // (64% baseline in V1.9.1 audit) by feeding LLM its own violations.
+  const { data: aLevelKwRows } = await client
+    .from('compliance_keywords')
+    .select('id, term, level, category, variants, platforms')
+    .or(`tenant_id.is.null,tenant_id.eq.${tenant_id}`)
+    .eq('level', 'A');
+  const aLevelKeywords: KeywordRow[] = (aLevelKwRows ?? []).map((r) => ({
+    id: r.id as string,
+    term: r.term as string,
+    level: 'A' as const,
+    category: r.category as string,
+    variants: (r.variants as string[] | null) ?? [],
+    platforms: (r.platforms as string[] | null) ?? [],
+  }));
+
   // ADR 007 — Wizard-selected keywords. variant-generate must:
   //   (1) inject them into the prompt as "must plant"
   //   (2) post-verify each appears in the generated body — missing ones
@@ -212,6 +234,16 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
         return false;
       }
 
+      // Prompt-time A-level keyword scan on v0. If breached, the retry hint
+      // includes the exact offending spans so the LLM rewrites those specific
+      // sentences rather than guessing what's wrong from an abstract rule list.
+      const v0Scan = scanKeywords(
+        `${result.variant.title}\n\n${result.variant.body}`,
+        aLevelKeywords,
+        platform,
+      );
+      const v0AHits = v0Scan.hits;
+
       const REWRITE_THRESHOLD = 70;
       const primaryKeyword = item!.topics?.[0]?.trim() ?? result.variant.title.slice(0, 8);
 
@@ -246,10 +278,22 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
       let chosen = score0;
 
       const failedSignals = listFailedSignals(score0, REWRITE_THRESHOLD);
-      const rewriteEligible = result.variant.provider !== 'stub' && failedSignals.length > 0;
+      const rewriteEligible =
+        result.variant.provider !== 'stub' && (failedSignals.length > 0 || v0AHits.length > 0);
 
       if (rewriteEligible) {
         const hintParts: string[] = [];
+        // Lead with the compliance hint — A-level breaches are non-negotiable.
+        // GEO score is optimization, compliance is the floor.
+        if (v0AHits.length > 0) {
+          const lines = v0AHits
+            .slice(0, 8)
+            .map((h) => `• "${h.context_snippet}" → 命中: "${h.term}" (${h.category})`)
+            .join('\n');
+          hintParts.push(
+            `# 合规红线触发(必须修复)\n你的上一稿命中了广告法 A 级红线,以下表述必须重写:\n${lines}\n\n重写要求:\n1. 保留 KB 引用的真实数据和品牌信息\n2. 用客观/科普风格替代"保证/绝对/第一/根治"类断言\n3. 患者效果用"临床研究显示"等中性表达\n4. 不再使用上述任何关键词及其变体(繁体、全角、空格分隔也禁用)`,
+          );
+        }
         if (score0.geo.total < REWRITE_THRESHOLD) {
           hintParts.push(buildRewriteHint(score0.geo));
         }
@@ -276,21 +320,61 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
             verifiedCitations,
             1,
           );
-          // Pick the better one. Combined metric:
+          // Compliance-first override: A-level breaches trump GEO score.
+          // If retry cleared (or reduced) the breach while v0 had it, take retry
+          // even if combined score is lower — otherwise v0 re-triggers
+          // downstream rejection and the retry was wasted.
+          const v1Scan = v0AHits.length > 0
+            ? scanKeywords(
+                `${retry.variant.title}\n\n${retry.variant.body}`,
+                aLevelKeywords,
+                platform,
+              )
+            : null;
+          const v1AHitCount = v1Scan?.hits.length ?? 0;
+          const complianceImproved = v0AHits.length > 0 && v1AHitCount < v0AHits.length;
+          const complianceWorsened = v0AHits.length === 0 && v1AHitCount > 0;
+
+          // Combined metric:
           //   geo.total - 5 * missing_keywords - 5 * uniqueness_fail
           // — penalize each failed signal so a higher GEO with missing keywords
           // can still lose to a slightly lower GEO with all keywords planted.
+          // Compliance override wins both ways.
           const combined0 = combinedScore(score0);
           const combined1 = combinedScore(score1);
-          if (combined1 > combined0) {
+          const takeRetry =
+            complianceImproved ||
+            (!complianceWorsened && combined1 > combined0);
+
+          if (takeRetry) {
             v = retry.variant;
             chosen = score1;
             console.log(
-              `[variant-generate] ${platform} rewrite improved combined ${combined0.toFixed(1)}→${combined1.toFixed(1)} (signals: ${failedSignals.join(',')}, ${Date.now() - t1}ms)`,
+              `[variant-generate] ${platform} rewrite picked v1 (combined ${combined0.toFixed(1)}→${combined1.toFixed(1)}, A-hits ${v0AHits.length}→${v1AHitCount}, ${Date.now() - t1}ms)`,
             );
           } else {
             console.log(
-              `[variant-generate] ${platform} rewrite kept v0 (combined ${combined0.toFixed(1)} ≥ ${combined1.toFixed(1)}, signals: ${failedSignals.join(',')})`,
+              `[variant-generate] ${platform} rewrite kept v0 (combined ${combined0.toFixed(1)} ≥ ${combined1.toFixed(1)}, A-hits ${v0AHits.length}/v1=${v1AHitCount})`,
+            );
+          }
+
+          // Audit prompt-time compliance retry effectiveness (V1.9.1).
+          // Emit only when the keyword hint actually fired, so the metric
+          // measures the new feature's rescue rate cleanly.
+          if (v0AHits.length > 0) {
+            await writeAudit(
+              tenant_id,
+              triggered_by,
+              'content.variant_prompt_compliance_retry',
+              content_item_id,
+              {
+                platform,
+                v0_a_hits: v0AHits.length,
+                v0_hit_terms: v0AHits.slice(0, 5).map((h) => h.term),
+                v1_a_hits: v1AHitCount,
+                rescued: v1AHitCount === 0,
+                picked: takeRetry ? 'v1' : 'v0',
+              },
             );
           }
         }
