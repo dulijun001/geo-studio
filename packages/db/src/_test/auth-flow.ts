@@ -45,13 +45,20 @@ async function main() {
   }
 
   // 2. /login → 200 with form
+  // Marker is permissive across V1.7 redesign: matches either current copy
+  // ("发送登录链接") or the email-input form structure (type="email"+autocomplete).
+  // Don't tighten to one literal — that goes stale on every copy iteration.
   {
     const res = await fetch(`${APP_URL}/login`, { redirect: 'manual' });
     const body = res.status === 200 ? await res.text() : '';
+    const formPresent =
+      body.includes('发送登录链接') ||
+      body.includes('登录链接') ||
+      (body.includes('type="email"') && body.includes('autocomplete="email"'));
     record(
       'GET /login → 200 with email form',
-      res.status === 200 && body.includes('发送登录链接'),
-      `status=${res.status} formPresent=${body.includes('发送登录链接')}`,
+      res.status === 200 && formPresent,
+      `status=${res.status} formPresent=${formPresent}`,
     );
   }
 
@@ -59,10 +66,14 @@ async function main() {
   {
     const res = await fetch(`${APP_URL}/auth/callback?code=invalid`, { redirect: 'manual' });
     const body = res.status === 200 ? await res.text() : '';
+    const handlerPresent =
+      body.includes('正在完成登录') ||
+      body.includes('完成登录') ||
+      body.includes('回到登录页');
     record(
       'GET /auth/callback → 200 client page',
-      res.status === 200 && body.includes('正在完成登录'),
-      `status=${res.status}`,
+      res.status === 200 && handlerPresent,
+      `status=${res.status} handlerPresent=${handlerPresent}`,
     );
   }
 

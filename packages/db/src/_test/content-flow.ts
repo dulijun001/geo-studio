@@ -11,6 +11,9 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import PgBoss from 'pg-boss';
+import { setupTestGuard } from './_runner';
+
+setupTestGuard({ timeoutMs: 90_000 });
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
