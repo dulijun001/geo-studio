@@ -1,8 +1,13 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { dispatchToday, type DispatchProposal } from './actions';
+import {
+  dispatchToday,
+  type DispatchProposal,
+  type DispatchOverride,
+  type EligibleStaff,
+} from './actions';
 
 const PLATFORM_LABEL: Record<string, string> = {
   toutiao_article: '头条',
@@ -31,6 +36,8 @@ export function DispatchButton({ tenantSlug }: { tenantSlug: string }) {
   });
   // DSP-2 — surface per-row unmatched reasons in the preview pane.
   const [unmatchedDetails, setUnmatchedDetails] = useState<UnmatchedDetail[]>([]);
+  // MVP swap: roster for client-side per-row staff <select>.
+  const [eligibleStaff, setEligibleStaff] = useState<EligibleStaff[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -62,17 +69,25 @@ export function DispatchButton({ tenantSlug }: { tenantSlug: string }) {
         setProposals(r.proposals);
         setMeta({ unmatched: r.unmatched, idle_staff: r.idle_staff });
         setUnmatchedDetails(r.unmatched_details ?? []);
+        setEligibleStaff(r.eligible_staff ?? []);
       } catch (e) {
         setErr(e instanceof Error ? e.message : '预览失败');
       }
     });
   };
 
-  const onConfirm = () => {
+  // Accepts the (possibly edited) proposals; serializes them as overrides so
+  // the server uses admin's picks instead of re-running the algorithm.
+  const onConfirm = (edited: DispatchProposal[]) => {
     setErr(null);
     startTransition(async () => {
       try {
-        const r = await dispatchToday(tenantSlug, true);
+        const overrides: DispatchOverride[] = edited.map((p) => ({
+          variant_id: p.variant_id,
+          staff_id: p.staff_id,
+          time_window: p.time_window,
+        }));
+        const r = await dispatchToday(tenantSlug, true, overrides);
         setProposals(null);
         setMsg(`派单成功:写入 ${r.proposals.length} 条任务,自动 mint ${r.proposals.length * 2} 个钩子。`);
         router.refresh();
@@ -104,6 +119,7 @@ export function DispatchButton({ tenantSlug }: { tenantSlug: string }) {
       {proposals !== null ? (
         <ReviewDialog
           proposals={proposals}
+          eligibleStaff={eligibleStaff}
           meta={meta}
           unmatchedDetails={unmatchedDetails}
           onCancel={() => setProposals(null)}
@@ -117,6 +133,7 @@ export function DispatchButton({ tenantSlug }: { tenantSlug: string }) {
 
 function ReviewDialog({
   proposals,
+  eligibleStaff,
   meta,
   unmatchedDetails,
   onCancel,
@@ -124,14 +141,41 @@ function ReviewDialog({
   isPending,
 }: {
   proposals: DispatchProposal[];
+  eligibleStaff: EligibleStaff[];
   meta: { unmatched: number; idle_staff: number };
   unmatchedDetails: UnmatchedDetail[];
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (edited: DispatchProposal[]) => void;
   isPending: boolean;
 }) {
+  // Mutable local copy so admin can swap staff per row. Initial = algorithm output.
+  const [edited, setEdited] = useState<DispatchProposal[]>(proposals);
+
+  const staffById = useMemo(
+    () => new Map(eligibleStaff.map((s) => [s.id, s])),
+    [eligibleStaff],
+  );
+
+  const swap = (variantId: string, newStaffId: string) => {
+    const s = staffById.get(newStaffId);
+    if (!s) return;
+    setEdited((prev) =>
+      prev.map((p) =>
+        p.variant_id === variantId
+          ? { ...p, staff_id: newStaffId, staff_name: s.name, staff_phone: null }
+          : p,
+      ),
+    );
+  };
+
+  // Count edits so admin knows what they changed before committing.
+  const editCount = useMemo(
+    () => edited.filter((p, i) => p.staff_id !== proposals[i]?.staff_id).length,
+    [edited, proposals],
+  );
+
   const byStaff = new Map<string, DispatchProposal[]>();
-  for (const p of proposals) {
+  for (const p of edited) {
     const list = byStaff.get(p.staff_name) ?? [];
     list.push(p);
     byStaff.set(p.staff_name, list);
@@ -178,17 +222,41 @@ function ReviewDialog({
                   </span>
                 </p>
                 <ul className="space-y-1.5">
-                  {list.map((p, i) => (
-                    <li key={i} className="flex items-baseline gap-2 text-sm">
-                      <span className="rounded bg-card px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-                        {PLATFORM_LABEL[p.variant_platform] ?? p.variant_platform}
-                      </span>
-                      <span className="rounded bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                        {p.time_window === 'morning' ? '上午档' : '下午档'}
-                      </span>
-                      <span className="line-clamp-1 flex-1">{p.variant_title}</span>
-                    </li>
-                  ))}
+                  {list.map((p) => {
+                    const platformEligible = eligibleStaff.filter((s) =>
+                      s.platforms.includes(p.variant_platform),
+                    );
+                    const isEdited = p.staff_id !== proposals.find((q) => q.variant_id === p.variant_id)?.staff_id;
+                    return (
+                      <li key={p.variant_id} className="flex items-baseline gap-2 text-sm">
+                        <span className="rounded bg-card px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                          {PLATFORM_LABEL[p.variant_platform] ?? p.variant_platform}
+                        </span>
+                        <span className="rounded bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          {p.time_window === 'morning' ? '上午档' : '下午档'}
+                        </span>
+                        <span className="line-clamp-1 flex-1">{p.variant_title}</span>
+                        <select
+                          value={p.staff_id}
+                          onChange={(e) => swap(p.variant_id, e.target.value)}
+                          className={`rounded-md border bg-background px-1.5 py-0.5 text-[11px] ${
+                            isEdited ? 'border-amber-400 text-amber-200' : 'border-border text-muted-foreground'
+                          }`}
+                          aria-label="选择员工"
+                        >
+                          {platformEligible.length === 0 ? (
+                            <option value={p.staff_id}>{p.staff_name}</option>
+                          ) : (
+                            platformEligible.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </li>
+                    );
+                  })}
                 </ul>
               </li>
             ))}
@@ -227,7 +295,9 @@ function ReviewDialog({
 
         <footer className="flex items-center justify-between gap-3 border-t border-border bg-muted/30 px-6 py-3">
           <p className="text-xs text-muted-foreground">
-            确认后会自动 mint 暗号 + 医生名钩子,员工立刻能看到任务。
+            {editCount > 0
+              ? `已手动调整 ${editCount} 条派单 · 确认后按你的选择写入,绕过算法。`
+              : '确认后会自动 mint 暗号 + 医生名钩子,员工立刻能看到任务。'}
           </p>
           <div className="flex items-center gap-2">
             <button
@@ -239,11 +309,11 @@ function ReviewDialog({
             </button>
             <button
               type="button"
-              onClick={onConfirm}
+              onClick={() => onConfirm(edited)}
               disabled={isPending}
               className="btn-primary disabled:opacity-60"
             >
-              {isPending ? '派单中…' : `确认派 ${proposals.length} 条`}
+              {isPending ? '派单中…' : `确认派 ${edited.length} 条${editCount > 0 ? `(${editCount} 条手改)` : ''}`}
             </button>
           </div>
         </footer>

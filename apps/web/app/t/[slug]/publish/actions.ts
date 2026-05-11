@@ -227,6 +227,29 @@ export type DispatchUnmatched = {
   reason: string;
 };
 
+/**
+ * Roster snapshot returned alongside the algorithm proposals so the preview UI
+ * can render a per-row staff <select> for manual swap. Filter on the client by
+ * matching `platforms.includes(variant_platform)`.
+ */
+export type EligibleStaff = {
+  id: string;
+  name: string;
+  /** Platforms this staff has accounts on (derived from the platforms JSONB keys). */
+  platforms: string[];
+};
+
+/**
+ * Admin override for a single proposal. When supplied to dispatchToday on the
+ * commit pass, the algorithm output is replaced row-by-row with these picks.
+ * Server still re-verifies platform fit + variant ownership before insert.
+ */
+export type DispatchOverride = {
+  variant_id: string;
+  staff_id: string;
+  time_window?: 'morning' | 'afternoon';
+};
+
 export type DispatchResult = {
   /** Detailed proposals for UI preview / display. */
   proposals: DispatchProposal[];
@@ -237,6 +260,8 @@ export type DispatchResult = {
   unmatched_details: DispatchUnmatched[];
   /** Staff that got nothing today (low fresh variant count or no platform fit). */
   idle_staff: number;
+  /** All active operator staff for client-side manual swap dropdowns. */
+  eligible_staff: EligibleStaff[];
   /** Whether the rows were actually inserted. */
   committed: boolean;
 };
@@ -244,6 +269,7 @@ export type DispatchResult = {
 export async function dispatchToday(
   tenantSlug: string,
   confirm = false,
+  overrides?: DispatchOverride[],
 ): Promise<DispatchResult> {
   const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
 
@@ -316,6 +342,7 @@ export async function dispatchToday(
       unmatched: 0,
       unmatched_details: [],
       idle_staff: 0,
+      eligible_staff: [],
       committed: false,
     };
   }
@@ -387,6 +414,47 @@ export async function dispatchToday(
       return [r.id, { name: r.real_name ?? '医生', phone: r.phone ?? null }];
     }),
   );
+
+  // Staff roster for client-side manual swap. platforms[] = JSONB keys.
+  const eligibleStaff: EligibleStaff[] = staffRows.map((s) => {
+    const r = s as { id: string; real_name?: string; platforms?: Record<string, unknown> | null };
+    return {
+      id: r.id,
+      name: r.real_name ?? '医生',
+      platforms: Object.keys(r.platforms ?? {}),
+    };
+  });
+
+  // Manual override: replace algorithm proposals with admin's edits BEFORE any
+  // downstream computation, so detailedProposals/rows/hooks all reflect the swap.
+  // Re-verify: variant in today's pool, staff active in this tenant, platform fits.
+  // Silently drops invalid rows (caller already saw the preview UI).
+  const isManualOverride = !!(confirm && overrides && overrides.length > 0);
+  if (isManualOverride && overrides) {
+    const staffPlatforms = new Map(
+      staffRows.map((s) => {
+        const r = s as { id: string; platforms?: Record<string, unknown> | null };
+        return [r.id, new Set(Object.keys(r.platforms ?? {}))];
+      }),
+    );
+    const seen = new Set<string>();
+    const valid = overrides.filter((o) => {
+      if (seen.has(o.variant_id)) return false;
+      const v = variantById.get(o.variant_id) as { platform?: string } | undefined;
+      if (!v?.platform) return false;
+      const platforms = staffPlatforms.get(o.staff_id);
+      if (!platforms || !platforms.has(v.platform)) return false;
+      seen.add(o.variant_id);
+      return true;
+    });
+    result.proposals = valid.map((o) => ({
+      variant_id: o.variant_id,
+      staff_id: o.staff_id,
+      match_score: 0,
+      time_window: o.time_window ?? 'morning',
+    }));
+  }
+
   const detailedProposals: DispatchProposal[] = result.proposals.map((p) => {
     const v = variantById.get(p.variant_id);
     const s = staffMap.get(p.staff_id);
@@ -425,6 +493,7 @@ export async function dispatchToday(
       unmatched: result.unmatched.length,
       unmatched_details: unmatchedDetails,
       idle_staff: result.idle_staff.length,
+      eligible_staff: eligibleStaff,
       committed: false,
     };
   }
@@ -459,6 +528,7 @@ export async function dispatchToday(
           daily_cap: dispatchSettings.daily_cap_per_staff,
           pool_size: freshVariants.length,
           active_staff_count: staff.length,
+          manual_override: isManualOverride,
         },
       }),
     ]);
@@ -514,6 +584,7 @@ export async function dispatchToday(
     unmatched: result.unmatched.length,
     unmatched_details: unmatchedDetails,
     idle_staff: result.idle_staff.length,
+    eligible_staff: eligibleStaff,
     committed: true,
   };
 }
