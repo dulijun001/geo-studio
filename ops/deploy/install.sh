@@ -100,6 +100,13 @@ fi
 # ── 9. Build Web ─────────────────────────────────────────────────────────
 pnpm --filter @geo/web build
 
+# Next standalone build 不会自动 copy .next/static 和 public/ 到 standalone
+# 目录, 不补的话 server.js 启动后所有 /_next/static/* 都 404, 页面渲染裸 HTML.
+rsync -a --delete apps/web/.next/static/ apps/web/.next/standalone/apps/web/.next/static/
+if [[ -d apps/web/public ]] && [[ -n "$(ls -A apps/web/public 2>/dev/null)" ]]; then
+  rsync -a --delete apps/web/public/ apps/web/.next/standalone/apps/web/public/
+fi
+
 # ── 10. PM2 启动 ─────────────────────────────────────────────────────────
 chmod +x ${ROOT}/ops/deploy/start-web.sh ${ROOT}/ops/deploy/start-worker.sh
 pm2 start ${ROOT}/ops/deploy/ecosystem.config.cjs

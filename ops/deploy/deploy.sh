@@ -42,6 +42,15 @@ fi
 # 4. Web build
 pnpm --filter @geo/web build
 
+# 4.5. 把静态资源 + public 推到 standalone — Next standalone build 不会自动
+# copy 这两个目录,缺了就 CSS / 图标 / icon-png 全部 404,页面渲染裸 HTML.
+# 用 rsync --delete 保持 standalone 内的 static 跟最新 build 一致, public
+# 目录如果不存在(已经清空)就跳过.
+rsync -a --delete apps/web/.next/static/ apps/web/.next/standalone/apps/web/.next/static/
+if [[ -d apps/web/public ]] && [[ -n "$(ls -A apps/web/public 2>/dev/null)" ]]; then
+  rsync -a --delete apps/web/public/ apps/web/.next/standalone/apps/web/public/
+fi
+
 # 5. PM2 zero-downtime reload
 pm2 reload ${ROOT}/ops/deploy/ecosystem.config.cjs --update-env
 
