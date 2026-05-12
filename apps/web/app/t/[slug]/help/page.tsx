@@ -31,7 +31,7 @@ export default async function HelpPage({ params }: { params: { slug: string } })
           ))}
         </aside>
 
-        <article className="prose prose-slate max-w-none space-y-12">
+        <article className="prose prose-invert prose-headings:text-foreground prose-strong:text-foreground prose-a:text-emerald-300 prose-a:no-underline hover:prose-a:underline max-w-none space-y-12">
 
           <Section id="overview" title="GEO Studio 在解决什么问题">
             <p>
