@@ -449,7 +449,7 @@ function Path({ href, children }: { href: string; children: React.ReactNode }) {
   return (
     <Link
       href={href}
-      className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs underline-offset-2 hover:underline"
+      className="rounded bg-emerald-500/[0.12] px-1.5 py-0.5 font-mono text-xs text-emerald-300 underline-offset-2 hover:bg-emerald-500/20"
     >
       {children}
     </Link>

@@ -109,7 +109,7 @@ export function QueryMatrixForm({ tenantSlug }: { tenantSlug: string }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-md bg-foreground px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+        className="inline-flex items-center gap-1 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
       >
         Query 矩阵
       </button>
