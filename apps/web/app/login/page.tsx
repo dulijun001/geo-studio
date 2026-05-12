@@ -10,7 +10,7 @@ import { LoginForm } from './login-form';
 export default function LoginPage({
   searchParams,
 }: {
-  searchParams: { next?: string };
+  searchParams: { next?: string; err?: string };
 }) {
   if (process.env.NODE_ENV !== 'production') {
     const next = searchParams.next ? `?next=${encodeURIComponent(searchParams.next)}` : '';
@@ -76,6 +76,46 @@ export default function LoginPage({
             <LoginForm />
           </Suspense>
         </div>
+
+        {/* TEMPORARY 临时账号密码登录 — 见 apps/web/app/login/quick/route.ts */}
+        <details className="rounded-2xl border border-border bg-card/40 p-5 text-sm">
+          <summary className="cursor-pointer font-medium text-muted-foreground">
+            管理员快速登录
+          </summary>
+          <form action="/login/quick" method="POST" className="mt-4 space-y-3">
+            <label className="block space-y-1">
+              <span className="text-xs text-muted-foreground">账号</span>
+              <input
+                name="username"
+                type="text"
+                required
+                autoComplete="username"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs text-muted-foreground">密码</span>
+              <input
+                name="password"
+                type="password"
+                required
+                autoComplete="current-password"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+              />
+            </label>
+            {searchParams.err === 'bad' && (
+              <p className="rounded-md border border-rose-500/30 bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">
+                账号或密码错误
+              </p>
+            )}
+            <button
+              type="submit"
+              className="w-full rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-emerald-950 hover:bg-emerald-400"
+            >
+              登录
+            </button>
+          </form>
+        </details>
       </main>
     </div>
   );
