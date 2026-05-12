@@ -537,6 +537,10 @@ export async function dispatchToday(
     // W7 hooks: per-task doctor_name + activity_code.
     // Both close in 30 days — rough match for the typical conversion window
     // for high-ticket dental services. Configurable later via tenant settings.
+    // FEATURE_HOOKS_DISABLED 2026-05-12 — 暗号/医生名 hooks 暂时停止 mint
+    // (产品决策:不在头条/知乎类公域用暗号引流,合规风险 + 平台规则禁止)。
+    // 旧 hooks 数据保留不动。要恢复:把下面整段从注释里释放出来,并删此注释块。
+    /*
     type InsertedTask = { id: string; staff_account_id: string };
     const inserted = (insRes.data ?? []) as InsertedTask[];
     if (inserted.length > 0) {
@@ -547,9 +551,6 @@ export async function dispatchToday(
         }),
       );
       const validUntil = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
-      // DEBT-2 — generate codes serially with collision check. Inserted
-      // count is ≤ active staff (~ 12 typical), so the round-trip cost is
-      // small relative to the audit safety it buys.
       const hookRows = (
         await Promise.all(
           inserted.map(async (t) => {
@@ -576,6 +577,7 @@ export async function dispatchToday(
       const { error: hErr } = await service.from('hooks').insert(hookRows);
       if (hErr) console.error(`[dispatch] hooks insert: ${hErr.message}`);
     }
+    */
   }
 
   revalidatePath(`/t/${tenantSlug}/publish`);
