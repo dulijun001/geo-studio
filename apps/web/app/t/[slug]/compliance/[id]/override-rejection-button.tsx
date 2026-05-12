@@ -43,6 +43,10 @@ export function OverrideRejectionButton({
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : '翻案失败');
+        // Same stale-state recovery as ReviewActions — refresh server state
+        // so the user immediately sees the true current state (e.g. someone
+        // else just AI-rewrote this row and it's no longer rejected).
+        router.refresh();
       }
     });
   };

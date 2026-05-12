@@ -52,6 +52,14 @@ export function ReviewActions({
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
+        // Stale-state recovery: server action may have rejected because the
+        // variant transitioned to a terminal state mid-edit (worker review
+        // landed while admin was filling rationale). router.refresh() pulls
+        // fresh server state; useState is preserved across refresh in Next 14
+        // so rationale input survives — user can re-submit if it was a
+        // different error. Worst case: a transient error triggers a harmless
+        // re-fetch.
+        router.refresh();
       }
     });
   }
