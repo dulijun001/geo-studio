@@ -473,6 +473,10 @@ export async function aiRewriteVariant(
         { role: 'system', content: REWRITE_SYSTEM },
         { role: 'user', content: userPrompt },
       ],
+      // Compliance rewrite needs "analyze WHY it violated → rewrite around
+      // the actual issue" — thinking model materially better at this than
+      // straight Pro. Falls back to PRO if ARK_MODEL_THINKING isn't set.
+      model: process.env.ARK_MODEL_THINKING || process.env.ARK_MODEL_PRO,
       temperature: 0.5,
       max_tokens: 3000,
       response_format: 'json_object',

@@ -116,6 +116,11 @@ ${hitBlock}
       { role: 'system', content: SYSTEM_RULES },
       { role: 'user', content: userContent },
     ],
+    // Compliance judgement is a reasoning task ("does this snippet violate
+    // 广告法 §17(3)?") — route to the thinking model when configured.
+    // Falls back to PRO if ARK_MODEL_THINKING is empty so the system keeps
+    // working before the thinking endpoint is provisioned.
+    model: process.env.ARK_MODEL_THINKING || process.env.ARK_MODEL_PRO,
     temperature: 0,
     max_tokens: opts?.max_tokens ?? 1500,
     response_format: 'json_object',

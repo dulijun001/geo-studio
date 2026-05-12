@@ -31,6 +31,7 @@
     "dev-link": "tsx --env-file=../../.env src/_dev/mint-link.ts",
     "dev-clear-variants": "tsx --env-file=../../.env src/_dev/clear-variants.ts",
     "dev-test-doubao": "tsx --env-file=../../.env src/_dev/test-doubao.ts",
+    "dev-test-thinking": "tsx --env-file=../../.env src/_dev/test-thinking-endpoint.ts",
     "dev-seed-w5": "tsx --env-file=../../.env src/_dev/seed-w5.ts",
     "dev-seed-w6": "tsx --env-file=../../.env src/_dev/seed-w6.ts",
     "typecheck": "tsc --noEmit"
