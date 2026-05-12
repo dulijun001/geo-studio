@@ -20,4 +20,4 @@ export NODE_ENV=production
 
 # Worker 用 tsx 直接跑 ts(避免维护两套 build)。生产同样跑 tsx,启动稍慢
 # 但单进程常驻,启动一次后无影响,换来维护简单。
-exec "${ROOT}/node_modules/.bin/tsx" "${ROOT}/apps/worker/src/index.ts"
+exec "${ROOT}/apps/worker/node_modules/.bin/tsx" "${ROOT}/apps/worker/src/index.ts"
