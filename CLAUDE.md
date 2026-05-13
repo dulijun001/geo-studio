@@ -190,7 +190,7 @@ geo-studio/
 ### 阻塞 / 待澄清 / 已知技术债
 - **D21 落地 P0 待开工**:`content_contracts` 表 / migration 0030 / `buildVariantPrompt` 扩 contract 入参 / SYSTEM_PROMPT 加 10 结构块约束 / Trust Block 注入。详见 ADR 009 第 P0 节
 - **TEMPORARY 账号密码登录**:`/login/quick` (songshu/123456) 临时绕过邮箱魔链,deadline 2026-06-30 替换为 Supabase Auth 多用户或 phone+passcode
-- **Worker pg-boss 连不上 DB**(P0 预存,2026-05-12 deploy 暴露):`DATABASE_URL` 走 Supavisor pool 报 `Tenant or user not found`,worker 已 pm2 stop;意味着 V1.7+ pg-boss 任务(batch / KB sync / 合规 LLM 异步 / GEO 追踪 cron)从未在生产真实跑过
+- ~~Worker pg-boss 连不上 DB(P0)~~ **已修复 2026-05-13**:DATABASE_URL 误写 `postgres.studio:`,Supavisor 实际注册 tenant 是 `your-tenant-id`(`/opt/supabase/docker/.env` `POOLER_TENANT_ID`)。sed 修正 + pm2 reload + 重启 worker = `[worker] pg-boss started`。`.env.production.example` 已加注释防再踩
 - **`NEXT_PUBLIC_APP_URL` 未同步**:仍是 `http://47.98.131.138:9443`,影响 llms.txt / sitemap.xml / invite link 等"对外暴露 URL"。需 rebuild
 - **W8 真实数据验收未归档**(40 人打卡率、5 起到店转化追溯、医院见证)。Stub 见本节末
 - **可观测性 0 接通**(P0):`.env` 有 `SENTRY_DSN` / `AXIOM_TOKEN` / `AXIOM_DATASET`,`packages/shared/src/observability.ts` 提供 `reportError` / `reportEvent` 抽象,但**代码 0 处 import 调用**。生产 error 当前仅走 console.error 单行 JSON。详见 `docs/observability-setup.md`,实操工单待开
