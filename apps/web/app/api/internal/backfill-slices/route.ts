@@ -29,6 +29,14 @@ type Body = {
   tenant_id?: string;
   limit?: number;
   only_empty?: boolean;
+  /**
+   * D21 ADR 009 §13.3 grandfather rule: when true (default), rows already
+   * tagged 'legacy_passed' keep that status even if DoD evaluator would
+   * mark them failed — we only fill dod_score + dod_evidence for visibility,
+   * never downgrade. Set false to force-upgrade legacy rows (you're ready
+   * to enforce D21 retroactively).
+   */
+  preserve_legacy?: boolean;
 };
 
 type ContentItemRow = {
@@ -36,6 +44,7 @@ type ContentItemRow = {
   title: string;
   markdown: string;
   slices: Record<string, unknown> | null;
+  dod_status: string;
 };
 
 type BrandRow = { name: string | null; location: Record<string, unknown> | null };
@@ -71,6 +80,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   const tenantId = body.tenant_id;
   const limit = Math.min(body.limit ?? 500, 1000);
   const onlyEmpty = body.only_empty !== false;
+  const preserveLegacy = body.preserve_legacy !== false;
 
   const service = getSupabaseServiceClient();
 
@@ -94,7 +104,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   // Fetch candidates
   let query = service
     .from('content_items')
-    .select('id, title, markdown, slices')
+    .select('id, title, markdown, slices, dod_status')
     .eq('tenant_id', tenantId)
     .is('deleted_at', null)
     .not('markdown', 'is', null)
@@ -130,11 +140,16 @@ export async function POST(req: Request): Promise<NextResponse> {
             ctx,
           });
 
+          // D21 ADR 009 §13.3 grandfather: legacy_passed rows keep their
+          // status; we only attach dod_score + evidence for visibility.
+          const keepLegacyStatus = preserveLegacy && row.dod_status === 'legacy_passed';
+          const finalStatus = keepLegacyStatus ? 'legacy_passed' : dod.status;
+
           const updateRes = await service
             .from('content_items')
             .update({
               slices,
-              dod_status: dod.status,
+              dod_status: finalStatus,
               dod_score: dod.score,
               dod_evidence: dod.evidence,
               dod_evaluated_at: dod.evidence.evaluated_at,
@@ -146,7 +161,7 @@ export async function POST(req: Request): Promise<NextResponse> {
           }
 
           sliceFilled++;
-          if (dod.status === 'passed') dodPassed++;
+          if (finalStatus === 'passed' || finalStatus === 'legacy_passed') dodPassed++;
           else dodFailed++;
 
           if (samples.length < 5) {
