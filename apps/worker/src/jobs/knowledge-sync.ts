@@ -340,17 +340,34 @@ export async function handleKnowledgeSync(
       }
     }
 
-    for (const [path, prev] of existingByPath.entries()) {
-      if (!scanByPath.has(path)) {
-        const { error } = await client
-          .from('knowledge_sources')
-          .update({ deleted_at: now })
-          .eq('id', prev.id);
-        if (error) {
-          console.error(`[kb-sync] soft-delete ${path} failed:`, error);
-          continue;
+    // SAFETY: refuse to bulk soft-delete when scan returns suspiciously low.
+    // Incident 2026-05-13: scanKnowledgeBase transient-returned 0 files (worker
+    // mid-restart or fs glob hiccup), DB had 207 active rows, the deletion
+    // loop nuked all of them in one tick, ai-draft API then reported
+    // "知识库为空". Hard guard: if scan size is <50% of existing OR scan is 0
+    // while existing > 0, skip the deletion phase entirely and log loud.
+    const scanCount = scan.length;
+    const existingCount = existingByPath.size;
+    const wouldDeleteAll = scanCount === 0 && existingCount > 0;
+    const wouldDeleteMajority =
+      existingCount >= 10 && scanCount / existingCount < 0.5;
+    if (wouldDeleteAll || wouldDeleteMajority) {
+      console.error(
+        `[kb-sync] tenant=${tenant.slug} SAFETY ABORT — scan=${scanCount} vs existing=${existingCount}. Refusing to bulk soft-delete (looks like transient scan failure). Deletion phase skipped this run.`,
+      );
+    } else {
+      for (const [path, prev] of existingByPath.entries()) {
+        if (!scanByPath.has(path)) {
+          const { error } = await client
+            .from('knowledge_sources')
+            .update({ deleted_at: now })
+            .eq('id', prev.id);
+          if (error) {
+            console.error(`[kb-sync] soft-delete ${path} failed:`, error);
+            continue;
+          }
+          deleted++;
         }
-        deleted++;
       }
     }
 
