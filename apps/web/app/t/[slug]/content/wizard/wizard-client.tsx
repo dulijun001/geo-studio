@@ -29,6 +29,29 @@ export type WizardKbDoc = {
   category: string | null;
 };
 
+// D21 / ADR 009 — 8 query intent enums. Drives prompt anchoring + future
+// content_contract.query_intent value.
+type QueryIntent =
+  | 'what_is'
+  | 'is_it_true'
+  | 'which_is_better'
+  | 'why_happens'
+  | 'what_to_do'
+  | 'how_long'
+  | 'when_to_seek_care'
+  | 'how_to_choose_local';
+
+const QUERY_INTENTS: Array<{ value: QueryIntent; label: string; example: string }> = [
+  { value: 'what_is', label: '什么是 / 定义', example: '什么是牙周炎' },
+  { value: 'is_it_true', label: '辟谣 / 是不是真的', example: '洗牙会不会让牙缝变大' },
+  { value: 'which_is_better', label: '对比 / 哪个更好', example: '种植牙和烤瓷桥怎么选' },
+  { value: 'why_happens', label: '为什么会这样', example: '牙龈出血是什么原因' },
+  { value: 'what_to_do', label: '出现了 X 怎么办', example: '牙齿松动了怎么办' },
+  { value: 'how_long', label: '要多久 / 多频繁', example: '多久洗一次牙' },
+  { value: 'when_to_seek_care', label: '何时需要就医', example: '牙痛要不要立刻看医生' },
+  { value: 'how_to_choose_local', label: '本地怎么选 / 选医院', example: '昆明种植牙怎么选医院' },
+];
+
 const PLATFORMS: Array<{
   value: 'wechat_mp' | 'zhihu' | 'toutiao_article' | 'douyin_script' | 'xiaohongshu';
   label: string;
@@ -62,6 +85,10 @@ export function WizardClient({
   const [audience, setAudience] = useState('');
   const [docFilter, setDocFilter] = useState('');
   const [pickedDocs, setPickedDocs] = useState<Set<string>>(new Set());
+
+  // Step 1 — D21 GEO standard fields (optional, but recommended for quality)
+  const [primaryQuery, setPrimaryQuery] = useState('');
+  const [queryIntent, setQueryIntent] = useState<QueryIntent | ''>('');
 
   // Step 2
   const [pickedKeywords, setPickedKeywords] = useState<Set<string>>(new Set());
@@ -104,6 +131,10 @@ export function WizardClient({
           writing_template_id: templateId,
           keyword_ids: [...pickedKeywords],
           preferred_doc_paths: [...pickedDocs],
+          // D21 / ADR 009 — optional, but recommended. Drives prompt
+          // direct-answer-in-120-chars rule + intent-aware framing.
+          query_intent: queryIntent || undefined,
+          primary_query: primaryQuery.trim() || undefined,
         });
         router.push(`/t/${tenantSlug}/content/${result.content_item_id}`);
       } catch (e) {
@@ -141,6 +172,58 @@ export function WizardClient({
               />
             </label>
           </div>
+
+          {/* D21 / ADR 009 — GEO standard fields (optional but recommended) */}
+          <details className="rounded-md border border-emerald-500/30 bg-emerald-500/[0.06] p-3 text-xs" open>
+            <summary className="cursor-pointer font-medium text-emerald-300">
+              ✦ GEO 标准模式(D21)— 填了之后 AI 会强制把答案前置 + 按问题类型组织
+            </summary>
+            <div className="mt-3 space-y-3">
+              <label className="block space-y-1">
+                <span className="text-muted-foreground">
+                  主问题(读者会原样输入到豆包搜索的句子,例如:洗牙会不会让牙缝变大)
+                </span>
+                <input
+                  className="form-input"
+                  value={primaryQuery}
+                  onChange={(e) => setPrimaryQuery(e.target.value)}
+                  placeholder={
+                    queryIntent
+                      ? QUERY_INTENTS.find((q) => q.value === queryIntent)?.example ?? ''
+                      : '不填也可,填了开头 120 字会强制直接回答这个问题'
+                  }
+                  maxLength={60}
+                />
+              </label>
+
+              <div className="space-y-1.5">
+                <span className="text-muted-foreground">问题类型(8 选 1,影响文章组织方式)</span>
+                <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">
+                  {QUERY_INTENTS.map((q) => (
+                    <button
+                      key={q.value}
+                      type="button"
+                      onClick={() => setQueryIntent(queryIntent === q.value ? '' : q.value)}
+                      className={
+                        'rounded-md border px-2 py-1.5 text-left text-[11px] transition ' +
+                        (queryIntent === q.value
+                          ? 'border-emerald-500 bg-emerald-500/15 text-emerald-200'
+                          : 'border-border hover:bg-muted/30')
+                      }
+                    >
+                      <div className="font-medium">{q.label}</div>
+                      <div className="text-muted-foreground">例:{q.example}</div>
+                    </button>
+                  ))}
+                </div>
+                {queryIntent && (
+                  <p className="text-[11px] text-emerald-400">
+                    已选 — AI 会按「{QUERY_INTENTS.find((q) => q.value === queryIntent)?.label}」结构组织
+                  </p>
+                )}
+              </div>
+            </div>
+          </details>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">

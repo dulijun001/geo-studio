@@ -36,6 +36,28 @@ export type RunAiDraftInput = {
   writing_template_id?: string | null;
   keyword_ids?: string[];
   preferred_doc_paths?: string[];
+  /**
+   * D21 / ADR 009 — query intent type. 8 enum values. When set, injected
+   * into user prompt + drives "direct answer in first 120 chars" rule.
+   * NULL = legacy V1.6 path (topic-driven only). See
+   * docs/07-geo-article-spec.md §四.
+   */
+  query_intent?:
+    | 'what_is'
+    | 'is_it_true'
+    | 'which_is_better'
+    | 'why_happens'
+    | 'what_to_do'
+    | 'how_long'
+    | 'when_to_seek_care'
+    | 'how_to_choose_local';
+  /**
+   * D21 — exact surface form of the question the reader would type into
+   * 豆包. When set, the model is told the opening must directly answer
+   * this exact question. Optional pre-P0 (content_contracts not yet
+   * wired into wizard persistence; this just flows to prompt).
+   */
+  primary_query?: string;
 };
 
 export type RunAiDraftResult = {
@@ -107,14 +129,52 @@ const SYSTEM_PROMPT = `你是一位严谨的医疗内容编辑。基于提供的
 - 在 JSON 的 citations 字段列出实际引用到的素材 path
 - **不可为空数组**
 
+### 5. D21 GEO 标准化结构(医疗类长内容强制,docs/07-geo-article-spec.md)
+
+**5.1 10 个必备结构块**(短脚本类如抖音 30s 可酌情合并):
+1. **一句话结论(direct_answer)** — 开头 120 字内必须直接回答主问题,不绕开问题先讲故事
+2. 误区 / 问题解释 — 为什么会问这个,有什么常见误解
+3. 原理 / 机制 — 简明解释(可省具体数字,留定性)
+4. 适用人群 + 不适用人群
+5. 风险边界 — 出现什么情况一定要线下就诊
+6. **FAQ ≥ 5 条**(Q + A 短答,Q 是真实搜索词形式,A 35-90 字独立成立)
+7. 审核信息 — 由医院医疗团队 / 具名医生审核
+8. 更新时间 — 例:"本文最近更新于 2026-05"
+9. 机构与服务绑定 — 文末点出品牌 + 服务名 + 城市(自然语境)
+10. Trust Block(见 5.2)
+
+**5.2 Trust Block**(文末独立段落,不要散落正文,用普通文本 + 项目符号):
+  • 本文适用于:[谁]
+  • 本文不替代:面诊、影像、专业评估
+  • 出现以下情况建议尽快就诊:[列 3-5 个红旗症状]
+  • 审核:[医院 / 医生]
+  • 更新:[YYYY-MM]
+  • 地域:[城市 / 区域]
+
+**5.3 引用块标准** — 每个独立段落:
+- 单独截出来也成立,不依赖前文
+- **禁用模糊指代**:"这个" / "那种" / "前者" / "后者" / "上面提到的"
+- 单块句长 35-90 字
+- 每句话回答一个具体问题
+
+**5.4 实体清晰度**:
+- 品牌名 + 城市必须显式("昆明松鼠口腔" 不是 "我们医院")
+- 服务名具体("种植牙" 不是 "这项手术")
+- 审核者具名(否则漏 reviewed_by)
+- 主体不能模糊("有些人 / 大部分情况" → "准备做种植的成年人")
+
 ## 自检步骤(输出前必走一遍)
 
 输出 JSON 前,在 body 上做一次扫描:
 1. 搜"最/第一/根治/包治/治愈/永久/100%/无痛/零风险/保证" — 找到任意一个 → 改写或删掉
 2. 检查所有数字 — 在素材里找原文 → 找不到的 → 改成模糊语
 3. 至少 1 位医生姓名 + 1 条素材 path
+4. 开头 120 字内是否给出主问题答案?(D21 必查)
+5. FAQ 段落数 ≥ 5?(D21 必查)
+6. Trust Block 是否作为独立段落出现(7 项齐)?(D21 必查)
+7. 每段是否能被单独引用(无模糊指代、35-90 字、无前文依赖)?
 
-漏一项 → 你的输出会被合规系统直接 reject(扔进 23/49 的拒绝堆里)。`;
+漏任意一项 → 你的输出会被合规系统直接 reject 或被 Scorer L2 判低分。`;
 
 /**
  * Robust JSON extraction. FAST models occasionally return:
@@ -426,6 +486,34 @@ export async function runAiDraft(
   // SYSTEM_PROMPT (immutable) first; template skeleton appended.
   const systemContent = SYSTEM_PROMPT + templateSystemAppend;
 
+  // D21 / ADR 009 — query intent + primary_query framing. Injected BEFORE
+  // sources block so the model anchors generation around the question type
+  // and exact surface form before reading the materials.
+  const INTENT_LABEL_MAP: Record<NonNullable<RunAiDraftInput['query_intent']>, string> = {
+    what_is: '什么是 / 定义型',
+    is_it_true: '辟谣 / 是不是真的',
+    which_is_better: '对比 / 哪个更好',
+    why_happens: '原因 / 为什么会这样',
+    what_to_do: '出现 X 怎么办',
+    how_long: '要多久 / 多频繁',
+    when_to_seek_care: '何时需要就医',
+    how_to_choose_local: '本地怎么选 / 选医院',
+  };
+  const intentBlock =
+    input.query_intent || input.primary_query
+      ? `\n\n# 主问题与意图(D21 强制约束)\n` +
+        (input.primary_query
+          ? `**主问题**(读者会原样输入到豆包搜索的句子): ${input.primary_query}\n`
+          : '') +
+        (input.query_intent
+          ? `**问题类型**: ${INTENT_LABEL_MAP[input.query_intent]} (\`${input.query_intent}\`)\n`
+          : '') +
+        `\n要求:\n` +
+        `- 文章首段 **120 字内** 必须直接给出主问题的答案,不要绕开问题先讲故事 / 先讲背景\n` +
+        `- 整篇文章只回答这一个主问题 + 它的衍生问法,不要发散到无关话题\n` +
+        `- 标题必须与主问题语义高度相关`
+      : '';
+
   const messages = [
     { role: 'system' as const, content: systemContent },
     {
@@ -434,7 +522,8 @@ export async function runAiDraft(
         `# 写作任务\n\n` +
         `**主题**: ${topic}\n` +
         `**目标受众**: ${audience}\n` +
-        `**目标平台**: ${input.platform}\n\n` +
+        `**目标平台**: ${input.platform}\n` +
+        `${intentBlock}\n\n` +
         `${platformBlock}` +
         `${geoBlock}\n\n` +
         `${GEO_TACTICS_PROMPT}` +

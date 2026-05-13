@@ -70,7 +70,7 @@ export default async function WizardPage({ params }: { params: { slug: string } 
     <div className="space-y-6">
       <PageHeader
         title="创作向导"
-        subtitle="3 步:参考资料 → 关键词 → 写作要求 — 全部填好,AI 起草直接出稿"
+        subtitle="3 步:参考资料 → 关键词 → 写作要求 — 全部填好,AI 起草直接出稿 · D21 GEO 标准模式可在第 1 步展开"
         actions={
           <Link
             href={`/t/${tenant.slug}/content`}
