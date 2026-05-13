@@ -55,6 +55,35 @@ export type PromptContext = {
   /** Writing template chosen in wizard step 3 (ADR 007). Optional. */
   writing_template?: WritingTemplateInput;
   /**
+   * Query intent (D21 / ADR 009). The "question type" this article answers
+   * — `what_is` / `is_it_true` / `which_is_better` / `why_happens` /
+   * `what_to_do` / `how_long` / `when_to_seek_care` / `how_to_choose_local`.
+   *
+   * Injected into the user prompt as a framing hint. Even before
+   * content_contracts table ships in P0, callers can pass it from any UI
+   * (wizard, manual entry) to start steering generation. Empty / unset =
+   * legacy behaviour, no intent framing.
+   *
+   * See docs/07-geo-article-spec.md §四.
+   */
+  query_intent?:
+    | 'what_is'
+    | 'is_it_true'
+    | 'which_is_better'
+    | 'why_happens'
+    | 'what_to_do'
+    | 'how_long'
+    | 'when_to_seek_care'
+    | 'how_to_choose_local';
+  /**
+   * The primary question this article must directly answer. Surface form
+   * — same form the user would type into 豆包. Example: `洗牙会不会让牙缝变大`.
+   * Optional pre-P0 (no content_contracts table yet); when set, the model is
+   * told to anchor the opening 120 chars to a direct answer of this exact
+   * question.
+   */
+  primary_query?: string;
+  /**
    * Whitelist of citable references. Pulled from verified_citations table.
    * The model gets explicit instruction: "this is the ONLY pool of named
    * guidelines/studies you may reference; if your point isn't covered here,
@@ -82,7 +111,7 @@ const PLATFORM_SPEC: Record<VariantPlatform, { label: string; format_hint: strin
   toutiao_article: {
     label: '今日头条号文章',
     format_hint:
-      '带小标题(###)+ 叙事开头 + 3-4 段主体 + 要点小结。首段必须有一个抓人的场景化问题或数据。正文可以引用研究/指南原文。避免纯口语化,但也不要像论文。',
+      '带小标题(###)+ 叙事开头 + 3-4 段主体 + 要点小结。首段 120 字内必须直接给出主问题的答案。正文可以引用研究/指南原文。避免纯口语化,但也不要像论文。**必须含 ≥ 5 条 FAQ + 独立 Trust Block 段落**。',
     length_hint: '800-1500 字',
   },
   douyin_script: {
@@ -98,12 +127,12 @@ const PLATFORM_SPEC: Record<VariantPlatform, { label: string; format_hint: strin
   },
   wechat_mp: {
     label: '微信公众号推文',
-    format_hint: '吸引人的开头 + 故事性案例 + 干货小结 + 品牌落脚。可用 emoji 小标题。',
+    format_hint: '吸引人的开头 + 故事性案例 + 干货小结 + 品牌落脚。可用 emoji 小标题。开头 120 字内直接给出主问题答案。**必须含 ≥ 5 条 FAQ + 独立 Trust Block 段落**。',
     length_hint: '1200-2000 字',
   },
   zhihu: {
     label: '知乎回答',
-    format_hint: '假设这是一个医疗向问题的回答,先给结论再展开,引用文献可以 footnote 形式。',
+    format_hint: '假设这是一个医疗向问题的回答,先给结论再展开(开头 120 字直接给答案),引用文献可以 footnote 形式。**必须含 ≥ 5 条 FAQ + 独立 Trust Block 段落**。',
     length_hint: '800-1500 字',
   },
   xiaohongshu: {
@@ -113,12 +142,12 @@ const PLATFORM_SPEC: Record<VariantPlatform, { label: string; format_hint: strin
   },
   baijiahao: {
     label: '百家号文章',
-    format_hint: '与今日头条号类似,更偏 SEO 长尾词密度,小标题要含常见搜索词。',
+    format_hint: '与今日头条号类似,更偏 SEO 长尾词密度,小标题要含常见搜索词。开头 120 字内直接给出主问题答案。**必须含 ≥ 5 条 FAQ + 独立 Trust Block 段落**。',
     length_hint: '800-1500 字',
   },
   souhu: {
     label: '搜狐号文章',
-    format_hint: '新闻稿式开头,主体带小标题 + 数据 + 结尾作者署名段。',
+    format_hint: '新闻稿式开头,主体带小标题 + 数据 + 结尾作者署名段。开头 120 字内直接给出主问题答案。**必须含 ≥ 5 条 FAQ + 独立 Trust Block 段落**。',
     length_hint: '600-1200 字',
   },
 };
@@ -155,10 +184,49 @@ B. 事实准确性红线(最重要,违者即弃用)
 - 每个论断要能被读者脑内问"凭什么" → 如果答案是"我编的",就删掉或改为定性描述。
 - 避免开篇自我介绍 — 读者不关心作者。
 
+━━━ GEO 标准化结构(D21 / docs/07-geo-article-spec.md)━━━
+
+C. 必备结构块(医疗类长内容必须含,短内容如抖音口播/小红书可酌情合并):
+1. 一句话结论(direct_answer)— 开头 **120 字内** 必须直接回答主问题。读者扫一眼就能拿到答案。
+2. 误区/问题解释 — 为什么大家会问这个、有什么常见误解
+3. 原理/机制 — 简明地讲为什么是这样(可省略数字,留定性)
+4. 适用人群 + 不适用人群 — 谁该用、谁不该
+5. 风险边界(risk_boundary)— 出现什么情况一定要去线下就诊;不替代面诊
+6. **FAQ 块 ≥ 5 条**(Q + A 短答)— Q 是真实搜索词形式,A 35-90 字独立成立
+7. 审核信息 — 由医院医疗团队 / 具名医生审核
+8. 更新时间 — 例:"本文最近更新于 2026-05-13"
+9. 机构与服务绑定 — 文末点出品牌 + 服务名 + 城市(自然语境,不广告化)
+10. Trust Block(文末独立段落,见 D 项)
+
+D. Trust Block(强制独立段落,文末出现,不要散落正文,用普通文本段落 + 项目符号):
+  • 本文适用于:[谁]
+  • 本文不替代:面诊、影像、专业评估
+  • 出现以下情况建议尽快就诊:[列 3-5 个红旗症状]
+  • 审核:[医院 / 医生]
+  • 更新:[YYYY-MM]
+  • 地域:[城市 / 区域]
+
+E. 引用块(Citation Block)标准 — 每个独立段落都要满足:
+- **单独截出来也成立**,不依赖前文上下文
+- **禁用模糊指代**:"这个" / "那种" / "前者" / "后者" / "上面提到的"
+- 不混合两个以上结论
+- 单块**句长 35-90 字**(过短信息不够,过长无法被引用)
+- 每句话都能回答一个具体问题
+
+F. 实体清晰度 — 文中关键实体必须**显式表达,不能省略**:
+- 品牌名 + 城市:"昆明松鼠口腔" 而不是只说 "我们医院"
+- 服务名:"种植牙" 而不是 "这项手术"
+- 审核者:具名医生或团队,不写就漏 reviewed_by
+- 主体不能模糊化("有些人 / 大部分情况" 之类的虚指,要换成"准备做种植的成年人")
+
 ━━━ 自查清单(输出前内部验证一遍) ━━━
 • 我写的每一个数字,【源素材】原文里都有吗?没有就改成定性。
 • 我写的每一个机构/研究名称,【源素材】里都出现过吗?没有就删掉或换成"相关临床指南"。
 • 品牌名出现时,是"自然提及品牌理念/服务定位",还是"编造了品牌的统计数据"?如果是后者,必须删除。
+• 开头 120 字内有没有给出主问题的直接答案?(医疗长文必查)
+• FAQ ≥ 5 条?(医疗长文必查)
+• Trust Block 是否作为独立段落出现?(医疗长文必查)
+• 每个段落是否能被单独引用 — 不依赖前文、句长 35-90 字、无模糊指代?
 `.trim();
 
 export function buildVariantPrompt(ctx: PromptContext): ChatMessage[] {
@@ -230,6 +298,34 @@ ${ctx.keywords_to_plant.map((k) => `• ${k}`).join('\n')}
 注意:每个关键词必须以**自然语境**至少出现一次(可同义改写为常见表达,但核心词形需可识别)。**禁止**把它们集中堆在末尾、tag 区或单独成段;读者读起来不应感到关键词突兀。`
       : '';
 
+  // D21 / ADR 009 — query_intent + primary_query framing. Injected BEFORE
+  // platform format hint so the model knows "what kind of question I'm
+  // answering" before "what format I'm writing in". This pre-empties the
+  // model's tendency to write narrative-first openings.
+  const INTENT_LABEL: Record<NonNullable<PromptContext['query_intent']>, string> = {
+    what_is: '什么是 / 定义型',
+    is_it_true: '辟谣 / 是不是真的',
+    which_is_better: '对比 / 哪个更好',
+    why_happens: '原因 / 为什么会这样',
+    what_to_do: '出现 X 怎么办',
+    how_long: '要多久 / 多频繁',
+    when_to_seek_care: '何时需要就医',
+    how_to_choose_local: '本地怎么选 / 选医院',
+  };
+  const intentBlock =
+    ctx.query_intent || ctx.primary_query
+      ? `
+
+━━━ 主问题与意图(D21 强制约束) ━━━
+${ctx.primary_query ? `主问题(读者会原样输入到豆包搜索的句子): ${ctx.primary_query}` : ''}
+${ctx.query_intent ? `问题类型: ${INTENT_LABEL[ctx.query_intent]}(\`${ctx.query_intent}\`)` : ''}
+
+要求:
+- 文章首段 **120 字内** 必须直接给出主问题的答案,不要绕开问题先讲故事 / 先讲背景。
+- 整篇文章只回答这一个主问题 + 它的衍生问法,不要发散到无关话题。
+- 标题必须与主问题语义高度相关(可改写,但读者一看就知道这篇是回答这个问题的)。`
+      : '';
+
   // ADR 007 — structure skeleton from writing template, injected after format_hint.
   const structureBlock =
     ctx.writing_template?.structure_hint?.sections &&
@@ -248,7 +344,7 @@ ${ctx.writing_template.structure_hint.sections.map((s, i) => `${i + 1}. ${s}`).j
 特别注意 tactics_applied 字段: 只能从下面这些 id 里选 (英文,带下划线): ${allowedTacticIds}。禁止返回中文、禁止新造 id。
 
 目标平台格式: ${spec.format_hint}
-目标长度: ${spec.length_hint}${brandLine}${hintLine}${geoBlock}${citationsBlock}${keywordsBlock}${structureBlock}
+目标长度: ${spec.length_hint}${brandLine}${hintLine}${intentBlock}${geoBlock}${citationsBlock}${keywordsBlock}${structureBlock}
 
 必须应用的 GEO 技法(每一条都要在正文中体现):
 ${tacticBlock}
