@@ -181,16 +181,24 @@ function extractFaqPairs(body: string): FaqPair[] {
   }
   if (pairs.length > 0) return dedupeFaq(pairs);
 
-  // 模式 3: 数字编号 + ?结尾行 + 接下来非空行(简单 fallback)
+  // 模式 3: 数字编号 + ? 结尾行 + 接下来非空行
+  // 允许 `?` 后跟 markdown 修饰(** / __ / ` / 空白),实测 LLM 输出常写
+  // `1. **洗牙会损伤牙齿吗?**` 而不是裸 `?` 结尾.
   const lines = body.split('\n');
   for (let i = 0; i < lines.length - 1; i++) {
     const q = lines[i]?.trim() ?? '';
-    if (/^\d+[\\.、]\s*[^\n]+[?？]\s*$/.test(q)) {
+    if (/^\d+[\\.、]\s*\*{0,3}[^\n]+[?？]\*{0,3}[`_\s]*$/.test(q)) {
       // 找下一个非空行作为 A
       for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
         const a = lines[j]?.trim();
         if (a && a.length >= 10 && !/^\d+[\\.、]/.test(a)) {
-          pairs.push({ q: q.replace(/^\d+[\\.、]\s*/, ''), a });
+          // 清理 Q 的前缀编号 + bold 修饰
+          const cleanQ = q
+            .replace(/^\d+[\\.、]\s*/, '')
+            .replace(/^\*{2,3}\s*/, '')
+            .replace(/\s*\*{2,3}$/, '')
+            .trim();
+          pairs.push({ q: cleanQ, a });
           break;
         }
       }
