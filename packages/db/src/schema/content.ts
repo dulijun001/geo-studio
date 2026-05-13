@@ -2,10 +2,12 @@ import { relations, sql } from 'drizzle-orm';
 import {
   customType,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
   text,
+  timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { pk, tenantFk, timestamps } from './_shared';
@@ -97,6 +99,13 @@ export const contentItems = pgTable(
     content_contract_id: uuid('content_contract_id'),
     /** ADR 009 P1 — typed slices extracted from body. Empty = legacy / extractor not run. See migration 0031 + geo-core slice-extractor.ts. */
     slices: jsonb('slices').notNull().default({}),
+    /** ADR 009 P2-4 — Definition of Done state. unknown / passed / failed / legacy_passed / manual_pass. dispatchToday excludes 'failed'. */
+    dod_status: text('dod_status').notNull().default('unknown'),
+    /** Snapshot L2 total at evaluation time, 0-100. */
+    dod_score: integer('dod_score'),
+    /** { l2_total, l2_breakdown, missing_slices, reasons, threshold, override_* } */
+    dod_evidence: jsonb('dod_evidence').notNull().default({}),
+    dod_evaluated_at: timestamp('dod_evaluated_at', { withTimezone: true }),
     status: contentItemStatusEnum('status').notNull().default('draft'),
     embedding: vector('embedding'),
     ...timestamps(),
@@ -122,6 +131,11 @@ export const contentVariants = pgTable(
     compliance_status: complianceStatusEnum('compliance_status').notNull().default('pending'),
     compliance_review_id: uuid('compliance_review_id'),
     status: variantStatusEnum('status').notNull().default('draft'),
+    /** ADR 009 P2-4 — DoD gate per platform. dispatchToday excludes 'failed'. */
+    dod_status: text('dod_status').notNull().default('unknown'),
+    dod_score: integer('dod_score'),
+    dod_evidence: jsonb('dod_evidence').notNull().default({}),
+    dod_evaluated_at: timestamp('dod_evaluated_at', { withTimezone: true }),
     ...timestamps(),
   },
   (t) => ({

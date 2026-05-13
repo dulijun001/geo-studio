@@ -31,7 +31,7 @@ export default async function ContentDetailPage({
 
   const { data: item } = await supabase
     .from('content_items')
-    .select('id, title, source_type, status, topics, markdown, slices, source_url, created_at, updated_at')
+    .select('id, title, source_type, status, topics, markdown, slices, dod_status, dod_score, dod_evidence, source_url, created_at, updated_at')
     .eq('id', params.id)
     .eq('tenant_id', tenant.id)
     .maybeSingle();
@@ -129,7 +129,14 @@ export default async function ContentDetailPage({
         </div>
       )}
 
-      {l2 && <D21ScoreCard score={l2} slices={slices} />}
+      {l2 && (
+        <D21ScoreCard
+          score={l2}
+          slices={slices}
+          dodStatus={(item.dod_status ?? 'unknown') as string}
+          dodEvidence={(item.dod_evidence ?? {}) as { reasons?: string[]; missing_slices?: string[] }}
+        />
+      )}
 
       <section className="space-y-2">
         <h2 className="text-lg font-medium">正文(解析后)</h2>
@@ -257,7 +264,17 @@ function VariantsTable({ variants, tenantSlug }: { variants: VariantRow[]; tenan
  * 5 dimensions + total; expandable evidence per dimension; slices preview
  * shows what the extractor pulled out of the body.
  */
-function D21ScoreCard({ score, slices }: { score: GeoL2Score; slices: ExtractedSlices }) {
+function D21ScoreCard({
+  score,
+  slices,
+  dodStatus,
+  dodEvidence,
+}: {
+  score: GeoL2Score;
+  slices: ExtractedSlices;
+  dodStatus: string;
+  dodEvidence: { reasons?: string[]; missing_slices?: string[] };
+}) {
   const DIM_LABELS: Record<string, { label: string; weight: number }> = {
     trust_block_completeness: { label: 'Trust Block 完整度', weight: 30 },
     entity_explicitness: { label: '实体显式度', weight: 25 },
@@ -279,14 +296,15 @@ function D21ScoreCard({ score, slices }: { score: GeoL2Score; slices: ExtractedS
     <section className="space-y-3 rounded-md border border-emerald-500/30 bg-emerald-500/[0.05] p-5">
       <div className="flex items-baseline justify-between">
         <div>
-          <h2 className="text-lg font-medium">
+          <h2 className="flex items-center gap-2 text-lg font-medium">
             ✦ D21 标准评分
-            <span className="ml-2 rounded-full bg-emerald-500/[0.15] px-2 py-0.5 text-[10px] uppercase tracking-wider text-emerald-300">
+            <span className="rounded-full bg-emerald-500/[0.15] px-2 py-0.5 text-[10px] uppercase tracking-wider text-emerald-300">
               L2 rule engine
             </span>
+            <DodBadge status={dodStatus} />
           </h2>
           <p className="text-xs text-muted-foreground">
-            5 维度结构合规检测 · 不调 LLM · 毫秒级返回
+            5 维度结构合规检测 · DoD 闸门(failed 不可派单)
           </p>
         </div>
         <div className={`text-3xl font-semibold ${totalColor}`}>
@@ -294,6 +312,22 @@ function D21ScoreCard({ score, slices }: { score: GeoL2Score; slices: ExtractedS
           <span className="ml-1 text-sm font-normal text-muted-foreground">/100</span>
         </div>
       </div>
+
+      {dodStatus === 'failed' && (dodEvidence.reasons?.length ?? 0) > 0 && (
+        <div className="rounded-md border border-rose-500/40 bg-rose-500/[0.10] p-3 text-xs text-rose-200">
+          <div className="font-semibold">⚠ DoD 未通过 — 已自动从派单候选中剔除</div>
+          <ul className="mt-1.5 space-y-0.5 pl-4 text-rose-200/90">
+            {(dodEvidence.reasons ?? []).slice(0, 6).map((r, i) => (
+              <li key={i} className="list-disc">{r}</li>
+            ))}
+          </ul>
+          {(dodEvidence.missing_slices?.length ?? 0) > 0 && (
+            <div className="mt-2 text-[11px] text-rose-300/80">
+              缺失 slice:{(dodEvidence.missing_slices ?? []).join(' · ')}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-2 md:grid-cols-5">
         {(Object.entries(score.breakdown) as Array<[
@@ -416,6 +450,37 @@ function D21ScoreCard({ score, slices }: { score: GeoL2Score; slices: ExtractedS
         </p>
       )}
     </section>
+  );
+}
+
+function DodBadge({ status }: { status: string }) {
+  const config: Record<string, { label: string; className: string }> = {
+    passed: {
+      label: '✓ DoD passed',
+      className: 'border border-emerald-500/40 bg-emerald-500/[0.12] text-emerald-300',
+    },
+    failed: {
+      label: '✗ DoD failed',
+      className: 'border border-rose-500/40 bg-rose-500/[0.12] text-rose-300',
+    },
+    legacy_passed: {
+      label: 'Legacy',
+      className: 'border border-border bg-muted/50 text-muted-foreground',
+    },
+    manual_pass: {
+      label: '✓ Manual pass',
+      className: 'border border-amber-500/40 bg-amber-500/[0.12] text-amber-300',
+    },
+    unknown: {
+      label: 'Pending',
+      className: 'border border-border bg-muted/40 text-muted-foreground',
+    },
+  };
+  const c = config[status] ?? config.unknown!;
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider ${c.className}`}>
+      {c.label}
+    </span>
   );
 }
 

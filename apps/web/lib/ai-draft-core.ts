@@ -19,7 +19,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { chat, extractSlices, isAvailable as llmAvailable, sanitizeAbsoluteWords } from '@geo/geo-core';
+import { chat, evaluateDod, extractSlices, isAvailable as llmAvailable, sanitizeAbsoluteWords } from '@geo/geo-core';
 import { PLATFORM_HINT } from '@geo/shared';
 
 export type AiDraftPlatform =
@@ -655,6 +655,15 @@ export async function runAiDraft(
   }
   const slices = extractSlices({ body: draftBody, ctx: extractCtx });
 
+  // 5b. DoD evaluation (D21 / ADR 009 P2-4). Runs L2 + slice completeness;
+  // failed items are not blocked from save, but dispatch will skip them.
+  const dod = evaluateDod({
+    title: draftTitle,
+    body: draftBody,
+    slices,
+    ctx: { ...extractCtx, is_medical: true },
+  });
+
   // 6. Persist
   const { data: created, error: insErr } = await supabase
     .from('content_items')
@@ -668,6 +677,10 @@ export async function runAiDraft(
       writing_template_id: input.writing_template_id ?? null,
       keyword_ids: input.keyword_ids ?? [],
       slices,
+      dod_status: dod.status,
+      dod_score: dod.score,
+      dod_evidence: dod.evidence,
+      dod_evaluated_at: dod.evidence.evaluated_at,
     })
     .select('id')
     .single();

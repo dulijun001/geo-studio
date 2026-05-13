@@ -288,9 +288,14 @@ export async function dispatchToday(
   const [variantsRes, tasksRes, staffRes, tenantRes, brandRes] = await Promise.all([
     service
       .from('content_variants')
-      .select('id, title, platform, content_item_id, updated_at')
+      .select('id, title, platform, content_item_id, updated_at, dod_status')
       .eq('tenant_id', tenant.id)
       .in('compliance_status', ['auto_approved', 'manual_approved'])
+      // D21 / ADR 009 P2-4 DoD gate: skip dod_failed variants. unknown /
+      // legacy_passed / passed / manual_pass all flow through; only explicit
+      // 'failed' is blocked. Tighten to ('passed','manual_pass') if strict
+      // enforcement becomes the policy.
+      .neq('dod_status', 'failed')
       .not('status', 'in', '(archived,rejected)')
       .is('deleted_at', null),
     service
