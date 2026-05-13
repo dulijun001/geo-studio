@@ -32,6 +32,9 @@ export type BatchDraftItemJob = {
   audience: string;
   writing_template_id?: string | null;
   keyword_ids?: string[];
+  /** D21 / ADR 009 P3-3 — pass-through to internal AI draft API. */
+  query_intent?: string | null;
+  primary_query?: string | null;
 };
 
 const INTERNAL_API_TIMEOUT_MS = 240_000; // 4 min — matches runAiDraft's 3-min LLM cap + buffer
@@ -99,6 +102,9 @@ export async function handleBatchDraftItem(data: BatchDraftItemJob): Promise<voi
         platform: data.platform,
         writing_template_id: data.writing_template_id ?? null,
         keyword_ids: data.keyword_ids ?? [],
+        // D21 — only forwarded when batch creator selected an intent
+        query_intent: data.query_intent ?? undefined,
+        primary_query: data.primary_query ?? undefined,
       }),
       signal: ctrl.signal,
     }).finally(() => clearTimeout(timeout));

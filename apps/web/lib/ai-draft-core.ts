@@ -520,15 +520,26 @@ export async function runAiDraft(
     ? `# 平台调性(客户维护的风格指南 〈${guidePath}〉)\n\n${platformGuide}`
     : `# 平台调性\n\n${platformHint}`;
 
-  // 3d. Geographic scope (migration 0026)
-  const { data: brandRow } = await supabase
-    .from('brands')
-    .select('service_areas')
-    .eq('tenant_id', tenantId)
-    .is('deleted_at', null)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
+  // 3d. Geographic scope (migration 0026) + doctor whitelist (D21 / P3-3 B)
+  const [brandRes, doctorsRes] = await Promise.all([
+    supabase
+      .from('brands')
+      .select('service_areas')
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('staff_accounts')
+      .select('real_name, persona')
+      .eq('tenant_id', tenantId)
+      .eq('kind', 'doctor')
+      .eq('status', 'active')
+      .is('deleted_at', null)
+      .limit(20),
+  ]);
+  const brandRow = brandRes.data;
   const serviceAreas: string[] = Array.isArray(brandRow?.service_areas)
     ? (brandRow!.service_areas as string[]).map((s) => s.trim()).filter(Boolean)
     : [];
@@ -536,6 +547,32 @@ export async function runAiDraft(
     serviceAreas.length > 0
       ? `\n\n# 本品牌服务地区(地理边界,严格遵守)\n${serviceAreas.map((a) => `• ${a}`).join('\n')}\n\n` +
         `文中提到城市 / 地区时,**只用上面列表里的地区名**(本地化案例、医保政策、价格区间)。**禁止**把"北京 / 上海 / 广州 / 深圳"或其他列表外城市作为本地化锚点。全国通用医学论点无地域要求,可不带城市名。`
+      : '';
+
+  // D21 / ADR 009 P3-3 B — real-doctor whitelist. Prevents [医生姓名] placeholder
+  // leakage (LLM knows it should cite a doctor but couldn't find one in source,
+  // so writes a placeholder). With this list, LLM either picks a real name OR
+  // doesn't mention specific doctors at all.
+  type DoctorRow = { real_name: string | null; persona: unknown };
+  const doctors = (doctorsRes.data ?? []) as DoctorRow[];
+  const doctorBlock =
+    doctors.length > 0
+      ? `\n\n# 真实医生候选名单(只能从这里挑 1-2 位署名 / 引用,**禁止**写"[医生姓名]"占位符)\n` +
+        doctors
+          .map((d) => {
+            const tagsArr = (d.persona as { tags?: unknown } | null)?.tags;
+            const tags = Array.isArray(tagsArr)
+              ? (tagsArr as unknown[]).filter((x): x is string => typeof x === 'string')
+              : [];
+            const tagSuffix = tags.length > 0 ? ` — 擅长 ${tags.slice(0, 4).join('、')}` : '';
+            return `• ${d.real_name ?? ''}${tagSuffix}`;
+          })
+          .filter((l) => l.trim() !== '•')
+          .join('\n') +
+        `\n\n硬约束:\n` +
+        `- 引用医生时**只能用列表里的真实姓名 + 专长**\n` +
+        `- **绝对禁止**写 \`[医生姓名]\` / \`XX 医生\` 这种占位符 — 一旦出现整篇 reject\n` +
+        `- 如果主题跟列表里没人专长匹配,**不要硬塞医生名** — 改用"医院医疗团队"通用表述`
       : '';
 
   // SYSTEM_PROMPT (immutable) first; template skeleton appended.
@@ -580,7 +617,8 @@ export async function runAiDraft(
         `**目标平台**: ${input.platform}\n` +
         `${intentBlock}\n\n` +
         `${platformBlock}` +
-        `${geoBlock}\n\n` +
+        `${geoBlock}` +
+        `${doctorBlock}\n\n` +
         `${GEO_TACTICS_PROMPT}` +
         `${templateBlock}` +
         `${keywordsBlock}\n\n` +

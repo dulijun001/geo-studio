@@ -15,6 +15,28 @@ const PLATFORM_OPTIONS = [
 type Question = { id: string; text: string; priority: number | null };
 type Template = { id: string; name: string; description: string | null; is_system: boolean };
 
+// D21 / ADR 009 P3-3 — 8 query intent enums (mirrors wizard step 1)
+type QueryIntent =
+  | 'what_is'
+  | 'is_it_true'
+  | 'which_is_better'
+  | 'why_happens'
+  | 'what_to_do'
+  | 'how_long'
+  | 'when_to_seek_care'
+  | 'how_to_choose_local';
+
+const QUERY_INTENTS: Array<{ value: QueryIntent; label: string; example: string }> = [
+  { value: 'what_is', label: '什么是 / 定义', example: '什么是牙周炎' },
+  { value: 'is_it_true', label: '辟谣 / 是不是真的', example: '洗牙会不会让牙缝变大' },
+  { value: 'which_is_better', label: '对比 / 哪个更好', example: '种植牙和烤瓷桥怎么选' },
+  { value: 'why_happens', label: '为什么会这样', example: '牙龈出血是什么原因' },
+  { value: 'what_to_do', label: '出现了 X 怎么办', example: '牙齿松动了怎么办' },
+  { value: 'how_long', label: '要多久 / 多频繁', example: '多久洗一次牙' },
+  { value: 'when_to_seek_care', label: '何时需要就医', example: '牙痛要不要立刻看医生' },
+  { value: 'how_to_choose_local', label: '本地怎么选 / 选医院', example: '昆明种植牙怎么选医院' },
+];
+
 export function BatchForm({
   tenantSlug,
   questions,
@@ -34,6 +56,7 @@ export function BatchForm({
   );
   const [audience, setAudience] = useState('40-60 岁缺牙人群');
   const [templateId, setTemplateId] = useState<string>('');
+  const [queryIntent, setQueryIntent] = useState<QueryIntent | ''>('');
 
   const total = selectedQuestions.size * selectedPlatforms.size;
   const canSubmit = selectedQuestions.size > 0 && selectedPlatforms.size > 0 && !pending;
@@ -54,6 +77,7 @@ export function BatchForm({
           platforms: Array.from(selectedPlatforms) as never,
           audience: audience.trim() || '通用',
           writing_template_id: templateId || null,
+          query_intent: queryIntent || undefined,
         });
         router.push(`/t/${tenantSlug}/content/batch/${result.batch_id}`);
       } catch (err) {
@@ -142,6 +166,45 @@ export function BatchForm({
             placeholder="如:40-60 岁缺牙人群"
             className="w-full rounded border border-border bg-background px-3 py-2 text-sm"
           />
+        </div>
+
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] p-5 space-y-3">
+          <h2 className="flex items-baseline gap-2 text-base font-semibold">
+            <span>✦ GEO 标准模式(D21)</span>
+            <span className="font-mono text-[10px] uppercase tracking-wider text-emerald-300">
+              强烈推荐
+            </span>
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            选了之后,本批每条都会强制把答案前置 120 字 + 按问题类型组织段落
+          </p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {QUERY_INTENTS.map((q) => (
+              <button
+                key={q.value}
+                type="button"
+                onClick={() => setQueryIntent(queryIntent === q.value ? '' : q.value)}
+                className={
+                  'rounded-md border px-2 py-1.5 text-left text-[11px] transition ' +
+                  (queryIntent === q.value
+                    ? 'border-emerald-500 bg-emerald-500/15 text-emerald-200'
+                    : 'border-border hover:bg-muted/30')
+                }
+              >
+                <div className="font-medium">{q.label}</div>
+                <div className="text-muted-foreground">例:{q.example}</div>
+              </button>
+            ))}
+          </div>
+          {queryIntent ? (
+            <p className="text-[11px] text-emerald-400">
+              ✓ AI 会按「{QUERY_INTENTS.find((q) => q.value === queryIntent)?.label}」结构组织所有 {total} 条
+            </p>
+          ) : (
+            <p className="text-[11px] text-amber-400">
+              ⚠ 不选 = legacy 路径,DoD 合格率会明显下降
+            </p>
+          )}
         </div>
 
         <div className="rounded-lg border border-border bg-card p-5 space-y-3">

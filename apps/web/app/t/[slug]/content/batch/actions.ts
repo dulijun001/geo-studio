@@ -34,6 +34,20 @@ export type CreateBatchInput = {
   platforms: Platform[];
   audience: string;
   writing_template_id?: string | null;
+  /**
+   * D21 / ADR 009 P3-3 — batch-wide query intent. NULL = legacy V1.9 path.
+   * Non-NULL = each item passes this intent + its topic as primary_query
+   * into prompt-builder's intentBlock for D21 anchoring.
+   */
+  query_intent?:
+    | 'what_is'
+    | 'is_it_true'
+    | 'which_is_better'
+    | 'why_happens'
+    | 'what_to_do'
+    | 'how_long'
+    | 'when_to_seek_care'
+    | 'how_to_choose_local';
 };
 
 export type CreateBatchResult = {
@@ -103,6 +117,7 @@ export async function createAiDraftsBatch(
       audience,
       platforms,
       writing_template_id: input.writing_template_id ?? null,
+      query_intent: input.query_intent ?? null,
       status: 'running',
     })
     .select('id')
@@ -141,6 +156,11 @@ export async function createAiDraftsBatch(
         platform: it.platform,
         audience,
         writing_template_id: input.writing_template_id ?? null,
+        // D21 — pass through to worker so it lands in the internal API call.
+        // primary_query defaults to the item's topic (the question text IS
+        // the surface form the reader would search for).
+        query_intent: input.query_intent ?? null,
+        primary_query: input.query_intent ? it.topic : null,
       }),
     ),
   );
