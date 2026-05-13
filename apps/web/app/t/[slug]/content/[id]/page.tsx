@@ -6,6 +6,7 @@ import { requireTenantMember } from '@/lib/tenant';
 import { fmtDateTime } from '@/lib/format';
 import { GenerateVariantsForm } from './generate-variants-form';
 import { DeriveForm } from './derive-form';
+import { ManualPassButton } from './manual-pass-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -135,6 +136,11 @@ export default async function ContentDetailPage({
           slices={slices}
           dodStatus={(item.dod_status ?? 'unknown') as string}
           dodEvidence={(item.dod_evidence ?? {}) as { reasons?: string[]; missing_slices?: string[] }}
+          tenantSlug={tenant.slug}
+          contentItemId={item.id}
+          canManualPass={(['owner', 'admin'] as const).includes(
+            tenant.role as 'owner' | 'admin',
+          )}
         />
       )}
 
@@ -269,11 +275,17 @@ function D21ScoreCard({
   slices,
   dodStatus,
   dodEvidence,
+  tenantSlug,
+  contentItemId,
+  canManualPass,
 }: {
   score: GeoL2Score;
   slices: ExtractedSlices;
   dodStatus: string;
   dodEvidence: { reasons?: string[]; missing_slices?: string[] };
+  tenantSlug: string;
+  contentItemId: string;
+  canManualPass: boolean;
 }) {
   const DIM_LABELS: Record<string, { label: string; weight: number }> = {
     trust_block_completeness: { label: 'Trust Block 完整度', weight: 30 },
@@ -314,18 +326,27 @@ function D21ScoreCard({
       </div>
 
       {dodStatus === 'failed' && (dodEvidence.reasons?.length ?? 0) > 0 && (
-        <div className="rounded-md border border-rose-500/40 bg-rose-500/[0.10] p-3 text-xs text-rose-200">
-          <div className="font-semibold">⚠ DoD 未通过 — 已自动从派单候选中剔除</div>
-          <ul className="mt-1.5 space-y-0.5 pl-4 text-rose-200/90">
-            {(dodEvidence.reasons ?? []).slice(0, 6).map((r, i) => (
-              <li key={i} className="list-disc">{r}</li>
-            ))}
-          </ul>
-          {(dodEvidence.missing_slices?.length ?? 0) > 0 && (
-            <div className="mt-2 text-[11px] text-rose-300/80">
-              缺失 slice:{(dodEvidence.missing_slices ?? []).join(' · ')}
+        <div className="space-y-2 rounded-md border border-rose-500/40 bg-rose-500/[0.10] p-3 text-xs text-rose-200">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1">
+              <div className="font-semibold">⚠ DoD 未通过 — 已自动从派单候选中剔除</div>
+              <ul className="mt-1.5 space-y-0.5 pl-4 text-rose-200/90">
+                {(dodEvidence.reasons ?? []).slice(0, 6).map((r, i) => (
+                  <li key={i} className="list-disc">{r}</li>
+                ))}
+              </ul>
+              {(dodEvidence.missing_slices?.length ?? 0) > 0 && (
+                <div className="mt-2 text-[11px] text-rose-300/80">
+                  缺失 slice:{(dodEvidence.missing_slices ?? []).join(' · ')}
+                </div>
+              )}
             </div>
-          )}
+            {canManualPass && (
+              <div className="flex-shrink-0">
+                <ManualPassButton tenantSlug={tenantSlug} contentItemId={contentItemId} />
+              </div>
+            )}
+          </div>
         </div>
       )}
 

@@ -318,3 +318,58 @@ async function derivOne(
 
   return created.id as string;
 }
+
+/**
+ * D21 / ADR 009 §13.3 manual_pass — admin override for a DoD-failed item.
+ *
+ * When an article scores L2 ≥ 60 + LLM clearly wrote 5 FAQ but extractor
+ * missed one (or any other extractor edge case), admin can manually pass
+ * after eyeballing. Records override_by / override_at / override_reason in
+ * dod_evidence for audit trail. Reversible by setting back to 'failed'.
+ */
+export async function manualPassDod(
+  tenantSlug: string,
+  contentItemId: string,
+  reason: string,
+): Promise<void> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin']);
+  const supabase = createSupabaseServerClient();
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Unauthenticated');
+
+  if (reason.trim().length < 4) {
+    throw new Error('请填写覆盖原因(至少 4 个字),会记入审计');
+  }
+
+  const { data: item, error: getErr } = await supabase
+    .from('content_items')
+    .select('id, dod_status, dod_evidence')
+    .eq('id', contentItemId)
+    .eq('tenant_id', tenant.id)
+    .maybeSingle();
+  if (getErr || !item) throw new Error('content_item 不存在');
+  if (item.dod_status !== 'failed') {
+    throw new Error(`只有 dod_status='failed' 可以手动通过,当前=${item.dod_status}`);
+  }
+
+  const prevEvidence = (item.dod_evidence ?? {}) as Record<string, unknown>;
+  const newEvidence = {
+    ...prevEvidence,
+    override_by: user.id,
+    override_by_email: user.email,
+    override_at: new Date().toISOString(),
+    override_reason: reason.trim().slice(0, 500),
+  };
+
+  const { error: updErr } = await supabase
+    .from('content_items')
+    .update({
+      dod_status: 'manual_pass',
+      dod_evidence: newEvidence,
+    })
+    .eq('id', contentItemId)
+    .eq('tenant_id', tenant.id);
+  if (updErr) throw new Error(`手动通过失败: ${updErr.message}`);
+
+  revalidatePath(`/t/${tenantSlug}/content/${contentItemId}`);
+}
