@@ -93,6 +93,8 @@ export const contentItems = pgTable(
     writing_template_id: uuid('writing_template_id'),
     /** ADR 007 — keywords picked in wizard step 2 to plant in body. */
     keyword_ids: uuid('keyword_ids').array().notNull().default(sql`'{}'::uuid[]`),
+    /** ADR 009 — picked in creation wizard step 0 (D21). NULL = legacy V1.6 path, NOT NULL = V2 contracted. */
+    content_contract_id: uuid('content_contract_id'),
     status: contentItemStatusEnum('status').notNull().default('draft'),
     embedding: vector('embedding'),
     ...timestamps(),

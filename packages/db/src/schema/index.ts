@@ -11,3 +11,4 @@ export * from './knowledge';
 export * from './discoverability';
 export * from './templates';
 export * from './keywords';
+export * from './contracts';
