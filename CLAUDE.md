@@ -180,15 +180,17 @@ geo-studio/
   - 测试 hardening:`_test/_runner.ts` 全局 unhandled-rejection guard + 90s per-test timeout,3 个失败测试加入 guard(commit 3e7eaff)
   - 顺手清:next.config `trustHostHeader`(Next 15 only,14 no-op)、/staff themeColor 拆 viewport
   - test-auth marker 改为 OR 探测(V1.7 cinematic redesign 后 stale 的 marker 复活)
+- **V1.9.2 生产上线**(2026-05-12):本地 main `c8d237d → fa6331b` 全套推上 ECS,Caddy 切 HTTPS,域名 `https://geo.dulijun.icu` Let's Encrypt 自动签证书。途中修了 PWA SW 缓存陷阱(`fix(staff): drop PWA`)、worker tsx 路径(`fix(deploy): worker tsx path`)、standalone static 漏 cp(`fix(deploy): rsync .next/static`)、暗色 cinematic 漏改的对比 bug、prose-slate→prose-invert
+- **V1.9.2.x 滚动 deploy(2026-05-12 → 2026-05-13,补记)**:V1.9.2 上线 24h 内继续把 32 个 commit 滚动上 ECS,HEAD `fa6331b → 379ea0b`。这批含 **D21 GEO 标准内容资产 P0~P3 全套**(migration 0030~0033 / slice-first 存储 / DoD 闸门 / L2 scorer / wizard contract persistence / 公开层消费 D21 slices / tenant home briefing hero)、**合规自动改写**(第一次 reject 最多重写 1 次)、extractor 多种 FAQ 格式补、KB safety abort、Ark response_format fallback 等 P0 修。**当时 CLAUDE.md 未同步**,V1.9.3 顺手补
+- **V1.9.3 员工端跳转按钮全覆盖**(2026-05-13,commit `d6f90b7`):员工任务卡之前只 3 个平台(头条/抖音/小红书)有"打开 App"按钮,公众号/知乎/百家号/搜狐号 4 个平台无任何跳转。本次扩**7 平台全覆盖**,按内容类型分流——视频/短图文(抖音脚本/小红书)→ App scheme 跳手机端;长图文(头条/公众号/知乎/百家号/搜狐号)→ PC 创作后台 URL 新标签。按钮文案动态化("打开公众号后台"等)。顺手运维:**ECS 配 GitHub deploy key**(以前 deploy.sh `git pull` 每次卡交互 auth,本次 ed25519 deploy key 配置永久解决);ECS ssh 凭证存 memory `reference-ecs-ssh.md`,实际是 `root@`,不是 deploy.sh 顶部注释的 `ubuntu@`
 
 ### 当前阶段
-- **V1.9.2 生产上线**(2026-05-12):本地 main `c8d237d → fa6331b` 全套推上 ECS,Caddy 切 HTTPS,域名 `https://geo.dulijun.icu` Let's Encrypt 自动签证书。途中修了 PWA SW 缓存陷阱(`fix(staff): drop PWA`)、worker tsx 路径(`fix(deploy): worker tsx path`)、standalone static 漏 cp(`fix(deploy): rsync .next/static`)、暗色 cinematic 漏改的对比 bug、prose-slate→prose-invert
 - **2026-05-13 决策**:D21 GEO 标准内容资产(ADR 009 + docs/07-geo-article-spec.md),写作环节从"自由 prompt"升级为"contract → slice → DoD"工程化产线
 - **V2 反爬基础设施可启动**:多引擎 + 账号池 + 代理 + 指纹隔离(ADR 004)
 - 生产环境:`https://geo.dulijun.icu`(Caddy 自动 HTTPS)+ `:9443`(IP fallback HTTP)+ `:8000`(自托管 Supabase,见 D13)
 
 ### 阻塞 / 待澄清 / 已知技术债
-- **D21 落地 P0 待开工**:`content_contracts` 表 / migration 0030 / `buildVariantPrompt` 扩 contract 入参 / SYSTEM_PROMPT 加 10 结构块约束 / Trust Block 注入。详见 ADR 009 第 P0 节
+- ~~**D21 落地 P0 待开工**~~ **已 ship**(2026-05-12 → 2026-05-13,见 V1.9.2.x 条目):`content_contracts` migration 0030 + slice-first 存储 0031 + DoD 闸门 0032 + draft_batches_d21 0033 已上 prod,`buildVariantPrompt` 扩 contract 入参 / SYSTEM_PROMPT 10 结构块约束 / Trust Block 注入 / L2 structure-aware scorer / wizard contract persistence / 公开层消费 D21 slices 全部完成。**剩余 P2**:legacy_passed grandfather backfill 跑没跑全 ETL 没归档;DoD 五条 FAQ 严格 prompt 已经 ship 后还遇到过若干极端 case(8204731/16b6f46/379ea0b 反复改 prompt)
 - **TEMPORARY 账号密码登录**:`/login/quick` (songshu/123456) 临时绕过邮箱魔链,deadline 2026-06-30 替换为 Supabase Auth 多用户或 phone+passcode
 - ~~Worker pg-boss 连不上 DB(P0)~~ **已修复 2026-05-13**:DATABASE_URL 误写 `postgres.studio:`,Supavisor 实际注册 tenant 是 `your-tenant-id`(`/opt/supabase/docker/.env` `POOLER_TENANT_ID`)。sed 修正 + pm2 reload + 重启 worker = `[worker] pg-boss started`。`.env.production.example` 已加注释防再踩
 - **`NEXT_PUBLIC_APP_URL` 未同步**:仍是 `http://47.98.131.138:9443`,影响 llms.txt / sitemap.xml / invite link 等"对外暴露 URL"。需 rebuild
@@ -197,6 +199,7 @@ geo-studio/
 - **自托管 Postgres `:shutdown, :db_termination`**:test-content 接近完成时被 server 主动断连。怀疑 connection pool 没释放 / max_connections 偏低 / idle timeout 过短。需要单独 infra 工单
 - **测试自洁缺失**:`content-flow` / `compliance-llm` / `variant-flow` 创建的 tenant 没 cascade delete,每轮 kb-sync 都要 skip。需在测试 finally 里清理
 - **3 个 smoke test 仍需深挖**:test-content 卡 `:db_termination`(infra)、test-compliance-llm 偶发卡住、test-auth 跑生产 URL 不跑本地(默认 fallback 链路待优化)
+- **deploy.sh 文档过时**:`ops/deploy/deploy.sh` 顶部注释写 `ssh ubuntu@47.98.131.138`,但 ECS 实际登录用户是 **root**(`~/.ssh/id_ecs`)。2026-05-13 V1.9.3 部署时踩到。已写进 memory `reference-ecs-ssh.md`,deploy.sh 注释下次顺带修
 
 ### W8 验收追踪(stub,业务侧填写)
 
