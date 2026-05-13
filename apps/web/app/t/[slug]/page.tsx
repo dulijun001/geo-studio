@@ -139,6 +139,62 @@ export default async function TenantHomePage({ params }: { params: { slug: strin
   const sovPct = sovTotal > 0 ? (sovOwn / sovTotal) * 100 : null;
 
   // ─────────────────────────────────────────────────────────────────
+  // Daily ops briefing — 本周每天派单数 mini bar chart (P2-3)
+  // 7 桶 (今天 + 过去 6 天). 每桶 = 当天派单 count.
+  // 用于顶部"今日运营节奏" hero,代替之前静态 SOV 数字独占视觉焦点.
+  // ─────────────────────────────────────────────────────────────────
+  const sevenDayBuckets: Array<{ label: string; count: number; isToday: boolean }> = [];
+  {
+    const startOfRange = new Date(startOfDay);
+    startOfRange.setDate(startOfRange.getDate() - 6);
+    const { data: weekTasksRaw } = await supabase
+      .from('publish_tasks')
+      .select('created_at')
+      .eq('tenant_id', tenant.id)
+      .gte('created_at', startOfRange.toISOString())
+      .is('deleted_at', null);
+    const weekTasks = (weekTasksRaw ?? []) as Array<{ created_at: string }>;
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(startOfDay);
+      d.setDate(d.getDate() - i);
+      const dEnd = new Date(d);
+      dEnd.setDate(dEnd.getDate() + 1);
+      const count = weekTasks.filter((t) => {
+        const ts = new Date(t.created_at).getTime();
+        return ts >= d.getTime() && ts < dEnd.getTime();
+      }).length;
+      sevenDayBuckets.push({
+        label: ['日', '一', '二', '三', '四', '五', '六'][d.getDay()] ?? '',
+        count,
+        isToday: i === 0,
+      });
+    }
+  }
+  const weekTotal = sevenDayBuckets.reduce((s, b) => s + b.count, 0);
+  const prevWeekStart = new Date(startOfDay);
+  prevWeekStart.setDate(prevWeekStart.getDate() - 13);
+  const prevWeekEnd = new Date(startOfDay);
+  prevWeekEnd.setDate(prevWeekEnd.getDate() - 6);
+  const { count: prevWeekCount } = await supabase
+    .from('publish_tasks')
+    .select('*', { count: 'exact', head: true })
+    .eq('tenant_id', tenant.id)
+    .gte('created_at', prevWeekStart.toISOString())
+    .lt('created_at', prevWeekEnd.toISOString())
+    .is('deleted_at', null);
+  const weekDelta = weekTotal - (prevWeekCount ?? 0);
+
+  // Compliance stuck > 2h (operational red flag)
+  const twoHoursAgo = new Date(Date.now() - 2 * 3600 * 1000).toISOString();
+  const { count: stuckComplianceCount } = await supabase
+    .from('content_variants')
+    .select('*', { count: 'exact', head: true })
+    .eq('tenant_id', tenant.id)
+    .eq('compliance_status', 'pending')
+    .lte('created_at', twoHoursAgo)
+    .is('deleted_at', null);
+
+  // ─────────────────────────────────────────────────────────────────
   // Next-best-action — 基于现状给 1-2 个建议
   // ─────────────────────────────────────────────────────────────────
   const nextActions = computeNextActions({
@@ -155,12 +211,20 @@ export default async function TenantHomePage({ params }: { params: { slug: strin
   return (
     <div className="space-y-6">
       <PageHeader
-        title="概览"
+        title="今日运营"
         subtitle={
           <>
             <span className="font-medium text-foreground">{tenant.name}</span>
             <span className="mx-1.5 text-muted-foreground/60">·</span>
             <span>{tenant.industry === 'dental' ? '口腔行业' : tenant.industry}</span>
+            <span className="mx-1.5 text-muted-foreground/60">·</span>
+            <span>
+              今天派 <span className="font-medium text-foreground">{todayTasks}</span> 条 · 卡合规{' '}
+              <span className={`font-medium ${(stuckComplianceCount ?? 0) > 0 ? 'text-rose-400' : 'text-foreground'}`}>
+                {stuckComplianceCount ?? 0}
+              </span>
+              {(stuckComplianceCount ?? 0) > 0 ? ' (>2h 待处理)' : ''}
+            </span>
           </>
         }
         actions={
@@ -169,6 +233,15 @@ export default async function TenantHomePage({ params }: { params: { slug: strin
             最近追踪 · {sovAskedAt ? fmtDateTime(sovAskedAt) : '尚未运行'}
           </div>
         }
+      />
+
+      <DailyOpsBriefing
+        buckets={sevenDayBuckets}
+        weekTotal={weekTotal}
+        weekDelta={weekDelta}
+        prevWeekTotal={prevWeekCount ?? 0}
+        stuckCompliance={stuckComplianceCount ?? 0}
+        slug={tenant.slug}
       />
 
       <InlineGuide
@@ -1256,4 +1329,130 @@ function countP0(checklist: GeoChecklist): number {
     checklist.amap_poi,
     checklist.baidu_map_poi,
   ].filter(Boolean).length;
+}
+
+
+// =====================================================================
+// DailyOpsBriefing — D21 / P2-3
+// Hero strip 加在 PageHeader 下方,把"今天 + 这周节奏"放到第一眼.
+// 7-day inline bar chart + week total vs prev week + 卡合规警示.
+// =====================================================================
+
+function DailyOpsBriefing({
+  buckets,
+  weekTotal,
+  weekDelta,
+  prevWeekTotal,
+  stuckCompliance,
+  slug,
+}: {
+  buckets: Array<{ label: string; count: number; isToday: boolean }>;
+  weekTotal: number;
+  weekDelta: number;
+  prevWeekTotal: number;
+  stuckCompliance: number;
+  slug: string;
+}) {
+  const maxCount = Math.max(...buckets.map((b) => b.count), 1);
+  const deltaPositive = weekDelta > 0;
+  const deltaNeutral = weekDelta === 0;
+  const deltaLabel = deltaNeutral
+    ? '与上周持平'
+    : deltaPositive
+      ? `比上周多 ${weekDelta}`
+      : `比上周少 ${Math.abs(weekDelta)}`;
+  const deltaColor = deltaNeutral
+    ? 'text-muted-foreground'
+    : deltaPositive
+      ? 'text-emerald-400'
+      : 'text-rose-400';
+  return (
+    <section
+      className="rounded-2xl border p-5 shadow-sm"
+      style={{
+        borderColor: 'rgba(52,211,153,0.25)',
+        background:
+          'linear-gradient(135deg, rgba(52,211,153,0.06) 0%, rgba(8,9,10,0) 60%)',
+      }}
+    >
+      <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="space-y-3">
+          <div className="flex items-baseline gap-3">
+            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-emerald-300">
+              本周节奏
+            </span>
+            <span className="text-xs text-muted-foreground">
+              过去 7 天派单 ·{' '}
+              <Link
+                href={`/t/${slug}/publish`}
+                className="text-emerald-400 hover:underline underline-offset-2"
+              >
+                看明细 →
+              </Link>
+            </span>
+          </div>
+          <div className="flex items-end gap-1.5">
+            {buckets.map((b, i) => (
+              <div key={i} className="flex flex-1 flex-col items-center gap-1">
+                <div className="relative h-16 w-full overflow-hidden rounded-md bg-muted/30">
+                  <div
+                    className="absolute inset-x-0 bottom-0 rounded-md transition-all"
+                    style={{
+                      height: `${Math.max((b.count / maxCount) * 100, b.count > 0 ? 6 : 0)}%`,
+                      background: b.isToday
+                        ? 'linear-gradient(180deg, #34d399 0%, #10b981 100%)'
+                        : 'rgba(52,211,153,0.55)',
+                    }}
+                  />
+                  <span
+                    className={`absolute inset-x-0 top-1 text-center text-[10px] font-medium ${
+                      b.count > 0 ? 'text-foreground' : 'text-muted-foreground/40'
+                    }`}
+                  >
+                    {b.count > 0 ? b.count : ''}
+                  </span>
+                </div>
+                <span
+                  className={`text-[10px] ${
+                    b.isToday ? 'font-semibold text-emerald-300' : 'text-muted-foreground'
+                  }`}
+                >
+                  {b.label}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex min-w-[160px] flex-col justify-center gap-3 border-t border-border pt-4 md:border-l md:border-t-0 md:pl-5 md:pt-0">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              7 日累计
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-3xl font-semibold tracking-tight">{weekTotal}</span>
+              <span className="text-xs text-muted-foreground">条</span>
+            </div>
+            <div className={`text-[11px] font-medium ${deltaColor}`}>
+              {prevWeekTotal === 0 && weekTotal === 0 ? '本周尚未派单' : deltaLabel}
+            </div>
+          </div>
+          {stuckCompliance > 0 ? (
+            <Link
+              href={`/t/${slug}/compliance?tab=pending`}
+              className="rounded-md border border-rose-500/40 bg-rose-500/[0.10] px-3 py-2 text-xs hover:bg-rose-500/[0.15]"
+            >
+              <div className="font-medium text-rose-300">⚠️ {stuckCompliance} 条卡合规 &gt; 2h</div>
+              <div className="text-[10px] text-rose-400/70">立即处理 →</div>
+            </Link>
+          ) : (
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/[0.06] px-3 py-2 text-xs text-emerald-300">
+              <div className="font-medium">✓ 合规队列健康</div>
+              <div className="text-[10px] text-emerald-400/70">无积压</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
 }
