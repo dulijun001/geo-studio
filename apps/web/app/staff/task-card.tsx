@@ -32,10 +32,22 @@ const PLATFORM_LABEL: Record<string, string> = {
   souhu: '搜狐号',
 };
 
-const PLATFORM_SCHEME: Record<string, string> = {
-  toutiao_article: 'snssdk143://',
-  douyin_script: 'snssdk1128://',
-  xiaohongshu: 'xhsdiscover://',
+/**
+ * 跳转目标按"内容类型→主战场"划分：
+ *   - 视频/短图文(抖音脚本/小红书) → App scheme，员工手机直发
+ *   - 长图文(头条/公众号/知乎/百家号/搜狐号) → PC 创作后台 URL
+ *
+ * 故意只跳"首页/后台首页",不跳深层发布页 —— 各家发布页 scheme 一直在变,
+ * 跳首页 + 引导员工自己点 + 反而最稳。
+ */
+const PLATFORM_TARGET: Record<string, { url: string; label: string }> = {
+  douyin_script: { url: 'snssdk1128://', label: '打开抖音' },
+  xiaohongshu: { url: 'xhsdiscover://', label: '打开小红书' },
+  toutiao_article: { url: 'https://mp.toutiao.com/', label: '打开头条后台' },
+  wechat_mp: { url: 'https://mp.weixin.qq.com/', label: '打开公众号后台' },
+  zhihu: { url: 'https://zhuanlan.zhihu.com/write', label: '打开知乎写文章' },
+  baijiahao: { url: 'https://baijiahao.baidu.com/builder/rc/home', label: '打开百家号' },
+  souhu: { url: 'https://mp.sohu.com/', label: '打开搜狐号' },
 };
 
 /**
@@ -123,7 +135,8 @@ export function TaskCard({ task }: { task: TaskProps }) {
   const [err, setErr] = useState<string | null>(null);
 
   const platformLabel = PLATFORM_LABEL[task.platform] ?? task.platform;
-  const appScheme = PLATFORM_SCHEME[task.platform];
+  const target = PLATFORM_TARGET[task.platform];
+  const isAppScheme = target?.url.endsWith('://') ?? false;
 
   const copyContent = async () => {
     // FEATURE_HOOKS_DISABLED 2026-05-12 — 暗号 CTA 不再拼接(产品决策见 publish/actions.ts 同名标记)
@@ -310,12 +323,14 @@ export function TaskCard({ task }: { task: TaskProps }) {
             >
               {copied ? '已复制 ✓' : '复制文案'}
             </button>
-            {appScheme ? (
+            {target ? (
               <a
-                href={appScheme}
+                href={target.url}
+                target={isAppScheme ? undefined : '_blank'}
+                rel={isAppScheme ? undefined : 'noreferrer'}
                 className="flex-1 rounded-md border border-border px-3 py-1.5 text-center text-xs font-medium"
               >
-                打开 App
+                {target.label}
               </a>
             ) : null}
           </div>
