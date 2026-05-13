@@ -64,6 +64,23 @@ const IGNORE_PATTERNS = [
   '**/*.swp',
   '**/*.swo',
   '**/*~',
+  // 2026-05-13 — non-medical project metadata directories. The songshu KB
+  // historically contained writing guidelines, KB tooling docs, ops workflows,
+  // memory snapshots etc. These polluted RAG recall — LLM generated content
+  // citing "品牌规范/CLAUDE.md" instead of actual clinical material.
+  // Keep only directories with real medical content:
+  //   诊疗/ (treatment protocols, project library)
+  //   营销/ (audience profiles, campaign decks — useful for tone)
+  //   医院/ (departments, capacities)
+  //   团队/ (doctor bios — but NOT 团队/绩效 + 团队/招聘, see L3 below)
+  //   患者/ (case studies — but NOT 患者/投诉)
+  //   合规/ (compliance references, useful for tone calibration)
+  '规范/**',         // writing-style guides + KB metadata + manuals
+  '工作流/**',       // ops workflow documentation
+  '记忆/**',         // memory system snapshots (vectors, embeddings, etc.)
+  '工具/**',         // tool internals (we already had 工具/app + 工具/凭证)
+  '运营/**',         // ops process docs
+
   // P1-3 — root-level all-caps README-style markdowns (AGENTS.md, CLAUDE.md,
   // GEMINI.md, README.md ...) are project metadata, not medical content.
   // Allow nested *.md by anchoring at root.

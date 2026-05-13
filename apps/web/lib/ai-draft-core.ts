@@ -149,7 +149,7 @@ const SYSTEM_PROMPT = `你是一位严谨的医疗内容编辑。基于提供的
 
 ### 1. 合规底线 — 这些词**绝对不能出现**
 不论是医生说、患者反馈、营销话术、还是"专业术语",**全部禁止**(**KB 素材里如果出现也不准抄,要软化或跳过**):
-- 绝对化:最 / 第一 / 唯一 / 国内唯一 / 国内首家 / 顶尖 / 国内领先 / 行业第一 / 独家 / 根治 / 包治 / 治愈 / 永久解决
+- 绝对化:最 / 最佳 / 最适合 / 首选 / 推荐之选 / 首家 / 第一 / 唯一 / 国内唯一 / 国内首家 / 顶尖 / 国内领先 / 行业第一 / 独家 / 根治 / 包治 / 治愈 / 永久解决
 - 自创"权威":X 项国际金标准 / 国际金标准 / 国家金牌 / 行业金标准(只有真实学术学会发布的指南才算权威,品牌自称的不算)
 - 效果承诺:保证 / 100% / 无效退款 / 终身维护 / 一次到位 / 立刻见效
 - 安全性夸大:无痛 / 零痛 / 零风险 / 绝对安全 / 无并发症 / 无副作用 / 无后遗症
@@ -549,30 +549,58 @@ export async function runAiDraft(
         `文中提到城市 / 地区时,**只用上面列表里的地区名**(本地化案例、医保政策、价格区间)。**禁止**把"北京 / 上海 / 广州 / 深圳"或其他列表外城市作为本地化锚点。全国通用医学论点无地域要求,可不带城市名。`
       : '';
 
-  // D21 / ADR 009 P3-3 B — real-doctor whitelist. Prevents [医生姓名] placeholder
-  // leakage (LLM knows it should cite a doctor but couldn't find one in source,
-  // so writes a placeholder). With this list, LLM either picks a real name OR
-  // doesn't mention specific doctors at all.
+  // D21 / ADR 009 P3-3 B — real-doctor whitelist with topic-relevance scoring.
+  // Prior version dumped all 12 doctors into the prompt; LLM frequently picked
+  // a doctor whose specialty didn't match the article topic (e.g. picked the
+  // 儿牙 doctor for an adult-implant piece). Scoring by topic keyword overlap
+  // with persona.tags surfaces only the top 3 candidates.
   type DoctorRow = { real_name: string | null; persona: unknown };
-  const doctors = (doctorsRes.data ?? []) as DoctorRow[];
+  const doctorsRaw = (doctorsRes.data ?? []) as DoctorRow[];
+  const topicHaystack = `${topic} ${audience}`.toLowerCase();
+  const scoredDoctors = doctorsRaw
+    .map((d) => {
+      const tagsArr = (d.persona as { tags?: unknown } | null)?.tags;
+      const tags = Array.isArray(tagsArr)
+        ? (tagsArr as unknown[]).filter((x): x is string => typeof x === 'string')
+        : [];
+      // 重叠分:每个 tag 出现在 topic+audience 里加 10,token-level partial 加 3
+      let score = 0;
+      for (const tag of tags) {
+        const tagLower = tag.toLowerCase();
+        if (topicHaystack.includes(tagLower)) score += 10;
+        else {
+          // 子串部分匹配(如 tag="种植牙" topic="缺牙人群" 共享"牙")
+          for (let i = 0; i < tagLower.length - 1; i++) {
+            const bi = tagLower.slice(i, i + 2);
+            if (topicHaystack.includes(bi)) {
+              score += 3;
+              break;
+            }
+          }
+        }
+      }
+      return { name: d.real_name ?? '', tags, score };
+    })
+    .filter((d) => d.name.length > 0)
+    .sort((a, b) => b.score - a.score);
+  // 取 top 3 相关的;如果全 0 分,保留前 3 作通用候选(LLM 仍可挑)
+  const topDoctors = scoredDoctors.slice(0, 3);
   const doctorBlock =
-    doctors.length > 0
-      ? `\n\n# 真实医生候选名单(只能从这里挑 1-2 位署名 / 引用,**禁止**写"[医生姓名]"占位符)\n` +
-        doctors
+    topDoctors.length > 0
+      ? `\n\n# 真实医生候选名单 ${
+          topDoctors.some((d) => d.score > 0) ? '(按主题匹配度排序)' : '(通用候选)'
+        }\n` +
+        topDoctors
           .map((d) => {
-            const tagsArr = (d.persona as { tags?: unknown } | null)?.tags;
-            const tags = Array.isArray(tagsArr)
-              ? (tagsArr as unknown[]).filter((x): x is string => typeof x === 'string')
-              : [];
-            const tagSuffix = tags.length > 0 ? ` — 擅长 ${tags.slice(0, 4).join('、')}` : '';
-            return `• ${d.real_name ?? ''}${tagSuffix}`;
+            const tagSuffix = d.tags.length > 0 ? ` — 擅长 ${d.tags.slice(0, 4).join('、')}` : '';
+            return `• ${d.name}${tagSuffix}`;
           })
-          .filter((l) => l.trim() !== '•')
           .join('\n') +
         `\n\n硬约束:\n` +
         `- 引用医生时**只能用列表里的真实姓名 + 专长**\n` +
         `- **绝对禁止**写 \`[医生姓名]\` / \`XX 医生\` 这种占位符 — 一旦出现整篇 reject\n` +
-        `- 如果主题跟列表里没人专长匹配,**不要硬塞医生名** — 改用"医院医疗团队"通用表述`
+        `- 如果列表里没人专长真正匹配主题(top score 是 0),**不要硬塞医生名** — 改用"医院医疗团队"通用表述\n` +
+        `- 优先选**列表最上面那位**(主题匹配度最高)`
       : '';
 
   // SYSTEM_PROMPT (immutable) first; template skeleton appended.
