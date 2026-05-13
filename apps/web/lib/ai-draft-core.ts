@@ -65,6 +65,61 @@ export type RunAiDraftResult = {
   cited_paths: string[];
 };
 
+/**
+ * D21 / ADR 009 P3-2 — heuristic intent → article_type mapping.
+ * Lets wizard collect just query_intent and auto-derive article_type
+ * for the contract row. Operator can change article_type later in the
+ * (yet-to-build) contract editor.
+ */
+function inferArticleTypeFromIntent(
+  intent: NonNullable<RunAiDraftInput['query_intent']>,
+):
+  | 'definition'
+  | 'myth_busting'
+  | 'comparison'
+  | 'symptom_check'
+  | 'process_expectation'
+  | 'risk_boundary'
+  | 'local_choice' {
+  switch (intent) {
+    case 'what_is':
+      return 'definition';
+    case 'is_it_true':
+      return 'myth_busting';
+    case 'which_is_better':
+      return 'comparison';
+    case 'why_happens':
+      return 'symptom_check';
+    case 'what_to_do':
+      return 'symptom_check';
+    case 'how_long':
+      return 'process_expectation';
+    case 'when_to_seek_care':
+      return 'risk_boundary';
+    case 'how_to_choose_local':
+      return 'local_choice';
+  }
+}
+
+/** Per ADR 005 / spec §九, article_type → required Schema.org targets. */
+function schemaTargetsForType(
+  articleType: ReturnType<typeof inferArticleTypeFromIntent>,
+): string[] {
+  const base = ['Article'];
+  switch (articleType) {
+    case 'comparison':
+      return [...base, 'FAQPage'];
+    case 'symptom_check':
+      return [...base, 'FAQPage'];
+    case 'local_choice':
+      return [...base, 'MedicalBusiness', 'FAQPage'];
+    case 'process_expectation':
+      return [...base, 'MedicalProcedure'];
+    default:
+      return base;
+  }
+}
+
 const KB_ROOT =
   process.env.KNOWLEDGE_BASE_ROOT ??
   `${process.env.HOME}/Workspace/songshu-knowledge-base`;
@@ -664,7 +719,47 @@ export async function runAiDraft(
     ctx: { ...extractCtx, is_medical: true },
   });
 
-  // 6. Persist
+  // 5c. Persist content_contract (D21 / ADR 009 P3-2). When query_intent +
+  // primary_query are present (D21 wizard path), materialize a contract
+  // row that captures the user's declaration. Sensible defaults for fields
+  // wizard doesn't yet collect — operator can refine in P1-end contracts
+  // editor UI. query_cluster ≥ 3 enforced by DB CHECK so we synthesize
+  // simple variants when only primary_query is set.
+  let contractId: string | null = null;
+  if (input.query_intent && input.primary_query) {
+    const articleType = inferArticleTypeFromIntent(input.query_intent);
+    // query_cluster: need ≥ 3 per DB CHECK. Use primary_query + 2 simple
+    // rewrites as a safe seed; operator can edit later.
+    const cluster = [
+      input.primary_query.trim(),
+      `${input.primary_query.trim().replace(/[?？]$/, '')}的原理`,
+      `${input.primary_query.trim().replace(/[?？]$/, '')}怎么处理`,
+    ];
+    const { data: contractRow } = await supabase
+      .from('content_contracts')
+      .insert({
+        tenant_id: tenantId,
+        article_type: articleType,
+        query_intent: input.query_intent,
+        primary_query: input.primary_query.trim(),
+        query_cluster: cluster,
+        primary_entity: 'brand',
+        supporting_entities: [],
+        target_audience: input.audience,
+        decision_stage: 'consideration',
+        location_scope: 'local_city',
+        reviewer_required: true,
+        risk_boundary_required: true,
+        faq_required_count: 5,
+        citation_mode: 'mixed',
+        schema_targets: schemaTargetsForType(articleType),
+      })
+      .select('id')
+      .single();
+    if (contractRow?.id) contractId = contractRow.id as string;
+  }
+
+  // 6. Persist content_item
   const { data: created, error: insErr } = await supabase
     .from('content_items')
     .insert({
@@ -676,6 +771,7 @@ export async function runAiDraft(
       topics: [topic, audience].filter(Boolean),
       writing_template_id: input.writing_template_id ?? null,
       keyword_ids: input.keyword_ids ?? [],
+      content_contract_id: contractId,
       slices,
       dod_status: dod.status,
       dod_score: dod.score,
