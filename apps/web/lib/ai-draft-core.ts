@@ -19,7 +19,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { chat, isAvailable as llmAvailable, sanitizeAbsoluteWords } from '@geo/geo-core';
+import { chat, extractSlices, isAvailable as llmAvailable, sanitizeAbsoluteWords } from '@geo/geo-core';
 import { PLATFORM_HINT } from '@geo/shared';
 
 export type AiDraftPlatform =
@@ -631,7 +631,31 @@ export async function runAiDraft(
   draftTitle = titleSan.cleaned;
   draftBody = bodySan.cleaned;
 
-  // 5. Persist
+  // 5. Slice extraction (D21 / ADR 009 P1) — heuristic, no LLM call.
+  // Pull brand name + city for entity_snapshot enrichment.
+  let extractCtx: { brand_name?: string; city?: string } | undefined;
+  try {
+    const { data: brandRow } = await supabase
+      .from('brands')
+      .select('name, location')
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (brandRow) {
+      const loc = (brandRow.location ?? {}) as { city?: string };
+      extractCtx = {
+        brand_name: brandRow.name ?? undefined,
+        city: typeof loc.city === 'string' ? loc.city : undefined,
+      };
+    }
+  } catch {
+    /* brand lookup is best-effort; slices still extract from body alone */
+  }
+  const slices = extractSlices({ body: draftBody, ctx: extractCtx });
+
+  // 6. Persist
   const { data: created, error: insErr } = await supabase
     .from('content_items')
     .insert({
@@ -643,6 +667,7 @@ export async function runAiDraft(
       topics: [topic, audience].filter(Boolean),
       writing_template_id: input.writing_template_id ?? null,
       keyword_ids: input.keyword_ids ?? [],
+      slices,
     })
     .select('id')
     .single();

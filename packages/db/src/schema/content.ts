@@ -95,6 +95,8 @@ export const contentItems = pgTable(
     keyword_ids: uuid('keyword_ids').array().notNull().default(sql`'{}'::uuid[]`),
     /** ADR 009 — picked in creation wizard step 0 (D21). NULL = legacy V1.6 path, NOT NULL = V2 contracted. */
     content_contract_id: uuid('content_contract_id'),
+    /** ADR 009 P1 — typed slices extracted from body. Empty = legacy / extractor not run. See migration 0031 + geo-core slice-extractor.ts. */
+    slices: jsonb('slices').notNull().default({}),
     status: contentItemStatusEnum('status').notNull().default('draft'),
     embedding: vector('embedding'),
     ...timestamps(),
