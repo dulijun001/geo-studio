@@ -1,5 +1,9 @@
 import type PgBoss from 'pg-boss';
 import { handleBatchDraftItem, type BatchDraftItemJob } from './batch-draft-item';
+import {
+  handleComplianceAutoRewrite,
+  type ComplianceAutoRewriteJob,
+} from './compliance-auto-rewrite';
 import { handleComplianceReview, type ComplianceReviewJob } from './compliance-review';
 import { handleDailyReport, type DailyReportJob } from './daily-report';
 import {
@@ -28,6 +32,7 @@ export const JOBS = {
   GEO_WEEKLY_BASELINE: 'geo.weekly_baseline', // V1.6-2
   DISCOVERABILITY_REGENERATE: 'discoverability.regenerate', // V1.7
   BATCH_DRAFT_ITEM: 'content.batch_draft_item', // V1.9
+  COMPLIANCE_AUTO_REWRITE: 'compliance.auto_rewrite', // P3 — auto LLM rewrite on reject (max 1×)
 } as const;
 
 export async function registerJobs(boss: PgBoss): Promise<void> {
@@ -77,6 +82,17 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
     async ([job]) => {
       if (!job?.data) return;
       await handleDiscoverabilityRegenerate(job.data);
+    },
+  );
+
+  // P3 — Compliance auto-rewrite. Triggered ONLY by compliance-review when
+  // a variant rejects + auto_rewrite_count = 0. Single-threaded is fine here:
+  // rejects are sparse + each rewrite calls thinking-model (~30-60s).
+  await boss.work<ComplianceAutoRewriteJob>(
+    JOBS.COMPLIANCE_AUTO_REWRITE,
+    async ([job]) => {
+      if (!job?.data) return;
+      await handleComplianceAutoRewrite(job.data);
     },
   );
 

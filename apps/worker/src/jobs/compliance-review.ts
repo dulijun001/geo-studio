@@ -27,6 +27,7 @@ import {
   type KeywordRow,
   type ComplianceCase,
 } from '@geo/geo-core';
+import { enqueueViaSharedBoss } from '../lib/boss-ref';
 import { getServiceClient } from '../lib/supabase';
 
 export type ComplianceReviewJob = {
@@ -301,6 +302,34 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   console.log(
     `[compliance-review] variant=${variant_id} -> ${finalStatus} (${Date.now() - started}ms)`,
   );
+
+  // P3 — auto-rewrite on first reject. Re-pull variant for the rewrite_count
+  // (we may have just transitioned to rejected). Hard cap: only fires when
+  // auto_rewrite_count = 0; the rewrite handler itself bumps the counter and
+  // re-enqueues review, which on second reject leaves the variant alone.
+  if (finalStatus === 'rejected') {
+    const { data: post } = await client
+      .from('content_variants')
+      .select('auto_rewrite_count')
+      .eq('id', variant_id)
+      .single();
+    const count = (post?.auto_rewrite_count as number | null) ?? 0;
+    if (count === 0) {
+      try {
+        await enqueueViaSharedBoss('compliance.auto_rewrite', { variant_id, tenant_id });
+        console.log(`[compliance-review] variant=${variant_id} → auto_rewrite enqueued (count=0)`);
+      } catch (err) {
+        console.error(
+          `[compliance-review] enqueue auto_rewrite failed variant=${variant_id}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    } else {
+      console.log(
+        `[compliance-review] variant=${variant_id} reject but auto_rewrite_count=${count} → operator review`,
+      );
+    }
+  }
 }
 
 type LlmResult = {

@@ -52,7 +52,7 @@ if [[ -d apps/web/public ]] && [[ -n "$(ls -A apps/web/public 2>/dev/null)" ]]; 
 fi
 
 # 5. PM2 zero-downtime reload
-pm2 reload ${ROOT}/ops/deploy/ecosystem.config.cjs --update-env
+pm2 restart ${ROOT}/ops/deploy/ecosystem.config.cjs --update-env
 
 # 6. 健康检查
 sleep 4
