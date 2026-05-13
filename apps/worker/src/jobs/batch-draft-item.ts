@@ -122,7 +122,20 @@ export async function handleBatchDraftItem(data: BatchDraftItemJob): Promise<voi
       }
     }
   } catch (err) {
-    errorMsg = err instanceof Error ? err.message : String(err);
+    const msg = err instanceof Error ? err.message : String(err);
+    // Node 22 fetch undici wraps real network error in err.cause — pull it out
+    // so we see ECONNREFUSED / ENOTFOUND / EHOSTUNREACH instead of just
+    // "fetch failed" surfacing to the UI.
+    const cause =
+      err instanceof Error && 'cause' in err && err.cause
+        ? ` cause=${err.cause instanceof Error ? err.cause.message : String(err.cause)}`
+        : '';
+    errorMsg = `${msg}${cause}`;
+    // Verbose stderr so we can debug worker fetch issues even when
+    // succeeded/failed counters obscure the real network error.
+    console.error(
+      `[batch-draft-item] FETCH EXC item=${data.item_id} url=${getInternalApiUrl()} msg="${msg}"${cause}`,
+    );
   }
 
   // 3. Write item terminal state
