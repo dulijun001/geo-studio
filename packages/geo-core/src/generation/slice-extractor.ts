@@ -159,11 +159,24 @@ function extractWhenToSeekCare(body: string): string | undefined {
 function extractFaqPairs(body: string): FaqPair[] {
   const pairs: FaqPair[] = [];
 
-  // 模式 1: Q1: ... A: ... / 问: ... 答: ...
+  // 模式 1: Q1: ... A: ... / 问: ... 答: ...(Q 和 A 分两行)
   const m1 = body.matchAll(
     /(?:^|\n)\s*(?:Q\d*[:：.]\s*|问\d*[:：.]\s*|\*\*Q\d*\*\*\s*[:：.]?\s*)([^\n]{5,150})\s*\n+\s*(?:A\d*[:：.]\s*|答\d*[:：.]\s*|\*\*A\d*\*\*\s*[:：.]?\s*)([^\n]{10,400})/gi,
   );
   for (const m of m1) {
+    const q = m[1]?.trim();
+    const a = m[2]?.trim();
+    if (q && a) pairs.push({ q, a });
+  }
+  if (pairs.length > 0) return dedupeFaq(pairs);
+
+  // 模式 1b (D21 batch path 实测格式): 同一行 inline `- 问:Q?答:A` /
+  // `* 问:Q?答:A` — LLM 在压缩输出时常常一行写完 Q+A. 关键标志: 同行内
+  // 先 "问" / Q,后 "答" / A,中间夹问号.
+  const m1b = body.matchAll(
+    /(?:^|\n)\s*(?:[-*•]\s*)?(?:Q\d*[:：.]|问\d*[:：.]|\*\*问\d*\*\*[:：.]?)\s*([^?？\n]{4,150}[?？])\s*(?:A[:：.]?|答[:：.]?|\*\*答\*\*[:：.]?)\s*([^\n]{10,400})/gi,
+  );
+  for (const m of m1b) {
     const q = m[1]?.trim();
     const a = m[2]?.trim();
     if (q && a) pairs.push({ q, a });

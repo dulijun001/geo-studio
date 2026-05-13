@@ -111,6 +111,23 @@ ok('markdown bold Q: extracts 5 FAQ pairs', (bold.faq_pairs?.length ?? 0) === 5,
 ok('markdown bold Q: Q stripped of ** wrappers', !bold.faq_pairs?.[0]?.q.includes('**'),
    `first Q: ${bold.faq_pairs?.[0]?.q}`);
 
+// ── Inline `- 问:Q?答:A` format (D21 batch path actual LLM output) ─────────
+const inlineQABody = `
+以下是一些常见问题解答:
+- 问:松鼠口腔的医生专业吗?答:拥有专业的医生团队,比如贾真真医生,擅长儿童早期矫正。
+- 问:看牙贵吗?答:不同诊疗项目价格不同,详情面诊评估。
+- 问:服务怎么样?答:注重患者体验,从初诊到回访都有完善流程。
+- 问:设备先进吗?答:配备全景片、头颅侧位片等先进设备。
+- 问:需要预约吗?答:建议提前预约,可节省时间避免排队。
+`.trim();
+const inline = extractSlices({ body: inlineQABody });
+ok('inline 问/答: extracts 5 pairs',
+   (inline.faq_pairs?.length ?? 0) === 5,
+   `got ${inline.faq_pairs?.length ?? 0}`);
+ok('inline 问/答: Q stripped of bullet/colon',
+   inline.faq_pairs?.[0]?.q.startsWith('松鼠口腔的') ?? false,
+   `first Q: ${inline.faq_pairs?.[0]?.q}`);
+
 // ── Edge: short body ──────────────────────────────────────────────────────
 const short = extractSlices({ body: '随便一句话。' });
 ok('short body: no faq', (short.faq_pairs?.length ?? 0) === 0 || short.faq_pairs === undefined);
