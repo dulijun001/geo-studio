@@ -50,25 +50,63 @@ export async function chat(opts: ChatOptions): Promise<ChatResult> {
   const timeout = setTimeout(() => controller.abort(), opts.timeout_ms ?? 30_000);
 
   try {
-    const body: Record<string, unknown> = {
-      model,
-      messages: opts.messages,
-      temperature: opts.temperature ?? 0.7,
+    const wantsJson = opts.response_format === 'json_object';
+    const callOnce = async (includeResponseFormat: boolean): Promise<Response> => {
+      const body: Record<string, unknown> = {
+        model,
+        messages: opts.messages,
+        temperature: opts.temperature ?? 0.7,
+      };
+      if (opts.max_tokens) body.max_tokens = opts.max_tokens;
+      if (includeResponseFormat && wantsJson) {
+        body.response_format = { type: 'json_object' };
+      }
+      return fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
     };
-    if (opts.max_tokens) body.max_tokens = opts.max_tokens;
-    if (opts.response_format === 'json_object') {
-      body.response_format = { type: 'json_object' };
-    }
 
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    let res = await callOnce(true);
+    // Some Ark endpoints (notably thinking / deepseek-r1 variants) reject
+    // response_format. Auto-retry once without it + nudge the model in the
+    // last system message to emit pure JSON. Caller's downstream JSON parser
+    // already tolerates ```json fences (see ai-draft-core repairJsonStringEscapes).
+    if (!res.ok && wantsJson && res.status === 400) {
+      const text = await res.text().catch(() => '');
+      if (/response_format/i.test(text)) {
+        // Append a JSON-only nudge as a final system message before retry.
+        const nudged = [...opts.messages];
+        nudged.push({
+          role: 'system',
+          content:
+            '严格只输出一个合法 JSON 对象 — 不要 markdown 代码栅栏 / 不要前后任何说明文字 / 不要思考过程 / 不要双引号外的中文双引号 "" 包内嵌引用。',
+        });
+        const fallbackBody: Record<string, unknown> = {
+          model,
+          messages: nudged,
+          temperature: opts.temperature ?? 0.7,
+        };
+        if (opts.max_tokens) fallbackBody.max_tokens = opts.max_tokens;
+        res = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(fallbackBody),
+          signal: controller.signal,
+        });
+      } else {
+        // Different 400 — restore the error to surface up
+        throw new Error(`Ark ${res.status}: ${text.slice(0, 300)}`);
+      }
+    }
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
