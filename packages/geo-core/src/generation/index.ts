@@ -1,6 +1,7 @@
 export * from './prompt-builder';
 export * from './generator';
 export * from './scorer';
+export * from './scorer-l2';
 export * from './citation-check';
 export * from './uniqueness';
 export * from './eeat-mapping';
