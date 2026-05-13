@@ -128,6 +128,24 @@ ok('inline 问/答: Q stripped of bullet/colon',
    inline.faq_pairs?.[0]?.q.startsWith('松鼠口腔的') ?? false,
    `first Q: ${inline.faq_pairs?.[0]?.q}`);
 
+// ── Dash + bold Q + newline + A (thinking model output) ──────────────────
+const dashBoldNewlineBody = `
+### FAQ
+- **Q:种植牙是什么?**
+A:种植牙是在缺牙位置植入钛合金人工牙根,功能接近真牙。
+- **Q:种植牙和烤瓷桥的区别?**
+A:种植牙不伤邻牙,烤瓷桥需磨小两侧健康牙作为桥墩。
+- **Q:种植牙用什么材料?**
+A:医用纯钛或钛合金,与骨科关节假体同类材料。
+- **Q:我怕疼,不敢做手术?**
+A:在局部麻醉下进行,术后 3-5 天恢复。
+- **Q:年纪大了还能种牙吗?**
+A:主要看全身健康和牙槽骨条件,有 60-70 岁成功案例。
+`.trim();
+const dashBold = extractSlices({ body: dashBoldNewlineBody });
+ok('dash+bold+newline 5 FAQ', (dashBold.faq_pairs?.length ?? 0) === 5,
+   `got ${dashBold.faq_pairs?.length ?? 0}`);
+
 // ── Edge: short body ──────────────────────────────────────────────────────
 const short = extractSlices({ body: '随便一句话。' });
 ok('short body: no faq', (short.faq_pairs?.length ?? 0) === 0 || short.faq_pairs === undefined);

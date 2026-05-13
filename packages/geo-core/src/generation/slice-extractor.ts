@@ -183,6 +183,20 @@ function extractFaqPairs(body: string): FaqPair[] {
   }
   if (pairs.length > 0) return dedupeFaq(pairs);
 
+  // 模式 1c: dash + bold Q + newline + A (D21 thinking-model 实测格式)
+  //   - **Q:种植牙是什么?**
+  //   A:种植牙是...
+  // Q 行有 `**Q:` 或 `**问:` 前缀,A 行紧跟下一行(无 `**` 包).
+  const m1c = body.matchAll(
+    /(?:^|\n)\s*(?:[-*•]\s*)?\*{1,3}\s*(?:Q\d*|问\d*)\s*[:：.]?\s*([^?？\n*]{4,150}[?？])\s*\*{1,3}\s*\n+\s*(?:A\d*|答\d*)\s*[:：.]?\s*([^\n]{10,500})/gi,
+  );
+  for (const m of m1c) {
+    const q = m[1]?.trim();
+    const a = m[2]?.trim();
+    if (q && a) pairs.push({ q, a });
+  }
+  if (pairs.length > 0) return dedupeFaq(pairs);
+
   // 模式 2: ### 编号 标题(?) ... 答案段
   const m2 = body.matchAll(
     /(?:^|\n)#{2,4}\s*\d+[\\.、]?\s*([^\n]{5,80}[?？])\s*\n+([^#\n][^\n]{20,500})/g,
