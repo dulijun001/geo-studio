@@ -37,10 +37,12 @@ export type BatchDraftItemJob = {
 const INTERNAL_API_TIMEOUT_MS = 240_000; // 4 min — matches runAiDraft's 3-min LLM cap + buffer
 
 function getInternalApiUrl(): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL;
-  if (!base) {
-    throw new Error('NEXT_PUBLIC_APP_URL not set — worker cannot reach web internal API');
-  }
+  // Prefer INTERNAL_API_BASE (loopback) — worker lives on the same host as
+  // web in self-hosted setups, so it should NOT route fetch traffic through
+  // the public IP (Caddy / hairpin NAT / cloud egress can drop or stall it).
+  // Default loopback. Fall back to NEXT_PUBLIC_APP_URL only if explicitly set.
+  const base =
+    process.env.INTERNAL_API_BASE ?? process.env.NEXT_PUBLIC_APP_URL ?? 'http://127.0.0.1:3000';
   return `${base.replace(/\/$/, '')}/api/internal/ai-draft`;
 }
 
