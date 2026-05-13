@@ -42,6 +42,7 @@
 | D18 | Schema 生成纪律:**只填有值字段,不用 placeholder 凑数** | 2026-05-01 | placeholder schema 比缺字段更糟,gaming 招致 AI 引擎降权;审计页显式提示"还差什么字段" |
 | D19 | 禁用 `pnpm db:generate`,migration 一律手写 | 2026-05-01 | Drizzle journal 自 0006 起冻结,手写为主流;运行 generate 会重新编号撞库导致冲突(2026-05-01 已撞过一次) |
 | D20 | **写作要求(意图骨架)× 平台风格(格式/口吻)** 双层叠加,不替换。新增 `writing_templates` 表 + `keywords` 词库,`buildVariantPrompt` 加 `writing_template?` 入参向后兼容 | 2026-05-04 | 抓词GEO 只有意图模板没有平台维度,我们叠加后"产品对比×小红书"和"产品对比×公众号"自动差异化输出,延续 D2 配置化思想;详见 ADR 007 |
+| D21 | **GEO 标准内容资产** = 问题资产 + 引用资产 + 结构化资产 + 可验证资产。生成顺序前置两层:`query_intent → content_contract → writing_template × platform_style`(D20 双层叠加保留,降为生成第 3-4 层)。存储改 slice-first(direct_answer / faq_pairs / trust_block 等 typed slices)。DoD 闸门(14+5 条)代替自由审核 | 2026-05-13 | V1.8 内容只是"写得通顺",对 AI 引擎不够"可引用";要从"GEO 运营平台"升级为"GEO 内容标准系统"必须把内容侧也产品化。详见 `docs/07-geo-article-spec.md` + ADR 009 |
 
 ## 四、目录结构(强制)
 
@@ -181,11 +182,16 @@ geo-studio/
   - test-auth marker 改为 OR 探测(V1.7 cinematic redesign 后 stale 的 marker 复活)
 
 ### 当前阶段
-- **本地 main 上多批未部署 commit**(V1.6 文档对齐 / V1.7 全套 / V1.8 / V1.8.x / V1.9 / V1.9.1)
+- **V1.9.2 生产上线**(2026-05-12):本地 main `c8d237d → fa6331b` 全套推上 ECS,Caddy 切 HTTPS,域名 `https://geo.dulijun.icu` Let's Encrypt 自动签证书。途中修了 PWA SW 缓存陷阱(`fix(staff): drop PWA`)、worker tsx 路径(`fix(deploy): worker tsx path`)、standalone static 漏 cp(`fix(deploy): rsync .next/static`)、暗色 cinematic 漏改的对比 bug、prose-slate→prose-invert
+- **2026-05-13 决策**:D21 GEO 标准内容资产(ADR 009 + docs/07-geo-article-spec.md),写作环节从"自由 prompt"升级为"contract → slice → DoD"工程化产线
 - **V2 反爬基础设施可启动**:多引擎 + 账号池 + 代理 + 指纹隔离(ADR 004)
-- 生产环境:`47.98.131.138:9443`(自托管 web)+ `47.98.131.138:8000`(自托管 Supabase,见 D13)— 已在跑流量,但**版本可能落后于本地 main**
+- 生产环境:`https://geo.dulijun.icu`(Caddy 自动 HTTPS)+ `:9443`(IP fallback HTTP)+ `:8000`(自托管 Supabase,见 D13)
 
 ### 阻塞 / 待澄清 / 已知技术债
+- **D21 落地 P0 待开工**:`content_contracts` 表 / migration 0030 / `buildVariantPrompt` 扩 contract 入参 / SYSTEM_PROMPT 加 10 结构块约束 / Trust Block 注入。详见 ADR 009 第 P0 节
+- **TEMPORARY 账号密码登录**:`/login/quick` (songshu/123456) 临时绕过邮箱魔链,deadline 2026-06-30 替换为 Supabase Auth 多用户或 phone+passcode
+- **Worker pg-boss 连不上 DB**(P0 预存,2026-05-12 deploy 暴露):`DATABASE_URL` 走 Supavisor pool 报 `Tenant or user not found`,worker 已 pm2 stop;意味着 V1.7+ pg-boss 任务(batch / KB sync / 合规 LLM 异步 / GEO 追踪 cron)从未在生产真实跑过
+- **`NEXT_PUBLIC_APP_URL` 未同步**:仍是 `http://47.98.131.138:9443`,影响 llms.txt / sitemap.xml / invite link 等"对外暴露 URL"。需 rebuild
 - **W8 真实数据验收未归档**(40 人打卡率、5 起到店转化追溯、医院见证)。Stub 见本节末
 - **可观测性 0 接通**(P0):`.env` 有 `SENTRY_DSN` / `AXIOM_TOKEN` / `AXIOM_DATASET`,`packages/shared/src/observability.ts` 提供 `reportError` / `reportEvent` 抽象,但**代码 0 处 import 调用**。生产 error 当前仅走 console.error 单行 JSON。详见 `docs/observability-setup.md`,实操工单待开
 - **自托管 Postgres `:shutdown, :db_termination`**:test-content 接近完成时被 server 主动断连。怀疑 connection pool 没释放 / max_connections 偏低 / idle timeout 过短。需要单独 infra 工单
