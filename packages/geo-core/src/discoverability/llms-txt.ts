@@ -93,14 +93,19 @@ export function generateLlmsTxt(input: ArtifactInput): string {
     }
   }
 
-  // Articles (canonical written content)
+  // Articles (canonical written content). When slices.direct_answer present
+  // (D21 / ADR 009), append a 1-line precise summary so AI engines have a
+  // crawlable answer block right from the index without fetching full article.
   if (input.articles.length > 0) {
     lines.push('## Articles');
     lines.push('');
     for (const a of input.articles) {
       const date = a.published_at?.split('T')[0] ?? '';
       const datePrefix = date ? `(${date}) ` : '';
-      lines.push(`- ${datePrefix}[${a.headline}](${a.url})`);
+      const directAnswer = a.slices?.direct_answer
+        ? ` — ${condense(a.slices.direct_answer, 100)}`
+        : '';
+      lines.push(`- ${datePrefix}[${a.headline}](${a.url})${directAnswer}`);
     }
     lines.push('');
   }
@@ -195,23 +200,58 @@ export function generateLlmsTxtFull(input: ArtifactInput): string {
     }
   }
 
-  // Full articles (truncated if total exceeds size cap)
+  // Full articles. When slices are present (D21 / ADR 009 P1), prepend a
+  // structured "QUICK ANSWER" section before the markdown body — gives AI
+  // crawlers a clean direct_answer + FAQ block + trust signals without
+  // having to parse the article themselves. Falls back to raw body when
+  // slices absent (legacy articles).
   if (input.articles.length > 0) {
     lines.push('## Articles');
     lines.push('');
     let bytesUsed = lines.join('\n').length;
     for (const a of input.articles) {
-      const block = [
-        `### ${a.headline}`,
-        '',
-        a.published_at ? `Published: ${a.published_at.split('T')[0]}` : '',
-        a.author_name ? `Author: ${a.author_name}` : '',
-        '',
-        a.body,
-        '',
-      ]
-        .filter(Boolean)
-        .join('\n');
+      const blockParts: string[] = [`### ${a.headline}`, ''];
+      if (a.published_at) blockParts.push(`Published: ${a.published_at.split('T')[0]}`);
+      if (a.author_name) blockParts.push(`Author: ${a.author_name}`);
+      blockParts.push('');
+
+      // D21 quick-answer header from slices
+      if (a.slices?.direct_answer) {
+        blockParts.push(`> **Direct answer**: ${a.slices.direct_answer}`);
+        blockParts.push('');
+      }
+      if (a.slices?.faq_pairs && a.slices.faq_pairs.length > 0) {
+        blockParts.push('**FAQ**');
+        blockParts.push('');
+        for (const f of a.slices.faq_pairs.slice(0, 8)) {
+          blockParts.push(`- **Q: ${f.q}** A: ${f.a}`);
+        }
+        blockParts.push('');
+      }
+      if (a.slices?.when_to_seek_care) {
+        blockParts.push(`**When to seek care**: ${a.slices.when_to_seek_care}`);
+        blockParts.push('');
+      }
+      if (a.slices?.trust_block) {
+        const tb = a.slices.trust_block;
+        const trustLines: string[] = [];
+        if (tb.applicable_to) trustLines.push(`Applicable to: ${tb.applicable_to}`);
+        if (tb.not_replace) trustLines.push(`Does not replace: ${tb.not_replace}`);
+        if (tb.reviewed_by) trustLines.push(`Reviewed by: ${tb.reviewed_by}`);
+        if (tb.updated_at) trustLines.push(`Updated: ${tb.updated_at}`);
+        if (tb.region) trustLines.push(`Region: ${tb.region}`);
+        if (trustLines.length > 0) {
+          blockParts.push('**Trust signals**');
+          blockParts.push('');
+          for (const t of trustLines) blockParts.push(`- ${t}`);
+          blockParts.push('');
+        }
+      }
+
+      blockParts.push(a.body);
+      blockParts.push('');
+
+      const block = blockParts.filter((s) => s !== undefined).join('\n');
       if (bytesUsed + block.length > MAX_LLMS_FULL_BYTES) {
         lines.push('*(remaining articles truncated to keep file under 200KB)*');
         break;

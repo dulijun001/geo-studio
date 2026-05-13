@@ -136,7 +136,7 @@ export async function handleDiscoverabilityRegenerate(
   // ── 7. Recent published content (top N) ─────────────────────────────
   const { data: contentRows } = await supabase
     .from('content_items')
-    .select('id, tenant_id, title, markdown, status, created_at, updated_at')
+    .select('id, tenant_id, title, markdown, slices, status, created_at, updated_at')
     .eq('tenant_id', tenant.id)
     .eq('status', 'published')
     .is('deleted_at', null)

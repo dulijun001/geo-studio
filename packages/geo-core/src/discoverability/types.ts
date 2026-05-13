@@ -165,6 +165,33 @@ export type ArticleProfile = {
   /** ISO date. */
   published_at?: string;
   updated_at: string;
+  /**
+   * D21 / ADR 009 P1 — typed slices extracted from body. When present, AI
+   * artifact generators (llms.txt, feed.json, Schema FAQPage) consume slices
+   * directly instead of re-parsing markdown. Empty / absent = legacy article.
+   */
+  slices?: {
+    direct_answer?: string;
+    summary_1?: string;
+    summary_3?: string;
+    myth_busting_block?: string;
+    when_to_seek_care?: string;
+    faq_pairs?: Array<{ q: string; a: string }>;
+    trust_block?: {
+      applicable_to?: string;
+      not_replace?: string;
+      seek_care_if?: string;
+      reviewed_by?: string;
+      updated_at?: string;
+      institution?: string;
+      region?: string;
+    };
+    entity_snapshot?: {
+      brand_name?: string;
+      city?: string;
+      reviewed_by?: string;
+    };
+  };
 };
 
 export type GeoProfile =

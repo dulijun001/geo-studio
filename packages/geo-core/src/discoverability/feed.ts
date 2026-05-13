@@ -42,7 +42,17 @@ export function generateContentFeed(input: ArtifactInput): string {
       pageUrl: `${input.public_base_url}/c/${input.tenant_slug}/faqs`,
     }),
 
-    articles: input.articles.map((a) => buildArticleSchema(a)),
+    articles: input.articles.map((a) => {
+      const base = buildArticleSchema(a);
+      // D21 / ADR 009 P1 — when slices are present, pass them through as
+      // a non-Schema.org sibling field. AI crawlers that understand the
+      // GEO Studio spec consume slices directly; standards-only crawlers
+      // ignore unknown fields (Schema.org JSON-LD is open-ended).
+      if (a.slices) {
+        return { ...base, slices: a.slices };
+      }
+      return base;
+    }),
 
     counts: {
       physicians: input.physicians.length,

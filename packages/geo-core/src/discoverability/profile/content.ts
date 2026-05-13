@@ -17,6 +17,8 @@ type ContentItemRow = {
   status: string;
   created_at: Date | string;
   updated_at: Date | string;
+  /** D21 / ADR 009 P1 — slices jsonb. Empty for legacy items. */
+  slices?: Record<string, unknown> | null;
 };
 
 type BuildArticleOpts = {
@@ -33,17 +35,22 @@ export function buildArticleProfile(
   opts: BuildArticleOpts,
 ): ArticleProfile {
   const body = row.markdown?.trim() ?? '';
+  // D21 / ADR 009 — pass-through slices when present. Prefer slice-based
+  // summary (more accurate than first-para heuristic) when extractor has run.
+  const slices = (row.slices ?? undefined) as ArticleProfile['slices'];
+  const summary = slices?.summary_1 ?? slices?.direct_answer ?? extractSummary(body);
   return {
     kind: 'article',
     id: row.id,
     tenant_id: row.tenant_id,
     url: `${opts.publicBaseUrl}/c/${opts.tenantSlug}/articles/${row.id}`,
     headline: row.title,
-    summary: extractSummary(body),
+    summary,
     body,
     author_name: opts.authorName,
     published_at: opts.publishedAt ?? toIsoString(row.created_at),
     updated_at: toIsoString(row.updated_at),
+    slices,
   };
 }
 
