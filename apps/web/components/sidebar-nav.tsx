@@ -45,6 +45,8 @@ export type NavItem = {
   iconKey: keyof typeof ICONS;
   /** Optional red badge (e.g. count of pending items needing attention). 0 hides. */
   badge?: number;
+  /** Optional NEW badge text (e.g. "NEW V1.10") shown in emerald. */
+  newBadge?: string;
 };
 
 export function SidebarNav({
@@ -81,6 +83,14 @@ export function SidebarNav({
               className={isActive ? 'text-emerald-600' : 'text-slate-400 group-hover:text-slate-600'}
             />
             <span className="flex-1">{item.label}</span>
+            {item.newBadge ? (
+              <span
+                className="inline-flex items-center rounded bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-300"
+                title={item.newBadge}
+              >
+                {item.newBadge}
+              </span>
+            ) : null}
             {item.badge && item.badge > 0 ? (
               <span
                 className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-semibold text-white"

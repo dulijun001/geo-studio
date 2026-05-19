@@ -6,6 +6,8 @@ import {
 } from './compliance-auto-rewrite';
 import { handleComplianceReview, type ComplianceReviewJob } from './compliance-review';
 import { handleDailyReport, type DailyReportJob } from './daily-report';
+import { handleAutoDispatchTimeout, AUTO_DISPATCH_TIMEOUT_JOB } from './auto-dispatch-timeout';
+import { handleNightlyDraft, NIGHTLY_DRAFT_JOB } from './nightly-draft';
 import {
   handleDiscoverabilityRegenerate,
   type DiscoverabilityRegenerateJob,
@@ -33,6 +35,8 @@ export const JOBS = {
   DISCOVERABILITY_REGENERATE: 'discoverability.regenerate', // V1.7
   BATCH_DRAFT_ITEM: 'content.batch_draft_item', // V1.9
   COMPLIANCE_AUTO_REWRITE: 'compliance.auto_rewrite', // P3 — auto LLM rewrite on reject (max 1×)
+  DAILY_OPS_NIGHTLY_DRAFT: NIGHTLY_DRAFT_JOB, // V1.10 docs/09 cron #1
+  DAILY_OPS_AUTO_DISPATCH_TIMEOUT: AUTO_DISPATCH_TIMEOUT_JOB, // V1.10 docs/09 cron #2
 } as const;
 
 export async function registerJobs(boss: PgBoss): Promise<void> {
@@ -124,6 +128,24 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
   // priority>=7 question for every tenant, gives the customer a fresh SOV
   // snapshot week over week without manual button-mashing.
   await boss.schedule(JOBS.GEO_WEEKLY_BASELINE, '0 1 * * 1', {});
+
+  // V1.10 docs/09 cron #1 — Nightly daily-ops draft trigger.
+  // 18:00 UTC = 02:00 Asia/Shanghai (next day). Per-tenant settings.run_cron
+  // can override (but pg-boss schedule is global; per-tenant cron is V1.11+).
+  // For V1.10 all enabled tenants share the global 02:00 CST trigger.
+  await boss.work(JOBS.DAILY_OPS_NIGHTLY_DRAFT, async () => {
+    await handleNightlyDraft();
+  });
+  await boss.schedule(JOBS.DAILY_OPS_NIGHTLY_DRAFT, '0 18 * * *', {});
+
+  // V1.10 docs/09 cron #2 — Auto-dispatch timeout poller.
+  // Every 30 min: advances runs from drafting→awaiting_review (when batch
+  // is done) and awaiting_review→auto_dispatched_partial (after timeout_hours).
+  // Cheap: SELECT on small daily_ops_runs table, only acts on stuck runs.
+  await boss.work(JOBS.DAILY_OPS_AUTO_DISPATCH_TIMEOUT, async () => {
+    await handleAutoDispatchTimeout();
+  });
+  await boss.schedule(JOBS.DAILY_OPS_AUTO_DISPATCH_TIMEOUT, '*/30 * * * *', {});
 
   // Placeholders for later weeks — log receipt so we can verify wiring.
   for (const job of [JOBS.HOOK_PROVISION]) {

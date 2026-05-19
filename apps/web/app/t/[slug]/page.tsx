@@ -228,9 +228,18 @@ export default async function TenantHomePage({ params }: { params: { slug: strin
           </>
         }
         actions={
-          <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            最近追踪 · {sovAskedAt ? fmtDateTime(sovAskedAt) : '尚未运行'}
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={`/t/${tenant.slug}/daily-ops`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              每日自动化
+            </Link>
+            <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              最近追踪 · {sovAskedAt ? fmtDateTime(sovAskedAt) : '尚未运行'}
+            </div>
           </div>
         }
       />

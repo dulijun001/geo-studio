@@ -183,6 +183,7 @@ function buildCommandItems(menu: NavItem[], badges: Badges): CommandItem[] {
 function buildMenu(role: string, badges: Badges): NavItem[] {
   const all: Array<NavItem & { allowed?: readonly string[] }> = [
     { href: '', label: '概览', iconKey: 'overview' },
+    { href: '/daily-ops', label: '每日自动化', iconKey: 'overview', newBadge: 'NEW' },
     { href: '/playbook', label: 'GEO 执行计划', iconKey: 'playbook' },
     { href: '/content', label: '内容', iconKey: 'content' },
     { href: '/content/rescue', label: '老内容救援', iconKey: 'content', allowed: ['owner', 'admin', 'operator'] },

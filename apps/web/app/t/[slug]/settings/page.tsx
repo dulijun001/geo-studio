@@ -120,6 +120,21 @@ export default async function SettingsPage({ params }: { params: { slug: string 
               百度百科 / 大众点评 / 高德百度地图入驻状态。这两层是豆包 GEO 的先决条件,GEO Studio 之外要做。
             </p>
           </Link>
+          <Link
+            href={`/t/${tenant.slug}/daily-ops?tab=settings`}
+            className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-4 hover:bg-emerald-500/10"
+          >
+            <div className="mb-1 flex items-center gap-2 text-sm font-medium">
+              <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+                NEW V1.10
+              </span>
+              每日自动化(daily-ops)
+            </div>
+            <p className="text-xs text-muted-foreground">
+              凌晨自动选题 + AI 起草 + 合规分类 + 6h 超时机制。开启后,你每天进系统只看异常(从 40 min → 5 min)。
+              详见 docs/09。
+            </p>
+          </Link>
         </div>
       </section>
 

@@ -17,3 +17,4 @@ export * from './dispatch';
 export * from './tracking';
 export * from './attribution';
 export * from './discoverability';
+export * from './daily-ops';
