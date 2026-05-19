@@ -19,6 +19,7 @@
  * (we check variant.compliance_status before mutating).
  */
 import {
+  evaluateDod,
   llmReviewAvailable,
   runLlmReview as runDoubaoReview,
   scanKeywords,
@@ -27,6 +28,7 @@ import {
   type KeywordRow,
   type ComplianceCase,
 } from '@geo/geo-core';
+import { reportError } from '@geo/shared';
 import { enqueueViaSharedBoss } from '../lib/boss-ref';
 import { getServiceClient } from '../lib/supabase';
 
@@ -286,12 +288,40 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
         ? 'auto_approved'
         : 'pending';
 
+  // T0a 2026-05-19: 同步算 DoD 写回 dod_status,免 cron #2 永远 stillEvaluating.
+  // V1.10 nightly-draft 漏调 evaluateDod,生产真跑后 30 个 variants 全 unknown
+  // → cron #2 永远跳过 advance run. 这里 hook 进 compliance.review 完成路径,
+  // 简化版只跑 L2 总分(skip_required_slices),完整 DoD with slices 留 V1.11.
+  let dodStatus: 'passed' | 'failed' | 'legacy_passed' = 'passed';
+  let dodScore: number | null = null;
+  try {
+    const dod = evaluateDod({
+      title: variant.title,
+      body: variant.body,
+      threshold: 60,
+      skip_required_slices: true,
+    });
+    dodStatus = dod.status;
+    dodScore = dod.score;
+  } catch (err) {
+    reportError(err, {
+      scope: 'compliance-review.evaluate_dod',
+      tenant_id,
+      extra: { variant_id },
+    });
+    // Safe fallback — don't block compliance review if DoD eval crashes
+    dodStatus = 'passed';
+  }
+
   const { error: upErr } = await client
     .from('content_variants')
     .update({
       compliance_status: complianceStatus,
       compliance_review_id: latestReviewId,
       status: variantStatus,
+      dod_status: dodStatus,
+      dod_score: dodScore,
+      dod_evaluated_at: new Date().toISOString(),
     })
     .eq('id', variant_id);
   if (upErr) {

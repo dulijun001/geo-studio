@@ -196,12 +196,15 @@ async function advanceDraftingToAwaiting(
   }));
   const counts = countByClass(inputs);
 
-  // Has the variants finished evaluating? content.variant_generate is async +
-  // hands off to compliance.review which is also async. If we see variants
-  // still in pending compliance (yellow fallback path with dod=unknown), give
-  // it another poll cycle.
+  // T0c 2026-05-19 fix: stillEvaluating only blocks on `dod_status='unknown'`,
+  // NOT `compliance_status='pending'`. Pending compliance means "needs human
+  // review" — a valid terminal state that should appear in the yellow bucket,
+  // not pause the entire run. Without this fix, runs with many GEO-low-score
+  // variants (LLM medical content typically scores 60-70) get stuck forever in
+  // 'drafting' because compliance-review downgrades auto→pending instead of
+  // approving outright.
   const stillEvaluating = inputs.some(
-    (v) => v.dod_status === 'unknown' || v.compliance_status === 'pending',
+    (v) => v.dod_status === 'unknown',
   );
   if (stillEvaluating && inputs.length > 0) {
     return false; // wait for next poll
@@ -226,6 +229,21 @@ async function advanceDraftingToAwaiting(
 
   if (updRErr) throw new Error(`advance run failed: ${updRErr.message}`);
 
+  // T4 2026-05-19: 自动给 yellow 变体 enqueue compliance.auto_rewrite.
+  // 现实:V1.10 生产 22/25 variants 落 yellow (GEO score 低,compliance pending).
+  // 客户不应该手动点 22 次「AI 一键改写」. settings.auto_rewrite_yellow 控制开关.
+  // D5/D12 §13.3 max 1× 限制保留(compliance-auto-rewrite handler 自己 bump 计数).
+  try {
+    await autoRewriteYellows(client, run.id, run.tenant_id, variants ?? []);
+  } catch (err) {
+    reportError(err, {
+      scope: 'daily-ops.auto-dispatch-timeout.rewrite_yellows',
+      tenant_id: run.tenant_id,
+      extra: { run_id: run.id },
+    });
+    // best-effort: 失败不阻塞 advance
+  }
+
   // T7 — send "今日待审" email (best-effort, doesn't throw on failure)
   await notifyAwaitingReview(client, {
     tenant_id: run.tenant_id,
@@ -235,6 +253,96 @@ async function advanceDraftingToAwaiting(
   });
 
   return true;
+}
+
+/**
+ * T4 2026-05-19 — V1.11 cron 自动改写 yellow.
+ *
+ * 在 cron #2 advance run 到 awaiting_review 后,扫所有 classified 为 yellow
+ * 且 auto_rewrite_count=0 的 variants → enqueue compliance.auto_rewrite.
+ * Worker handler 跑 LLM 改写,bump 计数,re-enqueue compliance.review.
+ *
+ * 客户体验:不用手动点 22 次「AI 一键改写」按钮.
+ * settings.auto_rewrite_yellow=false 退回 V1.10 仅 D5/D12 reject 触发模式.
+ */
+async function autoRewriteYellows(
+  client: ReturnType<typeof getServiceClient>,
+  runId: string,
+  tenantId: string,
+  rawVariants: Array<{
+    dod_status: string | null;
+    compliance_status: string | null;
+    auto_rewrite_count: number | null;
+    numeric_check: { verdict?: string } | null;
+  }>,
+): Promise<void> {
+  // 1. settings.auto_rewrite_yellow toggle
+  const { data: settings } = await client
+    .from('daily_ops_settings')
+    .select('auto_rewrite_yellow')
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  const enabled = (settings?.auto_rewrite_yellow as boolean | undefined) ?? true;
+  if (!enabled) {
+    console.log(`[auto-rewrite-yellows] tenant=${tenantId} auto_rewrite_yellow=false, skip`);
+    return;
+  }
+
+  // 2. Re-fetch with variant ids (variants from caller lacks id; re-query is cheap)
+  const { data: vids } = await client
+    .from('content_variants')
+    .select('id, dod_status, compliance_status, auto_rewrite_count, numeric_check, tenant_id')
+    .eq('daily_run_id', runId)
+    .eq('tenant_id', tenantId)
+    .is('deleted_at', null);
+  if (!vids?.length) return;
+
+  // 3. Filter to yellow + auto_rewrite_count=0
+  const targets = vids.filter((v) => {
+    if ((v.auto_rewrite_count ?? 0) >= 1) return false; // D5/D12 §13.3 max 1×
+    const cls = classifyVariant({
+      dod_status: (v.dod_status ?? 'unknown') as VariantReadinessInput['dod_status'],
+      compliance_status: (v.compliance_status ?? 'pending') as string,
+      auto_rewrite_count: 0,
+      numeric_check: (v.numeric_check ?? null) as { verdict?: string } | null,
+    });
+    return cls === 'yellow';
+  });
+
+  if (targets.length === 0) {
+    console.log(`[auto-rewrite-yellows] run=${runId} no yellow variants to rewrite`);
+    return;
+  }
+
+  // 4. Enqueue compliance.auto_rewrite for each. Empty findings is fine —
+  // compliance-auto-rewrite.ts handler reads variant + applies LLM rewrite
+  // hint from GEO score / sanitizer / etc.
+  const { enqueueViaSharedBoss } = await import('../lib/boss-ref');
+  let enqueued = 0;
+  for (const v of targets) {
+    try {
+      await enqueueViaSharedBoss('compliance.auto_rewrite', {
+        variant_id: v.id as string,
+        tenant_id: tenantId,
+      });
+      enqueued++;
+    } catch (err) {
+      reportError(err, {
+        scope: 'daily-ops.auto-rewrite-yellows.enqueue',
+        tenant_id: tenantId,
+        extra: { run_id: runId, variant_id: v.id },
+      });
+    }
+  }
+
+  reportEvent('daily-ops.auto-rewrite-yellows.enqueued', {
+    scope: 'daily-ops.auto-rewrite-yellows',
+    tenant_id: tenantId,
+    extra: { run_id: runId, count: enqueued, total_yellow: targets.length },
+  });
+  console.log(
+    `[auto-rewrite-yellows] run=${runId} enqueued=${enqueued}/${targets.length} yellow variants for auto-rewrite`,
+  );
 }
 
 /**

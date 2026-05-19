@@ -109,7 +109,12 @@ export async function TodayView({
       'id, title, platform, status, dod_status, dod_score, compliance_status, auto_rewrite_count, numeric_check',
     )
     .eq('daily_run_id', typedRun.id)
-    .eq('status', 'draft')
+    // T0b 2026-05-19: V1.9 cascade promotes variants out of 'draft' once
+    // compliance.review runs (→ 'pending_review' if needs human, 'auto_approved'
+    // if passes 4-gate). Both still need to surface in today's 4 buckets so the
+    // operator can act. Only 'archived' / 'rejected' / 'dispatched' / 'published'
+    // are hidden (those left the review flow).
+    .in('status', ['draft', 'pending_review', 'auto_approved'])
     .is('deleted_at', null)
     .order('created_at', { ascending: true });
 

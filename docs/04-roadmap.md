@@ -126,26 +126,50 @@
 
 ---
 
-## V1.11 — xiangyu CLI 借鉴 P0(插队 Sprint,4.5d)
+## V1.11 — V1.10 bug 修复 + cron 自动改写 + xiangyu P0(5.5d)
 
-> 触发条件:V1.10 维稳 7d + 客户主动提"想覆盖海外 AI 引擎"或"想看内容独家信号"。详见 `docs/adr/010-xiangyu-cli-integration.md` §IV-P0。
+> 触发条件:V1.10 维稳 7d(2026-05-26+)或客户反馈 cron stuck。
 
-### 目标
+### 必修先做(2026-05-19 真生产部署后发现的 V1.10 bug,1d)
 
-借鉴 xiangyu-search-seo-cli 3 个最高 ROI 算法,**不引整个 Python CLI**,只 port 到 TS。
+- [ ] **🚨 T0a: nightly-draft 没调 evaluateDod 修复**(0.5d):
+      ECS 生产真跑后发现 — 30 个 variants 全 `dod_status=unknown` →
+      cron #2 `stillEvaluating` 永真 → run 永远 stuck 在 drafting。
+      Fix:`apps/worker/src/jobs/batch-draft-item.ts` 或 `compliance-review.ts`
+      在 variant 生成后调用 `evaluateDod`(packages/geo-core/scorer-l2.ts)写回
+      `content_variants.dod_status`。
+- [ ] **🚨 T0b: today-view status filter 修复**(0.25d):
+      `apps/web/app/t/[slug]/daily-ops/today-view.tsx` 当前 `.eq('status','draft')`
+      漏掉 V1.9 cascade 升级到 `pending_review` / `auto_approved` 的 variants。
+      Fix:改成 `.in('status', ['draft','pending_review','auto_approved'])`。
+- [ ] **🚨 T0c: cron #2 stillEvaluating 逻辑修复**(0.25d):
+      `apps/worker/src/jobs/auto-dispatch-timeout.ts` 现在把 `compliance_status='pending'`
+      当 "still evaluating",但 pending 实际 = "等人工审"应算 yellow 桶。
+      Fix:stillEvaluating 只看 `dod_status='unknown'`,不看 compliance pending。
 
-### 模块清单
+### 新加:cron 自动改写 yellow(C 方案,2026-05-19 用户拍板,0.5d)
+
+- [ ] **🔥 T4: cron 自动改写 yellow variants**(0.5d):
+      cron #2 advance run 后扫所有 yellow 状态(auto_rewrite_count=0),
+      自动 enqueue `compliance.auto_rewrite` job。worker 跑 LLM 改写,重审,
+      期望部分进 auto_approved → 客户不用点 22 次「AI 一键改写」。
+      D5/D12 §13.3 max 1× 限制保留。
+      新 settings 字段:`auto_rewrite_yellow boolean DEFAULT true`(migration 0037)。
+
+### xiangyu CLI 借鉴 P0(详见 `docs/adr/010-xiangyu-cli-integration.md` §IV-P0,4d)
 
 - [ ] **🥇 ai-citation-track 4 引擎 adapter**(2d):OpenAI / Perplexity / Gemini / Claude API,扩 `packages/geo-core/tracking/adapters/`,补 D4 豆包 Playwright → 5 大引擎覆盖
 - [ ] **🥈 information-gain-check → D21 DoD 维度 6**(1.5d):scorer-l2 加 `independent_signals` 维度,D21 14+5 → 15+5 条 DoD
-- [ ] **🥉 geo-fanout-check 合并 docs/08 §8**(1d):双源驱动选题(高追踪零引用 query + Google PAA/Related 缺口)
+- [ ] **🥉 geo-fanout-check 合并 docs/08 §8**(1d 但有重叠,实际 0.5d):双源驱动选题(高追踪零引用 query + Google PAA/Related 缺口)
 - [ ] tenants.settings.tracking.engines enum 扩 OpenAI/Perplexity/Gemini/Claude
 
 ### V1.11 验收
 
-- [ ] 至少 1 个海外引擎 adapter 跑通(OpenAI 优先,凭据已有)
+- [ ] **V1.10 cron 真自动跑通,不需要 SQL hack**(T0 三 bug 全修)
+- [ ] **客户进 /daily-ops today 看到 4 buckets 真实分布**,yellow 经 cron 自动改写后部分变 green
+- [ ] 至少 1 个海外引擎 adapter 跑通(OpenAI 优先)
 - [ ] 新生成内容 DoD 15+5 条全过(`independent_signals` ≥ 1)
-- [ ] /daily-ops today tab 选题建议来源标注"反馈回路 + fanout 缺口"
+- [ ] /daily-ops today tab 选题建议标注"反馈回路 + fanout 缺口"
 
 ---
 
