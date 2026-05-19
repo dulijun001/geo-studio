@@ -195,11 +195,14 @@ geo-studio/
 - ~~Worker pg-boss 连不上 DB(P0)~~ **已修复 2026-05-13**:DATABASE_URL 误写 `postgres.studio:`,Supavisor 实际注册 tenant 是 `your-tenant-id`(`/opt/supabase/docker/.env` `POOLER_TENANT_ID`)。sed 修正 + pm2 reload + 重启 worker = `[worker] pg-boss started`。`.env.production.example` 已加注释防再踩
 - **`NEXT_PUBLIC_APP_URL` 未同步**:仍是 `http://47.98.131.138:9443`,影响 llms.txt / sitemap.xml / invite link 等"对外暴露 URL"。需 rebuild
 - **W8 真实数据验收未归档**(40 人打卡率、5 起到店转化追溯、医院见证)。Stub 见本节末
-- **可观测性 0 接通**(P0):`.env` 有 `SENTRY_DSN` / `AXIOM_TOKEN` / `AXIOM_DATASET`,`packages/shared/src/observability.ts` 提供 `reportError` / `reportEvent` 抽象,但**代码 0 处 import 调用**。生产 error 当前仅走 console.error 单行 JSON。详见 `docs/observability-setup.md`,实操工单待开
+- **可观测性已接通 P1**(2026-05-14):`.env` 有 `SENTRY_DSN` / `AXIOM_TOKEN` / `AXIOM_DATASET`,`packages/shared/src/observability.ts` 提供 `reportError` / `reportEvent` 抽象(当前实现 = 结构化 JSON console;`@sentry/node` 装包后无需改调用方代码)。**worker 端 10 处接通**(unhandled-rejection、main_fatal、compliance-auto-rewrite、batch-draft-item、geo-snapshot、discoverability-regenerate)。**web 端 8 处接通**(compliance: ai_rewrite_variant / ai_rewrite_geo_score / ai_rewrite_citations × 3 个 server action;ai-draft: llm_call + json_parse;api.internal: ai_draft + backfill_slices.row + rewrite_citations × 3 个内部 API)。**剩余 stub** = 装 `@sentry/node` 把 console JSON 转 Sentry SDK 调用(已写好的 TODO 注释 + `docs/observability-setup.md` 步骤),生产部署后做。详见 `docs/observability-setup.md`
 - **自托管 Postgres `:shutdown, :db_termination`**:test-content 接近完成时被 server 主动断连。怀疑 connection pool 没释放 / max_connections 偏低 / idle timeout 过短。需要单独 infra 工单
 - **测试自洁缺失**:`content-flow` / `compliance-llm` / `variant-flow` 创建的 tenant 没 cascade delete,每轮 kb-sync 都要 skip。需在测试 finally 里清理
 - **3 个 smoke test 仍需深挖**:test-content 卡 `:db_termination`(infra)、test-compliance-llm 偶发卡住、test-auth 跑生产 URL 不跑本地(默认 fallback 链路待优化)
 - **deploy.sh 文档过时**:`ops/deploy/deploy.sh` 顶部注释写 `ssh ubuntu@47.98.131.138`,但 ECS 实际登录用户是 **root**(`~/.ssh/id_ecs`)。2026-05-13 V1.9.3 部署时踩到。已写进 memory `reference-ecs-ssh.md`,deploy.sh 注释下次顺带修
+- **5 处横向反馈回路未闭合**(立项 2026-05-14,详见 `docs/08-feedback-loops.md`):追踪→选题、引用→关键词热度、归因→内容业务价值、员工反馈→难发布标签、audit→生产端 banner。垂直主轴 D21 已通,横向回流 0。**总工时估算 6.5d**,排进 V2 第 13-14 周。客户感知:从"14 个 tab 各自孤岛"到"一页看全本周回路"
+- **V1.10 日常运营自动化未交付**(立项 2026-05-19,P0,详见 `docs/09-daily-ops-automation.md`):客户反馈"每天都要盯发送给员工,太麻烦",方案=cron 定时起草 → DoD/合规自动放行 → 6h 超时机制 → 派单 → 异常时介入。混合选题(5 抽+2 手填)/ DoD+合规通过自动放行 / 6h 超时机制 三个核心策略已经用户拍板。**工时 5.5d**,V1.9.x 维稳 7 天后(预计 2026-05-21)立刻开。客户预期:每日交互 40min → 30s。**2026-05-19 V1.10 后端 + Hub UI + 入口接入 + demo run 验证全 ship,migration 0036 已 apply 生产**,待 commit + push + 真 cron 触发
+- **xiangyu-search-seo-cli 借鉴清单未实施**(立项 2026-05-19,P0/P1/P2,详见 `docs/adr/010-xiangyu-cli-integration.md`):113 命令 Python CLI 评估完成,**11 项借鉴**分 3 个 sprint:V1.11(P0 ai-citation-track 4 海外引擎 + information-gain DoD 维度 6 + fanout 缺口分析,4.5d)/ V1.12(P1 audit-geo/snippet/judgment-density/readability/rich-results 维度补强,3d)/ V2(P2 kgr/entity-trust/discover 按需,2.5d)。**全部 TS port,xiangyu CLI 留私人顾问工具不入 repo**
 
 ### W8 验收追踪(stub,业务侧填写)
 

@@ -95,15 +95,94 @@
 
 ---
 
-## V2 — 追踪自动化(第 9-16 周)
+## V1.10 — 日常运营自动化(插队 Sprint,1 周)
+
+> 触发:2026-05-19 客户反馈"每天都要盯,太麻烦"。V1.9.x 维稳 7 天后立刻开。详见 `docs/09-daily-ops-automation.md`。
+
+### 目标(P0)
+
+- 客户每天人肉 40 min → 自动 + 异常时 30 秒审
+- 出差/生病/周末不再"停摆"
+- 复用 80%(V1.9 batch / 合规四道门 / D21 DoD / V1 派单算法 / V1.9.3 跳转)
+
+### 模块清单
+
+- [ ] migration 0036 `daily_ops_runs` + `daily_ops_settings` + content_variants.daily_run_id
+- [ ] 选题选择器:5 抽(questions.priority × last_used)+ 2 客户手填位(前一日 23:59 锁)
+- [ ] cron #1 `nightly-draft`(02:00 触发,pg-boss schedule)
+- [ ] 自动放行规则(DoD=passed AND compliance=auto_approved AND auto_rewrite=0 AND numeric_fact_check OK → 绿色)
+- [ ] `/t/[slug]/today` 待审页(4 类:绿/黄/红/黑,批量 approve)
+- [ ] cron #2 `auto-dispatch-timeout`(超时 6h → 绿色默认派,黄红黑 stay)
+- [ ] 通知:站内 banner + 邮件(V2 加企微/短信)
+- [ ] `/settings/daily-ops` 配置页(频率 / 超时 / 节流 / 周末跳过 / 平台覆盖)
+- [ ] reportError 全链路埋点
+
+### V1.10 验收
+
+- [ ] 客户连续 5 天 0 干预,内容仍按计划派送
+- [ ] 异常率(黄/红/黑)< 20%
+- [ ] 客户日均交互时长 < 5 min(平均每天 30s + 偶尔异常)
+- [ ] 周末跳过 toggle 跑通
+
+---
+
+## V1.11 — xiangyu CLI 借鉴 P0(插队 Sprint,4.5d)
+
+> 触发条件:V1.10 维稳 7d + 客户主动提"想覆盖海外 AI 引擎"或"想看内容独家信号"。详见 `docs/adr/010-xiangyu-cli-integration.md` §IV-P0。
+
+### 目标
+
+借鉴 xiangyu-search-seo-cli 3 个最高 ROI 算法,**不引整个 Python CLI**,只 port 到 TS。
+
+### 模块清单
+
+- [ ] **🥇 ai-citation-track 4 引擎 adapter**(2d):OpenAI / Perplexity / Gemini / Claude API,扩 `packages/geo-core/tracking/adapters/`,补 D4 豆包 Playwright → 5 大引擎覆盖
+- [ ] **🥈 information-gain-check → D21 DoD 维度 6**(1.5d):scorer-l2 加 `independent_signals` 维度,D21 14+5 → 15+5 条 DoD
+- [ ] **🥉 geo-fanout-check 合并 docs/08 §8**(1d):双源驱动选题(高追踪零引用 query + Google PAA/Related 缺口)
+- [ ] tenants.settings.tracking.engines enum 扩 OpenAI/Perplexity/Gemini/Claude
+
+### V1.11 验收
+
+- [ ] 至少 1 个海外引擎 adapter 跑通(OpenAI 优先,凭据已有)
+- [ ] 新生成内容 DoD 15+5 条全过(`independent_signals` ≥ 1)
+- [ ] /daily-ops today tab 选题建议来源标注"反馈回路 + fanout 缺口"
+
+---
+
+## V1.12 — xiangyu CLI 借鉴 P1(D21 / scorer / Schema 补强,3d)
+
+> 触发条件:V1.11 完成后,客户反馈"内容评分不够细"。详见 ADR 010 §IV-P1。
+
+### 模块清单
+
+- [ ] audit-geo 维度增补:权威外链白名单 + 新鲜度 dateModified(0.5d)
+- [ ] geo-snippet-extract 6 维评分接入 slice-extractor(1d)
+- [ ] judgment-density 三层正则(立场/实测/失败坦白)中英双语接入 scorer-l2(0.5d)
+- [ ] content-readability Flesch Reading Ease 中英自适应(0.5d)
+- [ ] audit-rich-results Schema 类目扩 7 → 17 类(0.5d)
+
+---
+
+## V2 — 追踪自动化 + 反馈回路(第 9-16 周)
 
 ### 目标
 - GEO 追踪完全无人值守
 - 问题库扩到 500+,每日自动轮询
 - 加入竞品对比
 - 支持元宝、夸克、DeepSeek、Kimi(4 个额外引擎)
+- **闭合 5 处横向反馈回路**(详见 `docs/08-feedback-loops.md`)— 追踪/引用/归因/audit 的产出反哺到内容选题、关键词词库、内容评分
 
 ### 重点模块
+
+#### 反馈回路(新增,V2 第 13-14 周,详见 `docs/08-feedback-loops.md`)
+- [ ] 断点 1:追踪 → 内容选题工单建议(tenant home + wizard query_param)
+- [ ] 断点 3:归因 → 内容业务价值(linear 归因 + ¥列 + Top10 卡)
+- [ ] 断点 5:Audit → 内容向导 banner 提示
+- [ ] 断点 2:引用 → 关键词热度(worker job + meta enrich)
+- [ ] 断点 4:员工反馈 → 内容难发布标签
+- [ ] 合并入 tenant home 「本周回路」hero(扩展 V1.9.2.x 的「今日运营」briefing)
+- [ ] 验收:客户老板 3 秒内能从主页看到「赚钱内容 Top3 + 该补内容 Top3」
+
 
 #### 追踪账号池管理
 - [ ] 追踪账号生命周期管理(创建/限流/封禁/替换)
