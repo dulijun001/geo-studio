@@ -321,9 +321,13 @@ async function autoRewriteYellows(
   let enqueued = 0;
   for (const v of targets) {
     try {
+      // V1.10.2 2026-05-19: yellow variants use 'geo_score' mode →
+      // worker switches to GEO_REWRITE_SYSTEM + buildRewriteHint to补9 法弱项.
+      // Compare to D5/D12 reject path which uses 'compliance' mode + findings.
       await enqueueViaSharedBoss('compliance.auto_rewrite', {
         variant_id: v.id as string,
         tenant_id: tenantId,
+        mode: 'geo_score',
       });
       enqueued++;
     } catch (err) {
