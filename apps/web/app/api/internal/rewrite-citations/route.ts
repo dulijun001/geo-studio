@@ -12,6 +12,7 @@
 import { NextResponse } from 'next/server';
 import PgBoss from 'pg-boss';
 import { chat, isAvailable as llmAvailable } from '@geo/geo-core';
+import { reportError } from '@geo/shared';
 import { lookupNeedlesInKb } from '@/lib/kb-needle-lookup';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 
@@ -114,6 +115,11 @@ export async function POST(req: Request): Promise<NextResponse> {
     parsed = JSON.parse(result.content);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    reportError(err, {
+      scope: 'api.internal.rewrite_citations',
+      tenant_id,
+      extra: { variant_id, platform: variant.platform },
+    });
     return NextResponse.json({ error: `LLM failed: ${msg.slice(0, 150)}` }, { status: 502 });
   }
 

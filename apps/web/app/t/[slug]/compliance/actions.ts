@@ -9,6 +9,7 @@ import {
   scoreGeo,
   type GeoScore,
 } from '@geo/geo-core';
+import { reportError } from '@geo/shared';
 import { lookupNeedlesInKb } from '@/lib/kb-needle-lookup';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/current-user';
@@ -485,6 +486,11 @@ export async function aiRewriteVariant(
     parsed = JSON.parse(result.content);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    reportError(err, {
+      scope: 'compliance.ai_rewrite_variant',
+      tenant_id: tenant.id,
+      extra: { variant_id: variantId, platform: variant.platform },
+    });
     return {
       ok: false,
       reason: /abort/i.test(msg)
@@ -651,6 +657,11 @@ export async function aiRewriteForGeoScore(
     parsed = JSON.parse(result.content);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    reportError(err, {
+      scope: 'compliance.ai_rewrite_geo_score',
+      tenant_id: tenant.id,
+      extra: { variant_id: variantId, platform: variant.platform },
+    });
     return {
       ok: false,
       reason: /abort/i.test(msg)
@@ -834,6 +845,11 @@ export async function aiRewriteCitations(
     parsed = JSON.parse(result.content);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    reportError(err, {
+      scope: 'compliance.ai_rewrite_citations',
+      tenant_id: tenant.id,
+      extra: { variant_id: variantId, platform: variant.platform },
+    });
     return { ok: false, reason: `LLM 调用/解析失败: ${msg.slice(0, 150)}` };
   }
 

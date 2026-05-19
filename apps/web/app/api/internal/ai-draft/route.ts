@@ -18,6 +18,7 @@
 import { NextResponse } from 'next/server';
 import { runAiDraft, type RunAiDraftInput } from '@/lib/ai-draft-core';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
+import { reportError } from '@geo/shared';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -65,6 +66,11 @@ export async function POST(req: Request): Promise<NextResponse> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[/api/internal/ai-draft] failed:', msg);
+    reportError(err, {
+      scope: 'api.internal.ai_draft',
+      tenant_id: body.tenant_id,
+      extra: { platform: body.platform, topic: body.topic?.slice(0, 80) },
+    });
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

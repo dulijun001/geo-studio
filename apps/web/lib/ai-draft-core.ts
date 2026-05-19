@@ -20,7 +20,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { chat, evaluateDod, extractSlices, isAvailable as llmAvailable, sanitizeAbsoluteWords } from '@geo/geo-core';
-import { PLATFORM_HINT } from '@geo/shared';
+import { PLATFORM_HINT, reportError } from '@geo/shared';
 
 export type AiDraftPlatform =
   | 'xiaohongshu'
@@ -723,6 +723,11 @@ export async function runAiDraft(
         throw e;
       }
       console.error('[ai-draft-core] LLM call failed:', err);
+      reportError(err, {
+        scope: 'ai-draft.llm_call',
+        tenant_id: tenantId,
+        extra: { platform: input.platform, topic: topic.slice(0, 80) },
+      });
       throw new Error(`AI 调用失败: ${msg.slice(0, 100)}`);
     }
     const parsedRaw = extractJson(result.content);
@@ -750,6 +755,15 @@ export async function runAiDraft(
       provider = 'doubao';
     } catch (err) {
       console.error('[ai-draft-core] LLM JSON parse failed', err, result.content.slice(0, 200));
+      reportError(err, {
+        scope: 'ai-draft.json_parse',
+        tenant_id: tenantId,
+        extra: {
+          platform: input.platform,
+          topic: topic.slice(0, 80),
+          content_head: result.content.slice(0, 200),
+        },
+      });
       throw new Error('AI 返回格式异常,请重试');
     }
   } else {

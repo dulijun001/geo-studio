@@ -17,6 +17,7 @@
  */
 import { NextResponse } from 'next/server';
 import { evaluateDod, extractSlices } from '@geo/geo-core';
+import { reportError } from '@geo/shared';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 
 export const runtime = 'nodejs';
@@ -179,6 +180,11 @@ export async function POST(req: Request): Promise<NextResponse> {
           }
         } catch (err) {
           console.error('[backfill-slices] row failed', row.id, err);
+          reportError(err, {
+            scope: 'api.internal.backfill_slices.row',
+            tenant_id: tenantId,
+            extra: { content_item_id: row.id },
+          });
         }
       }),
     );
