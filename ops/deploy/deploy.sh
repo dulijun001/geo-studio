@@ -33,11 +33,24 @@ else
   echo "[deploy] lockfile 未变,跳过 install"
 fi
 
-# 3. Migration(只在 packages/db/src/schema 或 supabase/migrations 变了时跑)
-if git diff --name-only "$LOCAL" "$REMOTE" | grep -qE '(supabase/migrations/|packages/db/src/schema/)'; then
-  echo "[deploy] schema 变更,执行 migration"
-  pnpm db:migrate
+# 3. Migration(D19 — Drizzle journal 自 0006 冻结,migrations 一律手写,
+#    必须走 psql --single-transaction,严禁 drizzle-kit migrate。
+#    deploy.sh 在此 fail-loud,逼操作员先手动 apply 再带 MIGRATIONS_APPLIED=1 重跑)
+if git diff --name-only "$LOCAL" "$REMOTE" | grep -qE 'supabase/migrations/'; then
+  if [[ -z "${MIGRATIONS_APPLIED:-}" ]]; then
+    echo "[deploy] ✗ supabase/migrations/ 变了,但你没 export MIGRATIONS_APPLIED=1"
+    echo "[deploy]"
+    echo "[deploy] D19 + memory reference-migration-via-psql:手动跑 psql"
+    echo "[deploy]   for f in supabase/migrations/00XX_*.sql; do"
+    echo "[deploy]     psql \"\$DATABASE_URL\" --single-transaction -f \$f"
+    echo "[deploy]   done"
+    echo "[deploy]"
+    echo "[deploy] 跑完后 export MIGRATIONS_APPLIED=1 再 bash deploy.sh"
+    exit 1
+  fi
+  echo "[deploy] migrations 假设已手动 apply (MIGRATIONS_APPLIED=1)"
 fi
+# packages/db/src/schema 变了一般是 type 注释更新,不需要 db:migrate(D19 同上)
 
 # 4. Web build
 pnpm --filter @geo/web build
