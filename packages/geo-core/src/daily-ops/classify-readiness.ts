@@ -45,25 +45,13 @@ export function classifyVariant(v: VariantReadinessInput): ReadinessClass {
   // 红: compliance 系统判定 rejected (D5/D12 4-gate triggered).
   if (v.compliance_status === 'rejected') return 'red';
 
-  // 黄: soft anomalies — needs human glance, never auto-dispatch.
-  // V1.10.4 (2026-05-20): auto_rewrite_count is reject-path counter only.
-  // GEO-mode rewrites bump geo_score.rewrite_count, NOT auto_rewrite_count.
-  // So `auto_rewrite_count >= 1` is a meaningful signal only for the compliance
-  // reject path (D5/D12 §13.3); GEO-rewritten variants stay at 0 and can be
-  // auto-dispatchable if compliance approves.
-  if (v.auto_rewrite_count >= 1) return 'yellow';
-  if (
-    v.numeric_check?.verdict === 'warn' ||
-    v.numeric_check?.verdict === 'reject'
-  ) {
-    return 'yellow';
-  }
-
-  // 绿: 三道闸全过 → auto-dispatchable.
-  // V1.10.4 (2026-05-20): manual_approved is operator's explicit OK — exactly
-  // as dispatchable as auto_approved. Without this, the 6 variants the operator
-  // (or upstream review flow) just approved show as yellow in /today and never
-  // surface as ready for dispatch.
+  // 绿: compliance approved (auto OR manual) + dod 通过 → 可派单.
+  // V1.10.4 reorder (2026-05-20): approval check FIRST. Earlier
+  // implementation put auto_rewrite_count >= 1 ahead of this and
+  // (mis)classified approved-but-once-rewritten variants as yellow,
+  // hiding them from /today's green bucket. auto_rewrite_count and
+  // numeric_check warnings are *signals while pending*, not overrides
+  // of an explicit human/system approval.
   const dodOk =
     v.dod_status === 'passed' ||
     v.dod_status === 'legacy_passed' ||
@@ -72,6 +60,18 @@ export function classifyVariant(v: VariantReadinessInput): ReadinessClass {
     v.compliance_status === 'auto_approved' ||
     v.compliance_status === 'manual_approved';
   if (dodOk && complianceOk) return 'green';
+
+  // 黄: soft anomalies in pending/unknown states — needs human glance.
+  // 这些信号只在 compliance 尚未拍板时有意义:已 approved 的变体即使曾被
+  // auto-rewrite 或数值检查警告过,客户/系统已经接受了改写后的版本,
+  // 不应该再回退到 yellow.
+  if (v.auto_rewrite_count >= 1) return 'yellow';
+  if (
+    v.numeric_check?.verdict === 'warn' ||
+    v.numeric_check?.verdict === 'reject'
+  ) {
+    return 'yellow';
+  }
 
   // 兜底 yellow: unknown / pending / partial state.
   // 不算 green 是因为还没全部 evaluated;daily-ops 不能在不确定时自动派.

@@ -53,22 +53,34 @@ ok(
   classifyVariant({ ...base, compliance_status: 'rejected' }) === 'red',
 );
 
-// ── 6. Yellow: auto_rewrite_count >= 1
+// ── 6. Yellow: auto_rewrite_count >= 1 (V1.10.4: only signals while pending)
 ok(
-  'yellow: auto_rewrite_count=1',
-  classifyVariant({ ...base, auto_rewrite_count: 1 }) === 'yellow',
+  'yellow: pending + auto_rewrite_count=1',
+  classifyVariant({
+    ...base,
+    compliance_status: 'pending',
+    auto_rewrite_count: 1,
+  }) === 'yellow',
 );
 
-// ── 7. Yellow: numeric warn
+// ── 7. Yellow: numeric warn (V1.10.4: only signals while pending)
 ok(
-  'yellow: numeric warn',
-  classifyVariant({ ...base, numeric_check: { verdict: 'warn' } }) === 'yellow',
+  'yellow: pending + numeric warn',
+  classifyVariant({
+    ...base,
+    compliance_status: 'pending',
+    numeric_check: { verdict: 'warn' },
+  }) === 'yellow',
 );
 
-// ── 8. Yellow: numeric reject (soft anomaly, not red — red is reserved for compliance)
+// ── 8. Yellow: numeric reject (V1.10.4: only signals while pending)
 ok(
-  'yellow: numeric reject',
-  classifyVariant({ ...base, numeric_check: { verdict: 'reject' } }) === 'yellow',
+  'yellow: pending + numeric reject',
+  classifyVariant({
+    ...base,
+    compliance_status: 'pending',
+    numeric_check: { verdict: 'reject' },
+  }) === 'yellow',
 );
 
 // ── 9. Yellow fallback: unknown dod + pending compliance
@@ -93,13 +105,13 @@ ok(
   classifyVariant({ ...base, dod_status: 'failed' }) === 'black',
 );
 
-// ── 12. countByClass aggregator
+// ── 12. countByClass aggregator (V1.10.4 reorder: approval overrides signals)
 const variants: VariantReadinessInput[] = [
-  base, // green
-  { ...base, auto_rewrite_count: 2 }, // yellow
+  base, // green (auto_approved)
+  { ...base, compliance_status: 'pending', auto_rewrite_count: 2 }, // yellow
   { ...base, compliance_status: 'rejected' }, // red
   { ...base, dod_status: 'failed' }, // black
-  { ...base, numeric_check: { verdict: 'warn' } }, // yellow
+  { ...base, compliance_status: 'pending', numeric_check: { verdict: 'warn' } }, // yellow
 ];
 const counts = countByClass(variants);
 ok(
@@ -128,6 +140,37 @@ ok(
     dod_status: 'legacy_passed',
     compliance_status: 'manual_approved',
   }) === 'green',
+);
+
+// ── 16. V1.10.4 reorder: auto_approved + auto_rewrite_count=1 → green
+//       (Approval overrides "改过 1 次" yellow signal)
+ok(
+  'green: auto_approved overrides auto_rewrite_count=1',
+  classifyVariant({
+    ...base,
+    compliance_status: 'auto_approved',
+    auto_rewrite_count: 1,
+  }) === 'green',
+);
+
+// ── 17. V1.10.4 reorder: manual_approved + auto_rewrite_count=2 → green
+ok(
+  'green: manual_approved overrides auto_rewrite_count=2',
+  classifyVariant({
+    ...base,
+    compliance_status: 'manual_approved',
+    auto_rewrite_count: 2,
+  }) === 'green',
+);
+
+// ── 18. V1.10.4: pending + auto_rewrite_count=1 → still yellow (signal active)
+ok(
+  'yellow: pending + auto_rewrite_count=1',
+  classifyVariant({
+    ...base,
+    compliance_status: 'pending',
+    auto_rewrite_count: 1,
+  }) === 'yellow',
 );
 
 // ── Summary
