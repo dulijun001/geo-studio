@@ -233,7 +233,7 @@ async function processTenant(
     const { data: items, error: iErr } = await client
       .from('draft_batch_items')
       .insert(itemRows)
-      .select('id, topic, platform');
+      .select('id, topic, platform, question_id');
     if (iErr || !items) {
       // Roll back batch row to keep DB clean
       await client.from('draft_batches').delete().eq('id', batchId);
@@ -253,6 +253,10 @@ async function processTenant(
           writing_template_id: null,
           query_intent: null,
           primary_query: null,
+          // V1.11 S3 fix: forward source question_id so batch-draft-item can
+          // back-link content_items.target_questions → daily_ops_pick_topics
+          // dedupe by last_used_at works on next run.
+          question_id: (it.question_id as string | null) ?? null,
         }),
       ),
     );

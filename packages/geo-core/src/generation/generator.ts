@@ -95,13 +95,36 @@ export async function generateVariant(input: GenerateInput): Promise<GenerateRes
       timeout_ms: 90_000,
     });
 
-    const parsed = parseResponse(result.content);
+    let parsed = parseResponse(result.content);
     if (!parsed) {
-      return {
-        ok: false,
-        reason: `LLM returned unparseable JSON (${result.content.slice(0, 120)}…)`,
-        provider: 'doubao',
-      };
+      // 2026-05-20 P0 retry: 02:00 cron lost 2/12 items to "unparseable JSON"
+      // even though response_format='json_object'. One retry with explicit
+      // "PURE JSON" sentinel in the system prompt is cheaper than losing the
+      // item; total per-variant LLM calls capped at 2 (this + the existing
+      // rewrite path) so cost stays bounded.
+      console.warn(`[generator] retry on parse fail; raw=${result.content.slice(0, 80)}…`);
+      const retried = await chat({
+        messages: [
+          ...messages,
+          { role: 'system', content: '上一次返回无法 JSON.parse。请只返回 {} 包围的纯 JSON,不要 markdown fence,不要前后文字,确保所有字符串值用 ASCII 双引号且转义内嵌引号。' },
+        ],
+        model: process.env.ARK_MODEL_FAST,
+        temperature: 0.5,
+        max_tokens: input.max_tokens ?? 2500,
+        response_format: 'json_object',
+        timeout_ms: 90_000,
+      });
+      parsed = parseResponse(retried.content);
+      if (!parsed) {
+        return {
+          ok: false,
+          reason: `LLM returned unparseable JSON after 1 retry (raw1=${result.content.slice(0, 60)}…; raw2=${retried.content.slice(0, 60)}…)`,
+          provider: 'doubao',
+        };
+      }
+      // Use retry's raw + usage for downstream observability.
+      result.raw = retried.raw;
+      result.usage = retried.usage;
     }
 
     // Anti-fabrication safety net — soften absolute/marketing words that
@@ -139,25 +162,42 @@ export async function generateVariant(input: GenerateInput): Promise<GenerateRes
 function parseResponse(
   text: string,
 ): { title: string; body: string; tactics_applied: string[]; notes: string } | null {
-  // Some models wrap JSON in ```json fences despite response_format; strip if present.
-  const cleaned = text
-    .replace(/^\s*```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/i, '')
-    .trim();
-  try {
-    const obj = JSON.parse(cleaned) as Record<string, unknown>;
-    if (typeof obj.title !== 'string' || typeof obj.body !== 'string') return null;
-    return {
-      title: obj.title,
-      body: obj.body,
-      tactics_applied: Array.isArray(obj.tactics_applied)
-        ? (obj.tactics_applied as unknown[]).filter((x): x is string => typeof x === 'string')
-        : [],
-      notes: typeof obj.notes === 'string' ? obj.notes : '',
-    };
-  } catch {
-    return null;
+  // 2026-05-20 P0 fix: 1/8 of 02:00 cron failed at this step because Doubao
+  // wraps JSON in fences / prefaces / postscripts despite response_format.
+  // Two-pass healing — first try as-is, then carve out the {..} block.
+  const tryParse = (raw: string): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  };
+
+  const trimmed = text.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
+  let obj = tryParse(trimmed);
+  if (!obj) {
+    // Heal: find first '{' and matching last '}'. Handles prefaces like
+    // "好的,这是 JSON:" before the object, or postscripts like "希望这能帮到你"
+    // after it. Naive last-} match is fine — title/body fields don't contain
+    // raw '}' literals in our prompt domain.
+    const start = trimmed.indexOf('{');
+    const end = trimmed.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      obj = tryParse(trimmed.slice(start, end + 1));
+    }
   }
+  if (!obj) return null;
+
+  if (typeof obj.title !== 'string' || typeof obj.body !== 'string') return null;
+  return {
+    title: obj.title,
+    body: obj.body,
+    tactics_applied: Array.isArray(obj.tactics_applied)
+      ? (obj.tactics_applied as unknown[]).filter((x): x is string => typeof x === 'string')
+      : [],
+    notes: typeof obj.notes === 'string' ? obj.notes : '',
+  };
 }
 
 function filterValidTactics(reported: string[], allowed: GeoTacticId[]): GeoTacticId[] {

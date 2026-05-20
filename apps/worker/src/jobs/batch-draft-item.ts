@@ -35,6 +35,14 @@ export type BatchDraftItemJob = {
   /** D21 / ADR 009 P3-3 — pass-through to internal AI draft API. */
   query_intent?: string | null;
   primary_query?: string | null;
+  /**
+   * V1.11 S3 fix: source question id (when the topic came from questions table
+   * via nightly-draft). Written into `content_items.target_questions[]` on
+   * success so RPC `daily_ops_pick_topics` (last_used_at via target_questions
+   * back-reference) can exclude it from future picks. Without this field the
+   * question is invisible to recency tracking and gets re-picked every night.
+   */
+  question_id?: string | null;
 };
 
 const INTERNAL_API_TIMEOUT_MS = 240_000; // 4 min — matches runAiDraft's 3-min LLM cap + buffer
@@ -149,6 +157,24 @@ export async function handleBatchDraftItem(data: BatchDraftItemJob): Promise<voi
         updated_at: new Date().toISOString(),
       })
       .eq('id', data.item_id);
+
+    // V1.11 S3 fix: back-link the source question so recency dedupe works.
+    // Without this, daily_ops_pick_topics never sees last_used_at and picks
+    // the same top-priority questions every night (observed 2026-05-20: same
+    // 5 question ids in 2 consecutive runs).
+    if (data.question_id) {
+      const { error: tqErr } = await client
+        .from('content_items')
+        .update({ target_questions: [data.question_id] })
+        .eq('id', contentItemId);
+      if (tqErr) {
+        // Non-fatal — log + continue. Re-picking is still better than failing
+        // the item; ops can manually fix target_questions later.
+        console.warn(
+          `[batch-draft-item] target_questions backfill failed item=${data.item_id}: ${tqErr.message}`,
+        );
+      }
+    }
 
     // Enqueue variant_generate so dispatch can pick it up. We pass the single
     // platform this item was drafted for; later the operator can run more

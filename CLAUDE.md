@@ -45,6 +45,8 @@
 | D21 | **GEO 标准内容资产** = 问题资产 + 引用资产 + 结构化资产 + 可验证资产。生成顺序前置两层:`query_intent → content_contract → writing_template × platform_style`(D20 双层叠加保留,降为生成第 3-4 层)。存储改 slice-first(direct_answer / faq_pairs / trust_block 等 typed slices)。DoD 闸门(14+5 条)代替自由审核 | 2026-05-13 | V1.8 内容只是"写得通顺",对 AI 引擎不够"可引用";要从"GEO 运营平台"升级为"GEO 内容标准系统"必须把内容侧也产品化。详见 `docs/07-geo-article-spec.md` + ADR 009 |
 | D22 | **核心发布号显式 opt-in**:`staff_accounts.settings.publishing.is_active` 字段(V1.11),`undefined`/`false` 都被 dispatcher H0 过滤跳过派单。新增 staff 默认是辅助号,需 admin UI 手动开启 | 2026-05-20 | 40 人矩阵里日常发布只该有 5-15 个号长期发,其余号留辅助/潜伏避免被算法识别;原 dispatcher 是"所有 active operator 都派",核心号反而吃不饱、辅助号 6h 超时再轮转 |
 | D23 | **dispatcher 评分 fallback**:`topicPersonaScore = max(Jaccard, char-trigram*0.7)`,3-字 n-gram 桥接"种植牙知识"(persona tag)和"种植牙 5 年存活率"(variant.topics)。V1.10 起 Jaccard 静默退化为 0(整句 vs 短标签,中文不可能精确匹配),专长派单一直失效 | 2026-05-20 | V1.11 改造时探查发现的隐藏 bug;不修则"上下午档+专长匹配"形同虚设;V1.12 后续 ticket 用 LLM 在 ai-draft 时直接产出 specialty tags 列代替 |
+| D24 | **`content_items.target_questions[]` 必须写**:`batch-draft-item` 成功后回写 `[question_id]`,`nightly-draft` enqueue 时传 `question_id`。RPC `daily_ops_pick_topics` 靠该字段反查 `last_used_at` 做 7 天去重;以前从未写过,所以每天选同一批 priority=9 题反复起草 | 2026-05-20 | 冒烟测试发现 02:00 cron 起的 12 题里 4-5 对重复("昆明种植牙医院推荐"×2、"昆明老人种植牙补贴"×2 等),客户每天看到同题客户怀疑产品 + AI 引擎按 spam 降权;同时清理 questions 里 8 个**南京题污染**(songshu 是昆明医院,数据卫生 P0) |
+| D25 | **LLM 响应 JSON 解析必须 healing + retry**:`generator.parseResponse` 接住 markdown fence / 前文 preface / 后文 postscript,carve 出 `{..}` 块再 parse;首次失败 retry 1 次 + 强化 prompt "PURE JSON"。total LLM calls per variant 仍 ≤ 2(initial + 1 retry,与既有 rewrite 路径互斥)| 2026-05-20 | 冒烟测试发现 02:00 cron 12 题里 2 题(17%)因豆包返回带 preface 文字而 fail("LLM returned unparseable JSON")→ variant 沉默丢失;`response_format='json_object'` 在 thinking endpoint fallback 后并非铁律 |
 
 ## 四、目录结构(强制)
 
@@ -194,6 +196,14 @@ geo-studio/
   - **quota 升级**:songshu `daily_ops_settings.topic_count_auto` 5 → 11(13 题/天 × 2 平台 = 26 variants/天,正好覆盖 13 核心号 × 上下午各 1),LLM 成本预估 ~$2.5/天 = $75/月
   - **admin UI**:员工列表新增"核心发布"列,绿/灰双态 toggle + 表头实时统计"X 个核心号接派单 · Y 个辅助/潜伏";server action `togglePublishingActive` 带 audit log
   - **未部署**:Checkpoint A+B 落地 local DB,代码改完未推 ECS、未 git commit(等用户验收)。F2(LLM 提 specialty)留 V1.12 ticket
+- **V1.11.1 冒烟测试发现三连修复 + 数据卫生**(2026-05-20,同会话续):
+  - 起因:用户要求"项目开发得差不多了,冒烟测试一遍"。L1 typecheck 全栈过、L2 213 项纯函数测试全过、L4 prod 数据健康、L5 HTTP smoke 公开层全 200 — 但同时挖出 3 个 P0 真问题
+  - **S1 假电话修复**:`brands.contact_phones` 从 `{0571-88888888}` (杭州区号占位)改为真号 `{0871-68152121}`。enqueue `discoverability.regenerate` → 4 个 artifact(llms.txt / llms_full / feed_json / sitemap_xml)09:46:29 重生,HTTP 实测真号已 LIVE。源头是 W5 dev seed (`packages/db/src/_dev/seed-w5.ts:192`),保留为 dev 占位
+  - **S2 LLM JSON 解析失败修复(D25)**:`generator.parseResponse` 加 `{..}` 块 carve healing(吃掉 markdown fence / 前文 preface / 后文 postscript)+ 失败 retry 1 次 + 强化 prompt "PURE JSON"。新增 `parse-response.ts` 10 项测试覆盖 fence / 前文 / 后文 / 夹心 / 损坏 5 种 case 全过。02:00 cron 12 题中 2 题(17%)沉默 fail 的损耗止血
+  - **S3 题目重复修复(D24)**:`nightly-draft` enqueue 时 select + 传 `question_id`,`batch-draft-item` 成功后回写 `content_items.target_questions = [question_id]`。**历史 12 个 content_items 回填 10 个 target_questions**(2 个是手填 manual_slot 无 question_id)。明早 cron 选题预演 11 个题 100% 新题 + 0 重复
+  - **数据卫生**:soft-delete 8 个**南京题污染**(songshu 是昆明医院,questions 表里"南京种植牙推荐哪家口腔医院?" / "南京正畸专家推荐?"等 priority 9-6 的错地域题导致 stuck variants)
+  - **均已 LIVE 数据 + 待部署代码**:DB 改动(电话 + target_questions backfill + 南京清理)直接生效;S2/S3 代码改动等 G2 一起部署
+  - **2 个 commit 待 push**:eaea1a7 (V1.11 dispatcher) + 新 commit (V1.11.1 S2+S3 + CLAUDE.md)
 
 ### 当前阶段
 - **2026-05-13 决策**:D21 GEO 标准内容资产(ADR 009 + docs/07-geo-article-spec.md),写作环节从"自由 prompt"升级为"contract → slice → DoD"工程化产线
