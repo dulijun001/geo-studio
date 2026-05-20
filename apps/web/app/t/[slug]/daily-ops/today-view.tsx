@@ -109,12 +109,15 @@ export async function TodayView({
       'id, title, platform, status, dod_status, dod_score, compliance_status, auto_rewrite_count, numeric_check',
     )
     .eq('daily_run_id', typedRun.id)
-    // T0b 2026-05-19: V1.9 cascade promotes variants out of 'draft' once
-    // compliance.review runs (→ 'pending_review' if needs human, 'auto_approved'
-    // if passes 4-gate). Both still need to surface in today's 4 buckets so the
-    // operator can act. Only 'archived' / 'rejected' / 'dispatched' / 'published'
-    // are hidden (those left the review flow).
-    .in('status', ['draft', 'pending_review', 'auto_approved'])
+    // T0b 2026-05-19 + V1.10.4 2026-05-20: surface every variant in this
+    // run that still belongs in the 4-bucket view. V1.9 cascade promotes:
+    //   draft → pending_review (needs human) → auto_approved / manual_approved
+    //                                       → rejected
+    // We hide only the truly downstream states (dispatched / published) and
+    // 'archived' (operator已 trash). Earlier T0b filter omitted manual_approved
+    // and rejected — that hid 7/10 variants from /today after the operator或
+    // upstream review flow had already acted on them.
+    .in('status', ['draft', 'pending_review', 'auto_approved', 'manual_approved', 'rejected'])
     .is('deleted_at', null)
     .order('created_at', { ascending: true });
 

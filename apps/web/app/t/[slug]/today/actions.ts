@@ -66,9 +66,10 @@ export async function bulkApproveTodayGreens(
     .from('content_variants')
     .select('id, dod_status, compliance_status, auto_rewrite_count, numeric_check, status')
     .eq('daily_run_id', run.id)
-    // T0b 2026-05-19: mirror today-view filter — V1.9 cascade pushes to
-    // pending_review/auto_approved. bulkReviewVariants then transitions them.
-    .in('status', ['draft', 'pending_review', 'auto_approved'])
+    // T0b 2026-05-19 + V1.10.4 2026-05-20: include all in-review states so
+    // bulkApproveTodayGreens can transition any green-classified variant
+    // even if it's already pending_review / auto_approved / manual_approved.
+    .in('status', ['draft', 'pending_review', 'auto_approved', 'manual_approved', 'rejected'])
     .is('deleted_at', null);
 
   if (vErr) {
