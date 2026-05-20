@@ -114,6 +114,22 @@ ok(
   classifyVariant({ ...base, numeric_check: null }) === 'green',
 );
 
+// ── 14. V1.10.4: manual_approved counts as green
+ok(
+  'green: manual_approved (operator explicit OK)',
+  classifyVariant({ ...base, compliance_status: 'manual_approved' }) === 'green',
+);
+
+// ── 15. V1.10.4: manual_approved + legacy_passed still green
+ok(
+  'green: manual_approved + legacy_passed',
+  classifyVariant({
+    ...base,
+    dod_status: 'legacy_passed',
+    compliance_status: 'manual_approved',
+  }) === 'green',
+);
+
 // ── Summary
 const passed = results.filter((r) => r.pass).length;
 console.log(`\n${passed}/${results.length} passed`);

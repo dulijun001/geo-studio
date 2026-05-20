@@ -26,6 +26,7 @@ export type ReadinessClass = 'green' | 'yellow' | 'red' | 'black';
 export type ReadinessComplianceStatus =
   | 'pending'
   | 'auto_approved'
+  | 'manual_approved'
   | 'rejected'
   | string;
 
@@ -45,6 +46,11 @@ export function classifyVariant(v: VariantReadinessInput): ReadinessClass {
   if (v.compliance_status === 'rejected') return 'red';
 
   // 黄: soft anomalies — needs human glance, never auto-dispatch.
+  // V1.10.4 (2026-05-20): auto_rewrite_count is reject-path counter only.
+  // GEO-mode rewrites bump geo_score.rewrite_count, NOT auto_rewrite_count.
+  // So `auto_rewrite_count >= 1` is a meaningful signal only for the compliance
+  // reject path (D5/D12 §13.3); GEO-rewritten variants stay at 0 and can be
+  // auto-dispatchable if compliance approves.
   if (v.auto_rewrite_count >= 1) return 'yellow';
   if (
     v.numeric_check?.verdict === 'warn' ||
@@ -54,11 +60,17 @@ export function classifyVariant(v: VariantReadinessInput): ReadinessClass {
   }
 
   // 绿: 三道闸全过 → auto-dispatchable.
+  // V1.10.4 (2026-05-20): manual_approved is operator's explicit OK — exactly
+  // as dispatchable as auto_approved. Without this, the 6 variants the operator
+  // (or upstream review flow) just approved show as yellow in /today and never
+  // surface as ready for dispatch.
   const dodOk =
     v.dod_status === 'passed' ||
     v.dod_status === 'legacy_passed' ||
     v.dod_status === 'manual_pass';
-  const complianceOk = v.compliance_status === 'auto_approved';
+  const complianceOk =
+    v.compliance_status === 'auto_approved' ||
+    v.compliance_status === 'manual_approved';
   if (dodOk && complianceOk) return 'green';
 
   // 兜底 yellow: unknown / pending / partial state.
