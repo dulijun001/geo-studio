@@ -43,6 +43,8 @@
 | D19 | 禁用 `pnpm db:generate`,migration 一律手写 | 2026-05-01 | Drizzle journal 自 0006 起冻结,手写为主流;运行 generate 会重新编号撞库导致冲突(2026-05-01 已撞过一次) |
 | D20 | **写作要求(意图骨架)× 平台风格(格式/口吻)** 双层叠加,不替换。新增 `writing_templates` 表 + `keywords` 词库,`buildVariantPrompt` 加 `writing_template?` 入参向后兼容 | 2026-05-04 | 抓词GEO 只有意图模板没有平台维度,我们叠加后"产品对比×小红书"和"产品对比×公众号"自动差异化输出,延续 D2 配置化思想;详见 ADR 007 |
 | D21 | **GEO 标准内容资产** = 问题资产 + 引用资产 + 结构化资产 + 可验证资产。生成顺序前置两层:`query_intent → content_contract → writing_template × platform_style`(D20 双层叠加保留,降为生成第 3-4 层)。存储改 slice-first(direct_answer / faq_pairs / trust_block 等 typed slices)。DoD 闸门(14+5 条)代替自由审核 | 2026-05-13 | V1.8 内容只是"写得通顺",对 AI 引擎不够"可引用";要从"GEO 运营平台"升级为"GEO 内容标准系统"必须把内容侧也产品化。详见 `docs/07-geo-article-spec.md` + ADR 009 |
+| D22 | **核心发布号显式 opt-in**:`staff_accounts.settings.publishing.is_active` 字段(V1.11),`undefined`/`false` 都被 dispatcher H0 过滤跳过派单。新增 staff 默认是辅助号,需 admin UI 手动开启 | 2026-05-20 | 40 人矩阵里日常发布只该有 5-15 个号长期发,其余号留辅助/潜伏避免被算法识别;原 dispatcher 是"所有 active operator 都派",核心号反而吃不饱、辅助号 6h 超时再轮转 |
+| D23 | **dispatcher 评分 fallback**:`topicPersonaScore = max(Jaccard, char-trigram*0.7)`,3-字 n-gram 桥接"种植牙知识"(persona tag)和"种植牙 5 年存活率"(variant.topics)。V1.10 起 Jaccard 静默退化为 0(整句 vs 短标签,中文不可能精确匹配),专长派单一直失效 | 2026-05-20 | V1.11 改造时探查发现的隐藏 bug;不修则"上下午档+专长匹配"形同虚设;V1.12 后续 ticket 用 LLM 在 ai-draft 时直接产出 specialty tags 列代替 |
 
 ## 四、目录结构(强制)
 
@@ -145,7 +147,7 @@ geo-studio/
 5. 所有 commit 保留 `Co-Authored-By: Claude`,不隐藏 AI 参与
 6. 涉及金钱/合规/隐私的变更,必须和用户确认后才推进
 
-## 九、当前状态(2026-05-11 更新)
+## 九、当前状态(2026-05-20 更新)
 
 ### 已完成
 - **V0 骨架**(2026-04-23):docs/ 五份 + CLAUDE.md + monorepo 立起
@@ -183,6 +185,15 @@ geo-studio/
 - **V1.9.2 生产上线**(2026-05-12):本地 main `c8d237d → fa6331b` 全套推上 ECS,Caddy 切 HTTPS,域名 `https://geo.dulijun.icu` Let's Encrypt 自动签证书。途中修了 PWA SW 缓存陷阱(`fix(staff): drop PWA`)、worker tsx 路径(`fix(deploy): worker tsx path`)、standalone static 漏 cp(`fix(deploy): rsync .next/static`)、暗色 cinematic 漏改的对比 bug、prose-slate→prose-invert
 - **V1.9.2.x 滚动 deploy(2026-05-12 → 2026-05-13,补记)**:V1.9.2 上线 24h 内继续把 32 个 commit 滚动上 ECS,HEAD `fa6331b → 379ea0b`。这批含 **D21 GEO 标准内容资产 P0~P3 全套**(migration 0030~0033 / slice-first 存储 / DoD 闸门 / L2 scorer / wizard contract persistence / 公开层消费 D21 slices / tenant home briefing hero)、**合规自动改写**(第一次 reject 最多重写 1 次)、extractor 多种 FAQ 格式补、KB safety abort、Ark response_format fallback 等 P0 修。**当时 CLAUDE.md 未同步**,V1.9.3 顺手补
 - **V1.9.3 员工端跳转按钮全覆盖**(2026-05-13,commit `d6f90b7`):员工任务卡之前只 3 个平台(头条/抖音/小红书)有"打开 App"按钮,公众号/知乎/百家号/搜狐号 4 个平台无任何跳转。本次扩**7 平台全覆盖**,按内容类型分流——视频/短图文(抖音脚本/小红书)→ App scheme 跳手机端;长图文(头条/公众号/知乎/百家号/搜狐号)→ PC 创作后台 URL 新标签。按钮文案动态化("打开公众号后台"等)。顺手运维:**ECS 配 GitHub deploy key**(以前 deploy.sh `git pull` 每次卡交互 auth,本次 ed25519 deploy key 配置永久解决);ECS ssh 凭证存 memory `reference-ecs-ssh.md`,实际是 `root@`,不是 deploy.sh 顶部注释的 `ubuntu@`
+- **V1.11 核心发布号 opt-in + dispatcher 评分修复**(2026-05-20,本次会话):
+  - 客户痛点:40 个员工号轮派 → 核心号吃不饱、辅助号 6h 超时再轮转,且每天每号上下午各一发的工作流没法精准落到指定号
+  - **migration 0038** `staff_accounts.settings jsonb` + 部分索引 (D22)
+  - **dispatcher H0 过滤**:`settings.publishing.is_active=true` 才接派单,`undefined`/`false` 跳过。dispatcher.ts/types.ts/scoring.ts 同步改;新增 per-staff `daily_quota` 覆盖 (default global cap=2 即"上午+下午")
+  - **隐藏 bug 修复(D23)**:V1.10 起 Jaccard 在"短 persona 标签 × 整句 topics"组合下静默退化为 0,专长派单一直失效。新加 `topicPersonaScore` 用字符 3-gram fallback 桥接(Math.min(0.7, hits/personaTags.length)),实测"种植牙知识 ↔ 种植牙 5 年存活率"能 match。**4 个新 dispatcher 测试**(T7 H0 inactive / T8 per-staff quota / T9 全 inactive 错误诊断 / T9b trigram fallback)全过,共 12 测试
+  - **SQL 落库 13 个核心号**(songshu):矫正组 4 + 种植组 4 + 儿牙组 4 + 综合 1。其余 6 个 operator(orz/sorrikemn/呀哈哈/喝可乐的猫猫/小呆的追剧小日常/王)保持 `'{}'` 默认 inactive
+  - **quota 升级**:songshu `daily_ops_settings.topic_count_auto` 5 → 11(13 题/天 × 2 平台 = 26 variants/天,正好覆盖 13 核心号 × 上下午各 1),LLM 成本预估 ~$2.5/天 = $75/月
+  - **admin UI**:员工列表新增"核心发布"列,绿/灰双态 toggle + 表头实时统计"X 个核心号接派单 · Y 个辅助/潜伏";server action `togglePublishingActive` 带 audit log
+  - **未部署**:Checkpoint A+B 落地 local DB,代码改完未推 ECS、未 git commit(等用户验收)。F2(LLM 提 specialty)留 V1.12 ticket
 
 ### 当前阶段
 - **2026-05-13 决策**:D21 GEO 标准内容资产(ADR 009 + docs/07-geo-article-spec.md),写作环节从"自由 prompt"升级为"contract → slice → DoD"工程化产线

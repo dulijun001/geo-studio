@@ -27,6 +27,15 @@ export type StaffCandidate = {
   platforms: string[];
   /** Count of tasks already assigned today — subtracted from daily cap. */
   tasks_today: number;
+  /**
+   * V1.11: 核心发布号开关. `false` (or `undefined` once V1.11 rolled out) = 跳过派单.
+   * Source = `staff_accounts.settings.publishing.is_active`.
+   * Caller must resolve missing/undefined → false explicitly when building this
+   * candidate (we don't default in the algorithm — explicit is safer).
+   */
+  is_active: boolean;
+  /** Per-staff daily quota override. Null/undefined = fallback to dispatch-input global. */
+  daily_quota?: number;
 };
 
 export type DispatchInput = {

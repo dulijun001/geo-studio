@@ -2,9 +2,10 @@
  * Core dispatch algorithm.
  *
  * Hard constraints (enforced — violations = bug):
+ *   H0. Staff.is_active must be true (V1.11: only 核心发布号 接派单). 辅助号/潜伏号 跳过.
  *   H1. No variant assigned to >1 staff in the same day (anti-collision).
  *   H2. Staff.platforms must include variant.platform (platform capability).
- *   H3. No staff receives more than `daily_cap_per_staff` tasks (including pre-existing).
+ *   H3. No staff receives more than effective daily cap tasks (per-staff override or global).
  *
  * Soft scoring (used to rank candidates after hard-filtering):
  *   S1. Jaccard similarity between variant.topics and staff.persona_tags.
@@ -19,7 +20,7 @@
  * Greedy is fine for ~40 staff × ~50 variants/day; optimality would be overkill.
  */
 
-import { jaccardSimilarity, stableHash } from './scoring';
+import { stableHash, topicPersonaScore } from './scoring';
 import type {
   DispatchInput,
   DispatchProposal,
@@ -55,7 +56,8 @@ export function dispatchDaily(input: DispatchInput): DispatchResult {
     }
 
     const current = taskCount.get(pick.staff.id) ?? 0;
-    const timeWindow: 'morning' | 'afternoon' = current < Math.ceil(daily_cap_per_staff / 2)
+    const effectiveCap = pick.staff.daily_quota ?? daily_cap_per_staff;
+    const timeWindow: 'morning' | 'afternoon' = current < Math.ceil(effectiveCap / 2)
       ? 'morning'
       : 'afternoon';
 
@@ -83,16 +85,18 @@ function pickBestStaff(
   seed: string,
 ): { staff: StaffCandidate; score: number } | null {
   const eligible = staff.filter((s) => {
+    if (!s.is_active) return false; // H0
     if (!s.platforms.includes(variant.platform)) return false; // H2
-    if ((taskCount.get(s.id) ?? 0) >= dailyCap) return false; // H3
+    const cap = s.daily_quota ?? dailyCap;
+    if ((taskCount.get(s.id) ?? 0) >= cap) return false; // H3
     return true;
   });
   if (eligible.length === 0) return null;
 
-  // Score each.
+  // Score each. V1.11: topicPersonaScore = Jaccard + substring fallback.
   const scored = eligible.map((s) => ({
     staff: s,
-    score: jaccardSimilarity(variant.topics, s.persona_tags),
+    score: topicPersonaScore(variant.topics, s.persona_tags),
     tiebreak: stableHash(`${seed}:${variant.id}:${s.id}`),
   }));
 
@@ -116,9 +120,14 @@ function diagnoseUnmatchReason(
   taskCount: Map<string, number>,
   dailyCap: number,
 ): string {
-  const platformCapable = staff.filter((s) => s.platforms.includes(variant.platform));
-  if (platformCapable.length === 0) return `no staff supports platform ${variant.platform}`;
-  const underCap = platformCapable.filter((s) => (taskCount.get(s.id) ?? 0) < dailyCap);
+  const active = staff.filter((s) => s.is_active);
+  if (active.length === 0) return 'no active publisher (settings.publishing.is_active=true) configured';
+  const platformCapable = active.filter((s) => s.platforms.includes(variant.platform));
+  if (platformCapable.length === 0) return `no active staff supports platform ${variant.platform}`;
+  const underCap = platformCapable.filter((s) => {
+    const cap = s.daily_quota ?? dailyCap;
+    return (taskCount.get(s.id) ?? 0) < cap;
+  });
   if (underCap.length === 0) return `all ${platformCapable.length} eligible staff at daily cap`;
   return 'unknown — check dispatcher logic';
 }

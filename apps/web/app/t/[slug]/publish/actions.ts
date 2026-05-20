@@ -305,7 +305,7 @@ export async function dispatchToday(
       .is('deleted_at', null),
     service
       .from('staff_accounts')
-      .select('id, persona, platforms, real_name')
+      .select('id, persona, platforms, real_name, settings')
       .eq('tenant_id', tenant.id)
       .eq('status', 'active')
       .eq('kind', 'operator')  // 0023: doctors don't receive dispatch tasks
@@ -389,11 +389,22 @@ export async function dispatchToday(
     const persona = (s.persona ?? {}) as Record<string, unknown>;
     const personaTags = Array.isArray(persona.tags) ? (persona.tags as string[]) : [];
     const platformsObj = (s.platforms ?? {}) as Record<string, unknown>;
+    // V1.11: settings.publishing.{is_active, daily_quota}. Missing = inactive
+    // (explicit opt-in via admin UI / SQL backfill before V1.11 rollout).
+    const settings = (s.settings ?? {}) as Record<string, unknown>;
+    const publishing = (settings.publishing ?? {}) as Record<string, unknown>;
+    const isActive = publishing.is_active === true;
+    const dailyQuota =
+      typeof publishing.daily_quota === 'number' && publishing.daily_quota > 0
+        ? (publishing.daily_quota as number)
+        : undefined;
     return {
       id: s.id as string,
       persona_tags: personaTags,
       platforms: Object.keys(platformsObj),
       tasks_today: staffTodayCount.get(s.id as string) ?? 0,
+      is_active: isActive,
+      daily_quota: dailyQuota,
     };
   });
 

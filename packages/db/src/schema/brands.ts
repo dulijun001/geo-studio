@@ -115,6 +115,16 @@ export const staffAccounts = pgTable(
     geo_profile_visible: boolean('geo_profile_visible').notNull().default(false),
     /** { license_number, board_certifications: [...], specialties: [...], experience_years, education: [...] }. Maps to schema.org/Physician. (0016) */
     credentials: jsonb('credentials').notNull().default({}),
+    /**
+     * Publishing strategy + future strategy expansion slot. (V1.11 / migration 0038)
+     * Shape: `{ publishing?: { is_active?: boolean; daily_quota?: number } }`.
+     * - `publishing.is_active`: dispatcher H0 filter. `false` = 不接派单 (辅助号/潜伏号).
+     *   Treats `undefined`/missing same as `false` once V1.11 rolls out; existing rows
+     *   keep default '{}' and must be explicitly opted-in via admin UI.
+     * - `publishing.daily_quota`: per-staff override; fallback to dispatcher's
+     *   `daily_cap_per_staff` global when null.
+     */
+    settings: jsonb('settings').notNull().default({}),
     ...timestamps(),
   },
   (t) => ({

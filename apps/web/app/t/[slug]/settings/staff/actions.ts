@@ -272,3 +272,75 @@ export async function generateStaffSetupLink(
   revalidatePath(`/t/${tenantSlug}/settings/staff`);
   return { url, expires_at: expiresAt.toISOString() };
 }
+
+// ============================================================================
+// V1.11: 核心发布号 toggle (settings.publishing.is_active)
+// ============================================================================
+
+/**
+ * Toggle whether a staff account receives daily-ops dispatches.
+ *
+ * `is_active=true`  → 核心号,凌晨 cron 派单时进入候选池 (dispatcher H0)
+ * `is_active=false` → 辅助/潜伏号,跳过派单 (但保留账号能力做手动转发 / 互动)
+ *
+ * Per-staff daily_quota stays default (= dispatch global cap, currently 2 for
+ * songshu → 上午 + 下午各 1 篇). Per-staff quota override is left to V1.12
+ * if usage shows it's needed.
+ */
+export async function togglePublishingActive(
+  tenantSlug: string,
+  staffAccountId: string,
+  isActive: boolean,
+): Promise<void> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Unauthenticated');
+
+  const service = getSupabaseServiceClient();
+
+  // Verify ownership + fetch current settings so jsonb_set works idempotently.
+  const { data: staff, error: sErr } = await service
+    .from('staff_accounts')
+    .select('id, kind, settings, real_name')
+    .eq('id', staffAccountId)
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null)
+    .single();
+  if (sErr || !staff) throw new Error('员工不存在或不属于当前租户');
+  if (staff.kind !== 'operator') {
+    throw new Error('医生号不接派单,核心发布开关只对运营 / 市场号有意义');
+  }
+
+  // Merge into existing settings; default daily_quota=2 when newly activating
+  // (covers both上午 + 下午). Pre-existing daily_quota is preserved.
+  const current = (staff.settings ?? {}) as Record<string, unknown>;
+  const publishing = (current.publishing ?? {}) as Record<string, unknown>;
+  const nextPublishing = {
+    ...publishing,
+    is_active: isActive,
+    daily_quota:
+      typeof publishing.daily_quota === 'number' && publishing.daily_quota > 0
+        ? publishing.daily_quota
+        : 2,
+  };
+  const nextSettings = { ...current, publishing: nextPublishing };
+
+  const { error: updErr } = await service
+    .from('staff_accounts')
+    .update({ settings: nextSettings })
+    .eq('id', staffAccountId)
+    .eq('tenant_id', tenant.id);
+  if (updErr) throw new Error(`更新失败: ${updErr.message}`);
+
+  await service.from('audit_logs').insert({
+    tenant_id: tenant.id,
+    actor_user_id: user.id,
+    action: isActive ? 'staff.publishing_activated' : 'staff.publishing_deactivated',
+    target_type: 'staff_account',
+    target_id: staffAccountId,
+    payload: { real_name: staff.real_name, is_active: isActive },
+  });
+
+  revalidatePath(`/t/${tenantSlug}/settings/staff`);
+}
