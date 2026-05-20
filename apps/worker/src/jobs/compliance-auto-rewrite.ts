@@ -13,7 +13,7 @@
  * No new DB write paths — reuses content_variants + compliance_reviews +
  * audit_logs schemas identical to the manual path.
  */
-import { buildRewriteHint, chat, isAvailable as llmAvailable, type GeoScore } from '@geo/geo-core';
+import { buildRewriteHint, chat, isAvailable as llmAvailable, scoreGeo, type GeoScore } from '@geo/geo-core';
 import { reportError } from '@geo/shared';
 import { enqueueViaSharedBoss } from '../lib/boss-ref';
 import { getServiceClient } from '../lib/supabase';
@@ -208,12 +208,26 @@ export async function handleComplianceAutoRewrite(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[compliance-auto-rewrite] LLM failed variant=${variant_id}: ${msg.slice(0, 200)}`);
-    reportError(err, { scope: 'compliance-auto-rewrite', tenant_id, extra: { variant_id } });
-    // Bump count anyway so we don't infinite-retry LLM-failing variants
-    await client
-      .from('content_variants')
-      .update({ auto_rewrite_count: (variant.auto_rewrite_count ?? 0) + 1 })
-      .eq('id', variant_id);
+    reportError(err, { scope: 'compliance-auto-rewrite', tenant_id, extra: { variant_id, mode } });
+    // V1.10.3: bump appropriate counter to prevent infinite retry.
+    // compliance mode → auto_rewrite_count (D5/D12 §13.3 max 1×)
+    // geo_score mode  → geo_score.rewrite_count (soft cap max 3)
+    if (mode === 'compliance') {
+      await client
+        .from('content_variants')
+        .update({ auto_rewrite_count: (variant.auto_rewrite_count ?? 0) + 1 })
+        .eq('id', variant_id);
+    } else {
+      const oldScore = (variant.geo_score as GeoScore | null) ?? null;
+      if (oldScore) {
+        await client
+          .from('content_variants')
+          .update({
+            geo_score: { ...oldScore, rewrite_count: (oldScore.rewrite_count ?? 0) + 1 },
+          })
+          .eq('id', variant_id);
+      }
+    }
     return;
   }
 
@@ -221,24 +235,59 @@ export async function handleComplianceAutoRewrite(
   const newTitle = parsed.title?.trim() || variant.title;
   if (newBody.length < 30) {
     console.warn(`[compliance-auto-rewrite] body too short (${newBody.length}) variant=${variant_id}`);
-    await client
-      .from('content_variants')
-      .update({ auto_rewrite_count: (variant.auto_rewrite_count ?? 0) + 1 })
-      .eq('id', variant_id);
+    // Same bump logic as LLM-fail branch
+    if (mode === 'compliance') {
+      await client
+        .from('content_variants')
+        .update({ auto_rewrite_count: (variant.auto_rewrite_count ?? 0) + 1 })
+        .eq('id', variant_id);
+    } else {
+      const oldScore = (variant.geo_score as GeoScore | null) ?? null;
+      if (oldScore) {
+        await client
+          .from('content_variants')
+          .update({
+            geo_score: { ...oldScore, rewrite_count: (oldScore.rewrite_count ?? 0) + 1 },
+          })
+          .eq('id', variant_id);
+      }
+    }
     return;
   }
 
-  // 4. Persist rewrite + bump counter + reset compliance state so review re-runs
-  const { error: upErr } = await client
-    .from('content_variants')
-    .update({
+  // 4. Persist rewrite + reset compliance state so review re-runs.
+  // V1.10.3 mode-dependent counter bump:
+  //   compliance: bump auto_rewrite_count (D5/D12 §13.3 max 1×, then operator手动)
+  //   geo_score:  scoreGeo + write back geo_score (with rewrite_count bumped).
+  //               Mirrors web aiRewriteForGeoScore exactly — no auto_rewrite_count bump
+  //               so cron can re-touch until GEO ≥ 70 or geo_score.rewrite_count = 3 cap.
+  let updatePayload: Record<string, unknown> = {
+    title: newTitle,
+    body: newBody,
+    status: 'draft',
+    compliance_status: 'pending',
+    compliance_review_id: null,
+  };
+  if (mode === 'compliance') {
+    updatePayload.auto_rewrite_count = (variant.auto_rewrite_count ?? 0) + 1;
+  } else {
+    // geo_score mode: re-score + bump geo_score.rewrite_count, NOT auto_rewrite_count.
+    const oldScore = (variant.geo_score as GeoScore | null) ?? null;
+    const primaryKeyword = (() => {
+      // Recompute primary keyword for consistency (same logic as prompt builder above)
+      return newTitle.slice(0, 8);
+    })();
+    const newScore = scoreGeo({
       title: newTitle,
       body: newBody,
-      status: 'draft',
-      compliance_status: 'pending',
-      compliance_review_id: null,
-      auto_rewrite_count: (variant.auto_rewrite_count ?? 0) + 1,
-    })
+      primary_keyword: primaryKeyword,
+      rewrite_count: (oldScore?.rewrite_count ?? 0) + 1,
+    });
+    updatePayload.geo_score = newScore;
+  }
+  const { error: upErr } = await client
+    .from('content_variants')
+    .update(updatePayload)
     .eq('id', variant_id);
   if (upErr) {
     console.error(`[compliance-auto-rewrite] persist failed variant=${variant_id}: ${upErr.message}`);

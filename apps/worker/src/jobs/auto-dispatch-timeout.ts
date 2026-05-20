@@ -288,22 +288,28 @@ async function autoRewriteYellows(
     return;
   }
 
-  // 2. Re-fetch with variant ids (variants from caller lacks id; re-query is cheap)
+  // 2. Re-fetch with variant ids + geo_score (V1.10.3: filter by geo_score.rewrite_count)
   const { data: vids } = await client
     .from('content_variants')
-    .select('id, dod_status, compliance_status, auto_rewrite_count, numeric_check, tenant_id')
+    .select('id, dod_status, compliance_status, auto_rewrite_count, numeric_check, geo_score, tenant_id')
     .eq('daily_run_id', runId)
     .eq('tenant_id', tenantId)
     .is('deleted_at', null);
   if (!vids?.length) return;
 
-  // 3. Filter to yellow + auto_rewrite_count=0
+  // 3. Filter to yellow + geo_score.rewrite_count < 3 (V1.10.3 soft cap).
+  // Mirrors web aiRewriteForGeoScore behavior — geo-mode rewrites bump
+  // geo_score.rewrite_count not auto_rewrite_count, so cron can re-touch
+  // until GEO ≥ 70 or 3-attempt cap (whichever first).
+  const MAX_GEO_REWRITES = 3;
   const targets = vids.filter((v) => {
-    if ((v.auto_rewrite_count ?? 0) >= 1) return false; // D5/D12 §13.3 max 1×
+    const rewriteCount =
+      (v.geo_score as { rewrite_count?: number } | null)?.rewrite_count ?? 0;
+    if (rewriteCount >= MAX_GEO_REWRITES) return false;
     const cls = classifyVariant({
       dod_status: (v.dod_status ?? 'unknown') as VariantReadinessInput['dod_status'],
       compliance_status: (v.compliance_status ?? 'pending') as string,
-      auto_rewrite_count: 0,
+      auto_rewrite_count: (v.auto_rewrite_count ?? 0) as number,
       numeric_check: (v.numeric_check ?? null) as { verdict?: string } | null,
     });
     return cls === 'yellow';
@@ -321,9 +327,10 @@ async function autoRewriteYellows(
   let enqueued = 0;
   for (const v of targets) {
     try {
-      // V1.10.2 2026-05-19: yellow variants use 'geo_score' mode →
-      // worker switches to GEO_REWRITE_SYSTEM + buildRewriteHint to补9 法弱项.
-      // Compare to D5/D12 reject path which uses 'compliance' mode + findings.
+      // V1.10.2 yellow → 'geo_score' mode (GEO_REWRITE_SYSTEM + buildRewriteHint).
+      // V1.10.3 handler now mirrors web aiRewriteForGeoScore: re-scores +
+      // bumps geo_score.rewrite_count (NOT auto_rewrite_count) so cron can
+      // re-touch until GEO ≥ 70 or 3-attempt cap.
       await enqueueViaSharedBoss('compliance.auto_rewrite', {
         variant_id: v.id as string,
         tenant_id: tenantId,
