@@ -123,20 +123,38 @@ class DoubaoWebAdapter implements TrackerAdapter {
       await input.click();
       await input.fill(q.question);
 
-      // Try to submit. Enter alone is unreliable since 2026-04 (intercepted
-      // by IME / promo overlay). Click the send button as primary path; fall
-      // back to Enter, then Cmd+Enter, in that order.
+      // Try to submit. Strategy:
+      //   1. send-button click with short per-attempt timeout — V2 fix.
+      //      原 V1 单 click 没 timeout option,默认 actionTimeout=30s。
+      //      RAG/local 题模式下豆包 DOM 在 transient state,Playwright 等
+      //      element scroll-into-view 等不到稳定就 30s 超时(已观察)。
+      //      新版每个 selector 限 3s,force=true 跳过 stability 检查 — 豆豆
+      //      新 UI 切换快,等 stable 反而比直接 click 慢且容易 stale。
+      //   2. 全失败 → keyboard Enter + Meta+Enter 兜底
+      // 单条总 wall-clock 上限 = 3 selectors × 3s + 300ms = ~9.3s,远低于
+      // 旧 30s 行为,留余地给后续 waitForURL.
       const sendBtnSelectors = [
         '[class*="send-btn-wrapper"] button:not([disabled])',
         'button[class*="send-msg-btn"]:not([disabled])',
         '[class*="send-btn-wrapper"]:not([disabled])',
+        // V2 新增:RAG/搜索模式下豆包改用 svg-icon 按钮
+        '[class*="search-submit"]:not([disabled])',
+        'button[aria-label*="发送"]:not([disabled])',
       ];
       let submitted = false;
+      let submittedVia: string | null = null;
       for (const sel of sendBtnSelectors) {
         const btn = await page.$(sel).catch(() => null);
-        if (btn && (await btn.isEnabled().catch(() => false))) {
-          await btn.click().catch(() => undefined);
+        if (!btn) continue;
+        const enabled = await btn.isEnabled().catch(() => false);
+        if (!enabled) continue;
+        const ok = await btn
+          .click({ timeout: 3000, force: true })
+          .then(() => true)
+          .catch(() => false);
+        if (ok) {
           submitted = true;
+          submittedVia = sel;
           break;
         }
       }
@@ -144,21 +162,36 @@ class DoubaoWebAdapter implements TrackerAdapter {
         await page.keyboard.press('Enter').catch(() => undefined);
         await page.waitForTimeout(300);
         await page.keyboard.press('Meta+Enter').catch(() => undefined);
+        submittedVia = 'keyboard';
       }
 
       // The URL flips to /chat/<session-id> once the message is accepted.
-      // If it never flips after 15s, we're not logged in (Doubao silently
-      // drops guest submits). Bail with a clear "needs login" reason.
-      const flipped = await page
-        .waitForURL(/\/chat\/[^/]+$/, { timeout: Math.min(remaining(), 15_000) })
+      // V2 改 — RAG/搜索模式可能 URL 不变(留在 /chat/)但页面渲染
+      // <search-results>。所以判断"已经提交"用两个信号 OR:
+      //   (a) URL match /chat/<id>   — 普通 chat 模式
+      //   (b) 5s 内 welcome 卡片消失了 — RAG 模式 / 已经在 chat 里继续问
+      const advancedByUrl = await page
+        .waitForURL(/\/chat\/[^/]+$/, { timeout: Math.min(remaining(), 8_000) })
         .then(() => true)
         .catch(() => false);
+      let advancedByDom = false;
+      if (!advancedByUrl) {
+        advancedByDom = await page
+          .waitForSelector(WELCOME_HINT_SELECTOR, { state: 'hidden', timeout: 5_000 })
+          .then(() => true)
+          .catch(() => false);
+      }
+      const flipped = advancedByUrl || advancedByDom;
       if (!flipped) {
         return {
           status: 'failed',
           failure_reason:
-            'login required — chat URL never advanced past welcome page. Run `pnpm doubao:login` to seed the cookie.',
-          meta: { elapsed_ms: Date.now() - started },
+            'submit not accepted — neither URL flip nor welcome hide observed. Likely login expired (cookie failed) or new captcha. Run `pnpm doubao:login` to re-seed.',
+          meta: {
+            elapsed_ms: Date.now() - started,
+            submitted_via: submittedVia,
+            current_url: page.url(),
+          },
         };
       }
 
@@ -221,6 +254,9 @@ class DoubaoWebAdapter implements TrackerAdapter {
           elapsed_ms: Date.now() - started,
           session_url: page.url(),
           text_len: extracted.raw_response.length,
+          submitted_via: submittedVia,
+          flipped_by: advancedByUrl ? 'url' : 'dom',
+          winning_selector: lastWinner,
         },
       };
     } catch (err) {
