@@ -51,10 +51,14 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
     return;
   }
 
+  // V1.11.4d: brand_vocab 必须过滤 deleted_at — soft-deleted 行 id 还在,
+  // scanBrandMentions 把它们也算进去后 citations.vocab_id FK 检查会失败
+  // (citations_vocab_id_fkey),整批 mentions 0 insert,SOV 战况图永远 0/0。
   const { data: vocabRows, error: vErr } = await client
     .from('brand_vocab')
     .select('id, term, term_type, aliases')
-    .eq('tenant_id', tenant_id);
+    .eq('tenant_id', tenant_id)
+    .is('deleted_at', null);
   if (vErr) {
     await markFailed(snapshot_id, `brand_vocab fetch: ${vErr.message}`);
     return;
