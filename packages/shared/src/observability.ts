@@ -15,7 +15,14 @@
  *   — 否则免费额度 1 周就爆
  */
 
-import type * as Sentry from '@sentry/node';
+// @sentry/node 含 child_process / fs 等 node-only deps,Next.js client bundle
+// 静态分析会失败。用字符串变量 + webpackIgnore 让 webpack 跳过 — 仅在
+// 真正调用 ensureSentry 的 node 进程(web SSR / worker)里运行时载入。
+type SentryLike = {
+  init: (opts: Record<string, unknown>) => void;
+  captureException: (err: unknown, ctx?: Record<string, unknown>) => void;
+  addBreadcrumb: (b: Record<string, unknown>) => void;
+};
 
 export type ErrorContext = {
   /** 业务区域标签 — "compliance.review", "tracker.doubao" 等. */
@@ -28,12 +35,18 @@ export type ErrorContext = {
   extra?: Record<string, unknown>;
 };
 
-let sentryModule: typeof Sentry | null = null;
+let sentryModule: SentryLike | null = null;
 let initState: 'pending' | 'ready' | 'disabled' = 'pending';
 
-async function ensureSentry(): Promise<typeof Sentry | null> {
+async function ensureSentry(): Promise<SentryLike | null> {
   if (initState === 'ready') return sentryModule;
   if (initState === 'disabled') return null;
+
+  // 客户端 / Edge / 其他无 node API 环境直接 disabled — 不再尝试加载。
+  if (typeof process === 'undefined' || !process.versions?.node) {
+    initState = 'disabled';
+    return null;
+  }
 
   const dsn = process.env.SENTRY_DSN;
   if (!dsn || dsn.trim().length === 0) {
@@ -42,7 +55,10 @@ async function ensureSentry(): Promise<typeof Sentry | null> {
   }
 
   try {
-    const mod = await import('@sentry/node');
+    // 字符串变量 + webpackIgnore: webpack 静态分析时跳过这个 import,
+    // 留给真正的 Node.js runtime 处理。
+    const sentryModuleName = '@sentry/node';
+    const mod = (await import(/* webpackIgnore: true */ sentryModuleName)) as SentryLike;
     mod.init({
       dsn,
       environment: process.env.NODE_ENV ?? 'production',
