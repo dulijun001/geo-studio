@@ -246,6 +246,39 @@ class DoubaoWebAdapter implements TrackerAdapter {
       }
 
       const extracted = await this.#extract(page);
+
+      // V1.11.4 数据卫生:RAG/local 题 click 失败时 advancedByDom 可能误通过,
+      // 抓到的"回答"实际是豆包欢迎页 placeholder 内容(资讯卡片 / 文件上传
+      // 提示 / 推荐 prompt 列表)。匹配 5+ welcome 指纹关键词时回 failed 不污染
+      // 数据,SOV 战况图能区分"真 fail"vs"假 done"。
+      const WELCOME_FINGERPRINTS = [
+        '新对话内容由豆包 AI 生成',
+        '在此处拖放文件',
+        '快速PPT 生成',
+        '图像生成',
+        '请仔细甄别',
+        '帮我写作翻译编程',
+        '最多 50 个',
+      ];
+      const welcomeHits = WELCOME_FINGERPRINTS.filter((kw) =>
+        extracted.raw_response.includes(kw),
+      ).length;
+      if (welcomeHits >= 3) {
+        return {
+          status: 'failed',
+          failure_reason: `submit not effective — extracted content matches welcome page (${welcomeHits} fingerprints). Likely RAG/search-mode submit failed silently. V2 needs noVNC DOM debugging.`,
+          meta: {
+            elapsed_ms: Date.now() - started,
+            session_url: page.url(),
+            text_len: extracted.raw_response.length,
+            submitted_via: submittedVia,
+            flipped_by: advancedByUrl ? 'url' : 'dom',
+            welcome_hits: welcomeHits,
+            preview: extracted.raw_response.slice(0, 120),
+          },
+        };
+      }
+
       return {
         status: 'done',
         raw_response: extracted.raw_response,
