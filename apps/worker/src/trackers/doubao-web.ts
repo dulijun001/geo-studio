@@ -120,8 +120,16 @@ class DoubaoWebAdapter implements TrackerAdapter {
         };
       }
 
-      await input.click();
-      await input.fill(q.question);
+      // V1.11.4c: 不让 input.click 用默认 30s actionTimeout。RAG 模式下输入框
+      // 可能被遮挡或 transient,等 stable 等不来。force:true + 3s 上限。失败
+      // fallback fill 直接打字。
+      await input
+        .click({ timeout: 3000, force: true })
+        .catch(() => undefined);
+      await input.fill(q.question, { timeout: 5000 }).catch(async () => {
+        // fill failed → type 字符级 fallback
+        await input.type(q.question, { delay: 20 }).catch(() => undefined);
+      });
 
       // Try to submit. Strategy:
       //   1. send-button click with short per-attempt timeout — V2 fix.
