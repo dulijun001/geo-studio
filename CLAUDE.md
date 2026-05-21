@@ -47,6 +47,7 @@
 | D23 | **dispatcher 评分 fallback**:`topicPersonaScore = max(Jaccard, char-trigram*0.7)`,3-字 n-gram 桥接"种植牙知识"(persona tag)和"种植牙 5 年存活率"(variant.topics)。V1.10 起 Jaccard 静默退化为 0(整句 vs 短标签,中文不可能精确匹配),专长派单一直失效 | 2026-05-20 | V1.11 改造时探查发现的隐藏 bug;不修则"上下午档+专长匹配"形同虚设;V1.12 后续 ticket 用 LLM 在 ai-draft 时直接产出 specialty tags 列代替 |
 | D24 | **`content_items.target_questions[]` 必须写**:`batch-draft-item` 成功后回写 `[question_id]`,`nightly-draft` enqueue 时传 `question_id`。RPC `daily_ops_pick_topics` 靠该字段反查 `last_used_at` 做 7 天去重;以前从未写过,所以每天选同一批 priority=9 题反复起草 | 2026-05-20 | 冒烟测试发现 02:00 cron 起的 12 题里 4-5 对重复("昆明种植牙医院推荐"×2、"昆明老人种植牙补贴"×2 等),客户每天看到同题客户怀疑产品 + AI 引擎按 spam 降权;同时清理 questions 里 8 个**南京题污染**(songshu 是昆明医院,数据卫生 P0) |
 | D25 | **LLM 响应 JSON 解析必须 healing + retry**:`generator.parseResponse` 接住 markdown fence / 前文 preface / 后文 postscript,carve 出 `{..}` 块再 parse;首次失败 retry 1 次 + 强化 prompt "PURE JSON"。total LLM calls per variant 仍 ≤ 2(initial + 1 retry,与既有 rewrite 路径互斥)| 2026-05-20 | 冒烟测试发现 02:00 cron 12 题里 2 题(17%)因豆包返回带 preface 文字而 fail("LLM returned unparseable JSON")→ variant 沉默丢失;`response_format='json_object'` 在 thinking endpoint fallback 后并非铁律 |
+| D26 | **GEO 追踪 web adapter 全部走 CloakBrowser**(替换 Playwright vanilla)+ ECS worker 走 `xvfb-run`。CloakBrowser 在 C++ 源码级 patch 了 Chromium 49 处指纹(canvas/WebGL/audio/fonts/GPU/WebRTC/UA/CDP/TLS),Linux 默认伪装 Windows fingerprint 跟 Mac 端 fingerprint seed 一致 → Mac 扫码 cookie 跨设备复用到 ECS 不会失效 | 2026-05-21 | V1.11.1 装 Chromium 后撞了两堵墙:(a) 真 Chrome 在 ECS 没 X server 跑不起;(b) Mac 扫码后 rsync cookie 到 ECS 被豆包识别"跨设备指纹不一致"让 cookie 失效。CloakBrowser 同时解了这两个:(a) 走 xvfb 提供虚拟 X;(b) 设备指纹源码级伪装 ECS = Mac 同一台 Windows。206MB binary 国内拉 GitHub 被 502,本地代理下载后 scp 部署。verifying snapshot test 2026-05-21 10:20 收到豆包 627 字节真实回答,V1.10 以来 7+ 天 41/41 failed 后首次成功 |
 
 ## 四、目录结构(强制)
 
@@ -196,6 +197,14 @@ geo-studio/
   - **quota 升级**:songshu `daily_ops_settings.topic_count_auto` 5 → 11(13 题/天 × 2 平台 = 26 variants/天,正好覆盖 13 核心号 × 上下午各 1),LLM 成本预估 ~$2.5/天 = $75/月
   - **admin UI**:员工列表新增"核心发布"列,绿/灰双态 toggle + 表头实时统计"X 个核心号接派单 · Y 个辅助/潜伏";server action `togglePublishingActive` 带 audit log
   - **未部署**:Checkpoint A+B 落地 local DB,代码改完未推 ECS、未 git commit(等用户验收)。F2(LLM 提 specialty)留 V1.12 ticket
+- **V1.11.2 CloakBrowser 替换 Playwright vanilla → GEO 追踪 7 天停摆复活**(2026-05-21,本会话):
+  - 起因:I4 装 Chromium 后第一次 trigger snapshot 在 ECS 上失败 ——「`Missing X server or $DISPLAY`」(headful Chrome 在 headless Linux 上没法跑)+ rsync Mac cookie 到 ECS 被豆包识别为「跨设备指纹不一致」让 cookie 失效
+  - **D26 决策**:把 doubao/yuanbao/deepseek 三个 web adapter 的 `chromium.launchPersistentContext` 全替换成 `cloakbrowser` 的 drop-in 替代(`cloakbrowser ^0.3.28`)。CloakBrowser 在 C++ 源码级 patch 了 Chromium 49 处指纹(canvas/WebGL/audio/fonts/GPU/WebRTC/UA/CDP/TLS),Linux 默认伪装成 Windows 指纹,跟 Mac 端 fingerprint seed 一致 → Mac 扫码的 cookie 拿到 ECS 直接复用,不需要在 ECS 现场扫码
+  - **配套**:start-worker.sh 加 `xvfb-run -a --server-args="-screen 0 1280x900x24"` 包装(headful Chrome 比 headless 反爬更稳,但 ECS 无桌面要 xvfb 提供虚拟 X server)
+  - **二进制部署**:206MB CloakBrowser Linux 二进制本地下载 + scp 上 ECS `/root/.cloakbrowser/chromium-146.0.7680.177.3/`,写 latest_version marker 文件防 auto-redownload。国内 ECS 拉 GitHub release 被 502 blocked,必须本地代理下载后传
+  - **真生产验证**:`/root/.cache/geo-tracker/doubao/` rsync 145MB Mac userDataDir → ECS,触发 doubao snapshot 跑通 ——「种植牙有副作用吗」豆包返回 627 字节完整结构化中文回答(短期反应/风险/长期坏处),status=done。**这是 V1.10 以来 7+ 天 41/41 failed 之后第一次 GEO 追踪成功**
+  - 7 个文件改 + 3 处源码级反爬补丁全部由 CloakBrowser binary 承担(原代码删 `--disable-blink-features=AutomationControlled` / Mac UA spoof / `navigator.webdriver` init script)。typecheck 全栈 clean
+  - **风险标记**:CloakBrowser 是社区 GPL 项目,生产 worker 一旦核心依赖它,它出 bug 会拖累 GEO 追踪。仓库已 clone 在本地 `/Users/dulijuner/projects/CloakBrowser` 必要时可自己 patch + fork
 - **V1.11.1 冒烟测试发现三连修复 + 数据卫生**(2026-05-20,同会话续):
   - 起因:用户要求"项目开发得差不多了,冒烟测试一遍"。L1 typecheck 全栈过、L2 213 项纯函数测试全过、L4 prod 数据健康、L5 HTTP smoke 公开层全 200 — 但同时挖出 3 个 P0 真问题
   - **S1 假电话修复**:`brands.contact_phones` 从 `{0571-88888888}` (杭州区号占位)改为真号 `{0871-68152121}`。enqueue `discoverability.regenerate` → 4 个 artifact(llms.txt / llms_full / feed_json / sitemap_xml)09:46:29 重生,HTTP 实测真号已 LIVE。源头是 W5 dev seed (`packages/db/src/_dev/seed-w5.ts:192`),保留为 dev 占位
