@@ -11,7 +11,7 @@
  * 所以这里**复用** _dev/deepseek-login.ts 写的持久化 dir。
  */
 import { mkdir, writeFile } from 'node:fs/promises';
-import { chromium } from 'playwright';
+import { launchPersistentContext } from 'cloakbrowser';
 import { getDeepseekUserDataDir } from '../deepseek-web';
 
 const QUESTION = '南京种植牙推荐哪家口腔医院?';
@@ -22,17 +22,11 @@ async function main() {
   const userDataDir = getDeepseekUserDataDir();
   await mkdir(userDataDir, { recursive: true });
 
-  const ctx = await chromium.launchPersistentContext(userDataDir, {
+  const ctx = await launchPersistentContext({
+    userDataDir,
     headless: false, // 必须可见 — 万一 selector 错可以人工干预
-    channel: 'chrome',
-    args: ['--disable-blink-features=AutomationControlled'],
     viewport: { width: 1280, height: 900 },
-    locale: 'zh-CN',
-    userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  });
-  await ctx.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    args: ['--lang=zh-CN'],
   });
   const page = ctx.pages()[0] ?? (await ctx.newPage());
 

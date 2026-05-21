@@ -18,7 +18,8 @@
 import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { chromium, type BrowserContext } from 'playwright';
+import { launchPersistentContext } from 'cloakbrowser';
+import type { BrowserContext } from 'playwright';
 import type { TrackerAdapter, TrackerContext, TrackerQuery, TrackerResult } from '@geo/geo-core';
 
 const CHAT_URL = 'https://yuanbao.tencent.com/chat';
@@ -83,18 +84,13 @@ class YuanbaoWebAdapter implements TrackerAdapter {
     try {
       const userDataDir = getYuanbaoUserDataDir();
       await mkdir(userDataDir, { recursive: true });
-      context = await chromium.launchPersistentContext(userDataDir, {
+      // V1.11.2 — CloakBrowser; webdriver / UA / fingerprint 由 binary 处理
+      context = await launchPersistentContext({
+        userDataDir,
         headless: ctx.headless,
-        channel: 'chrome',
-        args: ['--disable-blink-features=AutomationControlled'],
         proxy: ctx.proxy,
         viewport: { width: 1280, height: 900 },
-        locale: 'zh-CN',
-        userAgent:
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      });
-      await context.addInitScript(() => {
-        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        args: ['--lang=zh-CN'],
       });
       const page = context.pages()[0] ?? (await context.newPage());
 

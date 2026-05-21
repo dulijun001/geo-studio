@@ -8,7 +8,7 @@
  * 输出:/tmp/yuanbao-probe/{page.html,page.png,selectors.json}
  */
 import { mkdir, writeFile } from 'node:fs/promises';
-import { chromium } from 'playwright';
+import { launchPersistentContext } from 'cloakbrowser';
 import { getYuanbaoUserDataDir } from '../yuanbao-web';
 
 const QUESTION = '南京种植牙推荐哪家口腔医院?';
@@ -19,17 +19,11 @@ async function main() {
   const userDataDir = getYuanbaoUserDataDir();
   await mkdir(userDataDir, { recursive: true });
 
-  const ctx = await chromium.launchPersistentContext(userDataDir, {
+  const ctx = await launchPersistentContext({
+    userDataDir,
     headless: false,
-    channel: 'chrome',
-    args: ['--disable-blink-features=AutomationControlled'],
     viewport: { width: 1280, height: 900 },
-    locale: 'zh-CN',
-    userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  });
-  await ctx.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    args: ['--lang=zh-CN'],
   });
   const page = ctx.pages()[0] ?? (await ctx.newPage());
 

@@ -10,7 +10,7 @@
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromium } from 'playwright';
+import { launchPersistentContext } from 'cloakbrowser';
 
 const QUESTION = '昆明儿童涂氟去哪比较好?';
 const OUT_DIR = '/tmp/doubao-probe';
@@ -18,17 +18,11 @@ const OUT_DIR = '/tmp/doubao-probe';
 async function main() {
   await mkdir(OUT_DIR, { recursive: true });
   const userDataDir = await mkdtemp(join(tmpdir(), 'doubao-probe-'));
-  const ctx = await chromium.launchPersistentContext(userDataDir, {
+  const ctx = await launchPersistentContext({
+    userDataDir,
     headless: true,
-    channel: 'chrome',
-    args: ['--disable-blink-features=AutomationControlled'],
     viewport: { width: 1280, height: 900 },
-    locale: 'zh-CN',
-    userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  });
-  await ctx.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    args: ['--lang=zh-CN'],
   });
   const page = ctx.pages()[0] ?? (await ctx.newPage());
 

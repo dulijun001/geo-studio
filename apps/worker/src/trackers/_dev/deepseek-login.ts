@@ -7,7 +7,7 @@
  * 国内推荐手机号验证码。登录态 cookie 写入 ~/.cache/geo-tracker/deepseek/。
  */
 import { mkdir } from 'node:fs/promises';
-import { chromium } from 'playwright';
+import { launchPersistentContext } from 'cloakbrowser';
 import { getDeepseekUserDataDir } from '../deepseek-web';
 
 const CHAT_URL = 'https://chat.deepseek.com/';
@@ -19,17 +19,11 @@ async function main() {
   console.log(`[deepseek-login] using userDataDir: ${userDataDir}`);
   console.log('[deepseek-login] launching headful Chrome...');
 
-  const ctx = await chromium.launchPersistentContext(userDataDir, {
+  const ctx = await launchPersistentContext({
+    userDataDir,
     headless: false,
-    channel: 'chrome',
-    args: ['--disable-blink-features=AutomationControlled'],
     viewport: { width: 1280, height: 900 },
-    locale: 'zh-CN',
-    userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  });
-  await ctx.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    args: ['--lang=zh-CN'],
   });
 
   const page = ctx.pages()[0] ?? (await ctx.newPage());

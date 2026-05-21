@@ -19,7 +19,7 @@
 import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { chromium } from 'playwright';
+import { launchPersistentContext } from 'cloakbrowser';
 
 const CHAT_URL = 'https://www.doubao.com/chat/';
 
@@ -34,17 +34,13 @@ async function main() {
   console.log(`[doubao-login] using userDataDir: ${userDataDir}`);
   console.log('[doubao-login] launching headful Chrome...');
 
-  const ctx = await chromium.launchPersistentContext(userDataDir, {
+  // 2026-05-21 V1.11.2: CloakBrowser 替换 Playwright vanilla。Mac 跟 ECS
+  // 都默认伪装 Windows fingerprint,设备指纹一致,登录 cookie 可跨设备复用。
+  const ctx = await launchPersistentContext({
+    userDataDir,
     headless: false,
-    channel: 'chrome',
-    args: ['--disable-blink-features=AutomationControlled'],
     viewport: { width: 1280, height: 900 },
-    locale: 'zh-CN',
-    userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-  });
-  await ctx.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    args: ['--lang=zh-CN'],
   });
 
   const page = ctx.pages()[0] ?? (await ctx.newPage());

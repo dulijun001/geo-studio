@@ -17,7 +17,8 @@
 import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { chromium, type BrowserContext } from 'playwright';
+import { launchPersistentContext } from 'cloakbrowser';
+import type { BrowserContext } from 'playwright';
 import type { TrackerAdapter, TrackerContext, TrackerQuery, TrackerResult } from '@geo/geo-core';
 
 const CHAT_URL = 'https://www.doubao.com/chat/';
@@ -76,19 +77,20 @@ class DoubaoWebAdapter implements TrackerAdapter {
       // tracker reuses it on every subsequent call.
       const userDataDir = getUserDataDir();
       await mkdir(userDataDir, { recursive: true });
-      context = await chromium.launchPersistentContext(userDataDir, {
+      // 2026-05-21 V1.11.2: CloakBrowser 替换 Playwright vanilla — C++ 源码级
+      // 49 处反爬补丁 (canvas/WebGL/audio/fonts/GPU/WebRTC/UA/CDP/TLS)。
+      // 跨平台 fingerprint 默认伪装 Windows,Mac 扫码的 cookie 拿到 ECS
+      // 复用时设备指纹一致,Doubao 不会判 "异常设备" 让 cookie 失效。
+      // navigator.webdriver / window.chrome / plugins 由 binary 处理,不再
+      // 手动 init script 注入。
+      context = await launchPersistentContext({
+        userDataDir,
         headless: ctx.headless,
-        channel: 'chrome',
-        args: ['--disable-blink-features=AutomationControlled'],
         proxy: ctx.proxy,
         viewport: { width: 1280, height: 900 },
-        locale: 'zh-CN',
-        userAgent:
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      });
-      // Hide navigator.webdriver before any page script runs.
-      await context.addInitScript(() => {
-        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        // locale/timezone 走 binary --lang/--fingerprint-timezone,不传 context option
+        // (CloakBrowser 文档:走 CDP emulation 会被 detect)
+        args: ['--lang=zh-CN'],
       });
       const page = context.pages()[0] ?? (await context.newPage());
 
