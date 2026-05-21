@@ -195,6 +195,29 @@ export default async function SovHeatmapPage({ params }: { params: { slug: strin
   const totalCoverage = weeklyRollup.reduce((sum, w) => sum + w.coverage, 0);
   const totalPossible = weeklyRollup.reduce((sum, w) => sum + w.total, 0);
 
+  // V1.11.4g (2026-05-21):「P0 失守题」 — 每个 question 取最近一个 done cell,
+  // 如果 brand=0 AND competitor >= 3 → 豆包在这道题里多次推竞品但完全没推
+  // 你,**这是产品最有 actionable 的指标**。客户每周一打开第一眼看到这 5-8
+  // 道题去补内容,不再被整体 SOV 数据淹没核心问题。
+  type DangerRow = {
+    question: QuestionRow;
+    competitor: number;
+    weekIdx: number;
+  };
+  const dangerRows: DangerRow[] = [];
+  for (const r of rows) {
+    for (let i = r.cells.length - 1; i >= 0; i--) {
+      const c = r.cells[i]!;
+      if (c.state === 'no_data') continue;
+      if (c.brand === 0 && c.competitor >= 3) {
+        dangerRows.push({ question: r.question, competitor: c.competitor, weekIdx: i });
+      }
+      break;
+    }
+  }
+  dangerRows.sort((a, b) => b.competitor - a.competitor);
+  const topDanger = dangerRows.slice(0, 8);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -342,6 +365,55 @@ export default async function SovHeatmapPage({ params }: { params: { slug: strin
           </div>
         </div>
       </section>
+
+      {/* V1.11.4g: P0 失守题 — 豆包推竞品没推你 */}
+      {topDanger.length > 0 && (
+        <section className="overflow-hidden rounded-2xl border border-rose-500/30 bg-gradient-to-br from-rose-500/[0.08] to-rose-500/[0.02] p-5 shadow-sm">
+          <div className="mb-4 flex items-baseline justify-between gap-2">
+            <h2 className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-rose-300">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]" />
+              P0 失守题 · 豆包推竞品没推你
+            </h2>
+            <span className="text-[11px] text-muted-foreground">
+              共 {dangerRows.length} 道。按 brand=0 + 竞品 ≥ 3 筛
+            </span>
+          </div>
+          <div className="space-y-2">
+            {topDanger.map((d, i) => (
+              <div
+                key={d.question.id}
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-rose-500/15 bg-card/60 px-4 py-3 transition hover:border-rose-500/30 hover:bg-card/80"
+              >
+                <span className="font-mono text-xs text-rose-400 tabular-nums">#{i + 1}</span>
+                <span className="flex-1 truncate text-sm font-medium" title={d.question.text}>
+                  {d.question.text}
+                </span>
+                {d.question.category ? (
+                  <span className="rounded-full bg-muted/40 px-2 py-0.5 text-[10px] text-muted-foreground">
+                    {d.question.category}
+                  </span>
+                ) : null}
+                <div className="flex items-center gap-1 font-mono text-xs tabular-nums">
+                  <span className="text-muted-foreground">brand</span>
+                  <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-rose-300">0</span>
+                  <span className="text-muted-foreground/60">/</span>
+                  <span className="text-muted-foreground">竞品</span>
+                  <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-300">{d.competitor}</span>
+                </div>
+                <Link
+                  href={`/t/${tenant.slug}/content/wizard?question_id=${d.question.id}`}
+                  className="rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-200 transition hover:bg-rose-500/20"
+                >
+                  去补内容 →
+                </Link>
+              </div>
+            ))}
+          </div>
+          <p className="mt-4 text-xs text-muted-foreground">
+            判定:最近一次抓回的 done snapshot 里,**0 次提到你品牌**,但 ≥ 3 次提到竞品。这是 GEO 运营**最该聚焦的题** — 客户在豆包真问这些,豆包推了别家。点「去补内容」直接进创作向导,定向给这道题写一篇优质内容,目标把数字从 0 翻到 ≥ 3。
+          </p>
+        </section>
+      )}
 
       {/* Top rollup — overall SOV trend (8 周分布) */}
       <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
