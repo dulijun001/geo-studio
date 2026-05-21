@@ -357,14 +357,15 @@ async function autoRewriteYellows(
 }
 
 /**
- * Stage 2: awaiting_review → auto_dispatched_partial.
+ * Stage 2: awaiting_review → auto_dispatched_partial (+ optionally write publish_tasks).
  * Triggered when notified_at + timeout_hours <= now.
  *
- * V1.10 limitation: we DO NOT write publish_tasks here. The dispatchToday()
- * server action lives in apps/web and depends on user session. The /today
- * page surfaces a "批量派单" button (visible after timeout) the operator
- * clicks to actually push tasks to staff. V1.11 will refactor dispatchToday
- * into a service-callable lib so this cron can fully close the loop.
+ * V1.11.3 D2: when `daily_ops_settings.auto_dispatch_enabled=true` (per-tenant
+ * opt-in, default false), we close the last hop — call runAutoDispatch() to
+ * actually write publish_tasks rows. This is the zero-touch path:
+ *   起草 → 合规 → DoD → (6h timeout) → 自动派单到员工号 → 早上员工看到任务
+ * False keeps V1.10 advisor mode: variant stays dispatchable, operator clicks
+ * "批量派单" on /today to push.
  */
 async function advanceAwaitingToDispatch(
   client: ReturnType<typeof getServiceClient>,
@@ -372,13 +373,14 @@ async function advanceAwaitingToDispatch(
 ): Promise<boolean> {
   if (!run.notified_at) return false; // shouldn't happen but defend
 
-  // Load tenant's timeout_hours
+  // Load tenant's timeout_hours + auto_dispatch_enabled
   const { data: settings } = await client
     .from('daily_ops_settings')
-    .select('timeout_hours')
+    .select('timeout_hours, auto_dispatch_enabled')
     .eq('tenant_id', run.tenant_id)
     .maybeSingle();
   const timeoutHours = (settings?.timeout_hours as number | undefined) ?? 6;
+  const autoDispatchEnabled = (settings?.auto_dispatch_enabled as boolean | undefined) ?? false;
 
   const notifiedAt = new Date(run.notified_at).getTime();
   const elapsedMs = Date.now() - notifiedAt;
@@ -420,12 +422,26 @@ async function advanceAwaitingToDispatch(
     return true;
   }
 
-  // V1.10 limitation: don't write publish_tasks; flip variants to a state
-  // that dispatchToday() picks up + advance the run. dispatchToday's filter
-  // is `compliance_status IN ('auto_approved','manual_approved') AND
-  // dod_status != 'failed' AND status NOT IN ('archived','rejected')` — green
-  // variants already match. So we just advance the run; /today page shows
-  // a "批量派单" CTA when status='auto_dispatched_partial'.
+  // V1.11.3 D2: 阶段 1 闭环。auto_dispatch_enabled=true 的 tenant 真写
+  // publish_tasks (runAutoDispatch);=false 保持 V1.10 advisor 模式 (variants
+  // 已经是 dispatchable 状态,客户进 /today 点 "批量派单" button)。
+  let dispatchedCount = 0;
+  let dispatchErr: string | null = null;
+  if (autoDispatchEnabled) {
+    try {
+      const { runAutoDispatch } = await import('../lib/dispatch-runner');
+      const r = await runAutoDispatch(run.tenant_id);
+      dispatchedCount = r.dispatched;
+    } catch (err) {
+      // 不让 dispatch 失败阻塞 run 状态推进 — 标 advisor 状态让运营手动兜底
+      dispatchErr = err instanceof Error ? err.message : String(err);
+      reportError(err, {
+        scope: 'daily-ops.auto-dispatch-timeout.run_dispatch',
+        tenant_id: run.tenant_id,
+        extra: { run_id: run.id },
+      });
+    }
+  }
 
   const { error: updErr } = await client
     .from('daily_ops_runs')
@@ -445,6 +461,9 @@ async function advanceAwaitingToDispatch(
       run_id: run.id,
       green_count: greenIds.length,
       elapsed_hours: elapsedHours.toFixed(1),
+      auto_dispatch_enabled: autoDispatchEnabled,
+      dispatched_count: dispatchedCount,
+      dispatch_err: dispatchErr,
     },
   });
 
