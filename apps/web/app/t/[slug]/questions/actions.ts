@@ -390,6 +390,27 @@ export async function expandQuestionToSubtopics(
   });
   if (!result.ok) throw new Error(`LLM 展开失败: ${result.reason}`);
 
+  // V1.12 D31 合规兜底:即便 prompt 禁了,LLM 偶尔仍会塞竞品名。这里
+  // 用 brand_vocab.competitor + aliases 做硬性 grep,任何 mention 直接
+  // soft-rejected 入 skipped 列表(不入库)。这是医疗广告法 §13 的合规
+  // 红线 — 子问题作为后续 cron 起草的种子,种子里有竞品名 → 起草内容
+  // 100% 违规。
+  const { data: competitorRows } = await service
+    .from('brand_vocab')
+    .select('term, aliases')
+    .eq('tenant_id', tenant.id)
+    .eq('term_type', 'competitor')
+    .is('deleted_at', null);
+  const competitorNames: string[] = [];
+  for (const r of (competitorRows ?? []) as Array<{ term: string; aliases: string[] | null }>) {
+    competitorNames.push(r.term);
+    if (Array.isArray(r.aliases)) competitorNames.push(...r.aliases);
+  }
+  const competitorNeedles = competitorNames
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 2)
+    .map((s) => s.toLowerCase());
+
   // 去重 — 同 tenant 已有的 text 跳过
   const { data: existing } = await service
     .from('questions')
@@ -405,7 +426,16 @@ export async function expandQuestionToSubtopics(
   for (const s of result.subtopics) {
     const t = s.text.trim();
     if (!t || t.length > MAX_TEXT) continue;
-    if (existingSet.has(t.toLowerCase())) {
+
+    // 合规兜底:任何 competitor 名出现 → skip
+    const lower = t.toLowerCase();
+    const offendingCompetitor = competitorNeedles.find((n) => lower.includes(n));
+    if (offendingCompetitor) {
+      skipped.push(`【合规拒绝:含竞品「${offendingCompetitor}」】${t}`);
+      continue;
+    }
+
+    if (existingSet.has(lower)) {
       skipped.push(t);
       continue;
     }
