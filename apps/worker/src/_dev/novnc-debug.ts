@@ -52,8 +52,7 @@ async function dumpDom(page: import('playwright').Page, label: string) {
       possible_answer_containers: sample('[class*="message"], [class*="answer"], [class*="result"], [class*="search"]'),
     };
   })()`;
-  // @ts-expect-error string evaluate
-  const d = await page.evaluate(code).catch((e) => ({ error: String(e).slice(0, 200) }));
+  const d = await (page.evaluate as (s: string) => Promise<unknown>)(code).catch((e: unknown) => ({ error: String(e).slice(0, 200) }));
   console.log(`\n========== DOM @ ${label} ==========`);
   console.log(JSON.stringify(d, null, 2));
   console.log(`========== END DOM @ ${label} ==========\n`);
@@ -135,6 +134,61 @@ async function main() {
   await sleep(60000);
   await shot(page, '05-final');
   await dumpDom(page, '05-final');
+
+  // V1.11.4f 新增:专门 dump RAG 模式 citation panel 真实 DOM
+  // 用户反馈"豆包说参考 12 篇资料但 citation_urls 是空"
+  console.log('\n========== CITATION DOM PROBE ==========');
+  const citationProbe = await page.evaluate(`(() => {
+    // 1. 所有 <a href> 哪怕在 message 容器外
+    const allLinks = Array.from(document.querySelectorAll('a[href^="http"]')).map(a => ({
+      href: a.href,
+      text: (a.textContent || '').slice(0, 60),
+      // 上溯 5 层 ancestor 看 class 名,定位它在哪个容器
+      ancestor_classes: (function(el) {
+        const arr = [];
+        for (let i = 0; i < 5 && el; i++) {
+          arr.push((el.className || '').toString().slice(0, 50));
+          el = el.parentElement;
+        }
+        return arr;
+      })(a),
+    }));
+
+    // 2. 任何 element 含"参考"、"资料"、"来源"、"引用" 文本
+    const refKeywordEls = Array.from(document.querySelectorAll('*')).filter(el => {
+      const t = el.textContent || '';
+      return /参考\\s*\\d+\\s*篇|参考资料|来源|引用|资料来源/.test(t) && el.children.length < 30;
+    }).slice(0, 10).map(el => ({
+      tag: el.tagName,
+      cls: (el.className || '').toString().slice(0, 80),
+      text: (el.textContent || '').slice(0, 100),
+      children_count: el.children.length,
+    }));
+
+    // 3. class 含 reference / citation / source / search / ref
+    const refClassMatches = {};
+    for (const kw of ['reference', 'citation', 'source', 'search-card', 'search-source', 'ref-card', 'ref-item', 'evidence']) {
+      const els = Array.from(document.querySelectorAll('[class*="' + kw + '"]'));
+      refClassMatches[kw] = {
+        count: els.length,
+        sample: els.slice(0, 2).map(el => ({
+          cls: (el.className || '').toString().slice(0, 80),
+          tag: el.tagName,
+          html_first_150: el.outerHTML.slice(0, 150),
+        })),
+      };
+    }
+
+    return {
+      total_http_links: allLinks.length,
+      links_first_15: allLinks.slice(0, 15),
+      ref_keyword_elements: refKeywordEls,
+      ref_class_matches: refClassMatches,
+    };
+  })()`).catch((e) => ({ error: String(e).slice(0, 200) }));
+  console.log(JSON.stringify(citationProbe, null, 2));
+  await writeFile(`${SCREENSHOT_DIR}/${Date.now()}-citation-probe.json`, JSON.stringify(citationProbe, null, 2)).catch(() => undefined);
+  console.log('========== END CITATION DOM PROBE ==========\n');
 
   console.log('[novnc-debug] closing context.');
   await ctx.close().catch(() => undefined);

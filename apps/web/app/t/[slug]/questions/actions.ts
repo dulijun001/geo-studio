@@ -14,7 +14,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { chat, isAvailable as llmAvailable } from '@geo/geo-core';
+import { chat, isAvailable as llmAvailable, expandSubtopics } from '@geo/geo-core';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 import { requireRole } from '@/lib/tenant';
 import {
@@ -334,4 +334,106 @@ export async function bulkInsertDiscoveredQuestions(
   }
   revalidatePath(`/t/${tenantSlug}/questions`);
   return { inserted, skipped };
+}
+
+// ============================================================================
+// V1.12 D31: 子问题展开
+// 报告 §1.8 + §3.3 — 豆包「边想边搜」内部把 1 个原始 query 拆 8-10 个子查询。
+// 把 1 个主题题 expand → 8-10 个长尾子问题入库,后续 cron 优先选子问题派单。
+// ============================================================================
+
+export async function expandQuestionToSubtopics(
+  tenantSlug: string,
+  parentQuestionId: string,
+  count: number = 8,
+): Promise<{ inserted: number; skipped: string[]; subtopics_raw: Array<{ text: string; intent: string }> }> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+  if (!llmAvailable()) throw new Error('ARK_API_KEY 未配置,无法调用 LLM 展开');
+  const service = getSupabaseServiceClient();
+
+  // 拉父题 + tenant industry 上下文
+  const { data: parent, error: pErr } = await service
+    .from('questions')
+    .select('id, text, intent, category, city, priority, parent_id')
+    .eq('id', parentQuestionId)
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null)
+    .single();
+  if (pErr || !parent) throw new Error('父题不存在');
+  if (parent.parent_id) throw new Error('该题已经是子问题,不能再展开');
+
+  const { data: tenantRow } = await service
+    .from('tenants')
+    .select('industry, name')
+    .eq('id', tenant.id)
+    .maybeSingle();
+  const { data: brandRow } = await service
+    .from('brands')
+    .select('name, location')
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  // 组上下文
+  const location = (brandRow?.location as Record<string, unknown> | null) ?? {};
+  const cityHint = (location.city as string | undefined) ?? parent.city ?? '';
+  const industryStr = (tenantRow?.industry as string | undefined) ?? '本地服务';
+  const contextLine = cityHint ? `${cityHint} 本地 ${industryStr}` : industryStr;
+
+  const result = await expandSubtopics({
+    topic: parent.text as string,
+    industry_context: contextLine,
+    brand_name: brandRow?.name as string | undefined,
+    count: Math.max(4, Math.min(15, count)),
+  });
+  if (!result.ok) throw new Error(`LLM 展开失败: ${result.reason}`);
+
+  // 去重 — 同 tenant 已有的 text 跳过
+  const { data: existing } = await service
+    .from('questions')
+    .select('text')
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null);
+  const existingSet = new Set(
+    ((existing ?? []) as Array<{ text: string }>).map((r) => r.text.toLowerCase().trim()),
+  );
+
+  const skipped: string[] = [];
+  const toInsert: Array<Record<string, unknown>> = [];
+  for (const s of result.subtopics) {
+    const t = s.text.trim();
+    if (!t || t.length > MAX_TEXT) continue;
+    if (existingSet.has(t.toLowerCase())) {
+      skipped.push(t);
+      continue;
+    }
+    toInsert.push({
+      tenant_id: tenant.id,
+      text: t,
+      intent: s.intent,
+      // 子问题继承父题的 priority + city + category
+      city: parent.city,
+      category: parent.category,
+      priority: parent.priority,
+      active: true,
+      parent_id: parent.id,
+      subtopic_source: 'llm_expand',
+      expansion_seed_topic: parent.text,
+    });
+  }
+
+  let inserted = 0;
+  if (toInsert.length > 0) {
+    const { error } = await service.from('questions').insert(toInsert);
+    if (error) throw new Error(`子问题入库失败: ${error.message}`);
+    inserted = toInsert.length;
+  }
+  revalidatePath(`/t/${tenantSlug}/questions`);
+  return {
+    inserted,
+    skipped,
+    subtopics_raw: result.subtopics.map((s) => ({ text: s.text, intent: s.intent })),
+  };
 }

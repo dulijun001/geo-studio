@@ -78,6 +78,17 @@ export const questions = pgTable(
     priority: integer('priority').notNull().default(5),
     embedding: vector('embedding'),
     active: boolean('active').notNull().default(true),
+    /**
+     * V1.12 D31 子问题展开:
+     * - parent_id IS NULL → 主题题(原 questions 默认)
+     * - parent_id IS NOT NULL → 由父题展开的子问题。daily-ops cron 优先选
+     *   子问题以提高豆包 RAG 关键词命中率(报告 §3.3 r=0.23 唯一显著因子)
+     */
+    parent_id: uuid('parent_id'),
+    /** manual / llm_expand / imported / feedback_loop */
+    subtopic_source: text('subtopic_source'),
+    /** LLM 展开时的种子文本(通常是父题的 text) */
+    expansion_seed_topic: text('expansion_seed_topic'),
     ...timestamps(),
   },
   (t) => ({

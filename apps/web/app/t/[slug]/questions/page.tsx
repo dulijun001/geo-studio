@@ -19,7 +19,7 @@ export default async function QuestionsPage({ params }: { params: { slug: string
 
   const { data: rows } = await service
     .from('questions')
-    .select('id, text, intent, city, category, priority, active, created_at, updated_at')
+    .select('id, text, intent, city, category, priority, active, created_at, updated_at, parent_id, subtopic_source, expansion_seed_topic')
     .eq('tenant_id', tenant.id)
     .is('deleted_at', null)
     .order('priority', { ascending: false, nullsFirst: false })

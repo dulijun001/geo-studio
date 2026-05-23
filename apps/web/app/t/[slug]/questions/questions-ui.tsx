@@ -8,6 +8,7 @@ import {
   createQuestion,
   deleteQuestion,
   discoverQuestions,
+  expandQuestionToSubtopics,
   toggleQuestionActive,
   updateQuestion,
 } from './actions';
@@ -23,6 +24,9 @@ export type QuestionRow = {
   active: boolean;
   created_at: string;
   updated_at: string;
+  parent_id: string | null;
+  subtopic_source: string | null;
+  expansion_seed_topic: string | null;
 };
 
 const INTENT_LABEL: Record<QuestionIntent, string> = {
@@ -126,20 +130,35 @@ export function QuestionsUI({
               没有匹配的问题。试试清空筛选,或点右上角添加问题。
             </li>
           ) : (
-            filtered.map((q) => (
+            filtered.map((q) => {
+              const isSubtopic = q.parent_id !== null;
+              return (
               <li
                 key={q.id}
-                className="grid grid-cols-[1fr_5rem_4rem_4rem_4rem_8rem] items-center gap-3 px-5 py-3 text-sm"
+                className={`grid grid-cols-[1fr_5rem_4rem_4rem_5rem_4rem_8rem] items-center gap-3 px-5 py-3 text-sm ${
+                  isSubtopic ? 'border-l-2 border-emerald-500/40 bg-emerald-500/[0.03] pl-7' : ''
+                }`}
               >
                 <div className="min-w-0">
-                  <div className={q.active ? '' : 'text-muted-foreground line-through'}>
+                  <div className={`${q.active ? '' : 'text-muted-foreground line-through'} flex items-center gap-1.5`}>
+                    {isSubtopic ? (
+                      <span className="font-mono text-[9px] text-emerald-400">↳ 子</span>
+                    ) : null}
+                    {q.subtopic_source === 'llm_expand' ? (
+                      <span className="rounded-full bg-emerald-500/[0.15] px-1.5 py-0.5 text-[9px] font-medium text-emerald-300">AI</span>
+                    ) : null}
                     {q.text}
                   </div>
-                  {q.city || q.category ? (
+                  {q.city || q.category || q.expansion_seed_topic ? (
                     <div className="mt-0.5 text-xs text-muted-foreground">
                       {q.city ? `📍 ${q.city}` : ''}
                       {q.city && q.category ? ' · ' : ''}
                       {q.category ? `🏷 ${q.category}` : ''}
+                      {q.expansion_seed_topic ? (
+                        <span className="ml-1 text-emerald-400/70">
+                          {q.city || q.category ? ' · ' : ''}↑ 来自「{q.expansion_seed_topic.slice(0, 16)}」
+                        </span>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -163,6 +182,11 @@ export function QuestionsUI({
                 >
                   {q.active ? '启用' : '停用'}
                 </button>
+                {isSubtopic ? (
+                  <span className="text-xs text-muted-foreground/60">—</span>
+                ) : (
+                  <ExpandSubtopicsBtn tenantSlug={tenantSlug} questionId={q.id} text={q.text} onDone={() => router.refresh()} />
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -189,7 +213,8 @@ export function QuestionsUI({
                   删除
                 </button>
               </li>
-            ))
+              );
+            })
           )}
         </ul>
       </div>
@@ -682,5 +707,58 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="mb-1 block text-xs font-medium text-foreground">{label}</span>
       {children}
     </label>
+  );
+}
+
+/**
+ * V1.12 D31 — 把主题题 LLM 展开成 8 个长尾子问题。
+ * 报告 §3.3:r=0.23 标题与子问题关键词匹配度是唯一显著因子。
+ */
+function ExpandSubtopicsBtn({
+  tenantSlug,
+  questionId,
+  text,
+  onDone,
+}: {
+  tenantSlug: string;
+  questionId: string;
+  text: string;
+  onDone: () => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const handleClick = () => {
+    if (
+      !confirm(
+        `把「${text}」LLM 展开成 8 个长尾子问题?\n\n豆包内部「边想边搜」机制下,1 个原始 query 拆解 8-10 个子查询,我们要建关键词矩阵覆盖。耗时 30-60s,LLM 费约 $0.01。`,
+      )
+    ) {
+      return;
+    }
+    startTransition(async () => {
+      try {
+        const r = await expandQuestionToSubtopics(tenantSlug, questionId, 8);
+        const lines = r.subtopics_raw.map((s, i) => `${i + 1}. [${s.intent}] ${s.text}`).join('\n');
+        alert(
+          `展开完成:入库 ${r.inserted} 条,去重跳过 ${r.skipped.length} 条\n\n${lines}`,
+        );
+        onDone();
+      } catch (err) {
+        alert(err instanceof Error ? err.message : String(err));
+      }
+    });
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={isPending}
+      className={`rounded border px-2 py-1 text-xs ${
+        isPending
+          ? 'border-border bg-muted/30 text-muted-foreground'
+          : 'border-emerald-500/40 bg-emerald-500/[0.08] text-emerald-300 hover:bg-emerald-500/[0.15]'
+      }`}
+    >
+      {isPending ? '展开中…' : '🌳 展开'}
+    </button>
   );
 }
