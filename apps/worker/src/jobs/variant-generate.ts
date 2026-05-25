@@ -118,7 +118,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
   // citation in body that isn't in the list as suspected hallucination).
   const { data: verifiedRows } = await client
     .from('verified_citations')
-    .select('id, title, title_aliases, key_claims')
+    .select('id, title, title_aliases, key_claims, issuer, publication_year')
     .eq('tenant_id', tenant_id)
     .eq('active', true)
     .is('deleted_at', null);
@@ -126,6 +126,8 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
     id: r.id as string,
     title: r.title as string,
     aliases: (r.title_aliases as string[] | null) ?? [],
+    issuer: (r.issuer as string | null) ?? null,
+    publication_year: (r.publication_year as number | null) ?? null,
   }));
   // 档位 C1 — same rows, with key_claims for the LLM-judge fact checker. Kept
   // separate from `verifiedCitations` because checkCitations only needs

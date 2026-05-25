@@ -82,7 +82,7 @@ export async function rescueVariant(
     .single();
   const { data: verifiedRows } = await service
     .from('verified_citations')
-    .select('id, title, title_aliases')
+    .select('id, title, title_aliases, issuer, publication_year')
     .eq('tenant_id', tenant.id)
     .eq('active', true)
     .is('deleted_at', null);
@@ -90,6 +90,8 @@ export async function rescueVariant(
     id: r.id as string,
     title: r.title as string,
     aliases: (r.title_aliases as string[] | null) ?? [],
+    issuer: (r.issuer as string | null) ?? null,
+    publication_year: (r.publication_year as number | null) ?? null,
   }));
 
   // 4. Build rewrite hint from origin's geo_score
