@@ -30,6 +30,14 @@ export type ComplianceAutoRewriteJob = {
    *    aiRewriteForGeoScore server action 的逻辑。
    */
   mode?: 'compliance' | 'geo_score';
+  /**
+   * V1.13 D33 — trigger context. When 'warn-d33', the upstream stage-2 LLM
+   * gave warn (soft) so compliance_status stayed 'pending' rather than
+   * flipping to 'rejected'. The mode=compliance gate normally requires
+   * rejected; this flag bypasses it for the warn path while keeping all
+   * other guards (auto_rewrite_count cap, dispatch state, etc).
+   */
+  reason?: 'reject' | 'warn-d33';
 };
 
 type Finding = {
@@ -94,7 +102,14 @@ export async function handleComplianceAutoRewrite(
   }
   // V1.10.2: guard depends on mode
   if (mode === 'compliance') {
-    if (variant.compliance_status !== 'rejected') {
+    // V1.13 D33 — warn-d33 path: stage-2 LLM gave warn so compliance_status
+    // stayed 'pending'; we still want to rewrite. Treat 'pending' as a
+    // valid entry state ONLY when reason='warn-d33', otherwise stick with
+    // the original 'rejected'-only gate.
+    const okStatus =
+      variant.compliance_status === 'rejected' ||
+      (data.reason === 'warn-d33' && variant.compliance_status === 'pending');
+    if (!okStatus) {
       return; // Already moved on (manual approve / rewrite happened first)
     }
   } else {

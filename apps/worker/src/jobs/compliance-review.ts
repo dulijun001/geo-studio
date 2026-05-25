@@ -190,6 +190,16 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   // 4. Branch on stage-1 verdict
   let latestReviewId: string = kwReview.id as string;
   let finalStatus: 'rejected' | 'pending' | 'auto_approved';
+  /**
+   * V1.13 D33 — when stage-2 LLM gives warn, we still want auto-rewrite to
+   * try once instead of dropping the variant straight to the manual queue.
+   * compliance_status stays 'pending' (LLM said "soft issue" not "hard
+   * reject"), but we ALSO enqueue rewrite below. If the rewrite re-review
+   * is still warn, auto_rewrite_count=1 caps it and the variant naturally
+   * ends in pending for operator handling. No new compliance_status enum
+   * value needed.
+   */
+  let warnNeedsRewrite = false;
 
   if (scan.verdict === 'reject') {
     // A-level: stop here, reject.
@@ -224,14 +234,74 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
 
     if (llm.verdict === 'reject') finalStatus = 'rejected';
     else if (llm.verdict === 'pass') finalStatus = 'auto_approved';
-    else finalStatus = 'pending'; // warn → manual review queue
+    else {
+      // V1.13 D33 — LLM warn: keep status pending for UI/audit clarity,
+      // but flag for auto-rewrite attempt below (capped at 1×).
+      finalStatus = 'pending';
+      warnNeedsRewrite = true;
+    }
   } else {
-    // Clean: auto-approve.
+    // Clean keyword scan: tentatively auto-approve.
     finalStatus = 'auto_approved';
-    await writeAudit(tenant_id, triggered_by, 'compliance.auto_approve', variant_id, {
-      review_id: latestReviewId,
-      stage_path: 'keyword_pass',
-    });
+
+    // V1.13 D36 — rewrite-miss guard. LLM auto-rewrite has ~30% miss rate
+    // on subtle absolute-language patterns (e.g. "不会被身体排斥") even
+    // when it correctly removes other findings. Without this gate, an
+    // unremoved violation span sneaks past stage-1 (because we didn't
+    // bother to add every individual phrase to the keyword blacklist).
+    //
+    // Logic: when auto_rewrite_count >= 1, fetch the LAST stage-2 LLM
+    // review's findings and check whether each flagged span still
+    // literally appears in the body. If yes → that finding wasn't
+    // resolved → downgrade to pending for human review.
+    //
+    // No extra LLM call — pure text contains() check.
+    const { data: postRow } = await client
+      .from('content_variants')
+      .select('auto_rewrite_count')
+      .eq('id', variant_id)
+      .single();
+    const rewriteCount = (postRow?.auto_rewrite_count as number | null) ?? 0;
+
+    let unremovedSpans: string[] = [];
+    if (rewriteCount >= 1) {
+      // Union ALL prior stage='llm' findings, not just the latest one.
+      // The first LLM review caught the original violations (e.g.
+      // "不会被身体排斥" + 2 others); subsequent post-rewrite re-reviews
+      // see partially-fixed body and may flag a different subset. We need
+      // every span LLM ever caught for this variant — if any of them is
+      // still literally in body, the rewrite missed.
+      const { data: allLlm } = await client
+        .from('compliance_reviews')
+        .select('findings')
+        .eq('target_id', variant_id)
+        .eq('stage', 'llm')
+        .order('created_at', { ascending: true });
+      const allSpans = new Set<string>();
+      for (const row of allLlm ?? []) {
+        const findings =
+          (row.findings as Array<{ span?: string | null }> | null) ?? [];
+        for (const f of findings) {
+          if (f.span && f.span.length > 0) allSpans.add(f.span);
+        }
+      }
+      unremovedSpans = Array.from(allSpans).filter((s) => variant.body.includes(s));
+    }
+
+    if (unremovedSpans.length > 0) {
+      finalStatus = 'pending';
+      await writeAudit(tenant_id, triggered_by, 'compliance.rewrite_miss', variant_id, {
+        review_id: latestReviewId,
+        stage_path: 'keyword_pass_but_rewrite_miss',
+        rewrite_count: rewriteCount,
+        unremoved_spans: unremovedSpans,
+      });
+    } else {
+      await writeAudit(tenant_id, triggered_by, 'compliance.auto_approve', variant_id, {
+        review_id: latestReviewId,
+        stage_path: rewriteCount >= 1 ? 'keyword_pass_post_rewrite_clean' : 'keyword_pass',
+      });
+    }
   }
 
   // 4b. Quality-gate downgrade — even if 4-道-门 says auto_approved, refuse to
@@ -333,11 +403,14 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
     `[compliance-review] variant=${variant_id} -> ${finalStatus} (${Date.now() - started}ms)`,
   );
 
-  // P3 — auto-rewrite on first reject. Re-pull variant for the rewrite_count
-  // (we may have just transitioned to rejected). Hard cap: only fires when
-  // auto_rewrite_count = 0; the rewrite handler itself bumps the counter and
-  // re-enqueues review, which on second reject leaves the variant alone.
-  if (finalStatus === 'rejected') {
+  // P3 — auto-rewrite trigger. Two entry conditions:
+  //   1. finalStatus === 'rejected'                 (V1.6 original, hard reject)
+  //   2. warnNeedsRewrite === true                  (V1.13 D33, LLM warn — soft)
+  // Hard cap: only fires when auto_rewrite_count = 0. The rewrite handler
+  // bumps the counter and re-enqueues review; on the second pass, the
+  // counter is 1, this block no-ops, and the variant naturally lands in
+  // pending/rejected for operator handling.
+  if (finalStatus === 'rejected' || warnNeedsRewrite) {
     const { data: post } = await client
       .from('content_variants')
       .select('auto_rewrite_count')
@@ -346,8 +419,15 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
     const count = (post?.auto_rewrite_count as number | null) ?? 0;
     if (count === 0) {
       try {
-        await enqueueViaSharedBoss('compliance.auto_rewrite', { variant_id, tenant_id });
-        console.log(`[compliance-review] variant=${variant_id} → auto_rewrite enqueued (count=0)`);
+        await enqueueViaSharedBoss('compliance.auto_rewrite', {
+          variant_id,
+          tenant_id,
+          reason: warnNeedsRewrite ? 'warn-d33' : 'reject',
+        });
+        const trigger = warnNeedsRewrite ? 'warn(D33)' : 'reject';
+        console.log(
+          `[compliance-review] variant=${variant_id} → auto_rewrite enqueued (count=0, trigger=${trigger})`,
+        );
       } catch (err) {
         console.error(
           `[compliance-review] enqueue auto_rewrite failed variant=${variant_id}:`,
@@ -356,7 +436,7 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
       }
     } else {
       console.log(
-        `[compliance-review] variant=${variant_id} reject but auto_rewrite_count=${count} → operator review`,
+        `[compliance-review] variant=${variant_id} ${finalStatus}/warn but auto_rewrite_count=${count} → operator review`,
       );
     }
   }
