@@ -31,6 +31,49 @@ import { pickTopicsForToday, type ManualSlot } from '../lib/topic-picker';
 
 export const NIGHTLY_DRAFT_JOB = 'daily-ops.nightly-draft';
 
+/**
+ * V1.13 D38: ai-draft API's query_intent type (8 enum values). Mirrors the
+ * type at apps/web/lib/ai-draft-core.ts:RunAiDraftInput.query_intent.
+ * Don't import from apps/web because worker doesn't depend on web (one-way).
+ */
+type AiDraftQueryIntent =
+  | 'what_is'
+  | 'is_it_true'
+  | 'which_is_better'
+  | 'why_happens'
+  | 'what_to_do'
+  | 'how_long'
+  | 'when_to_seek_care'
+  | 'how_to_choose_local';
+
+/**
+ * V1.13 D38: map questions.intent enum → ai-draft query_intent. The two
+ * enums were defined separately (questions table predates D21 ai-draft
+ * intent schema). Returning null means "let LLM judge"; mapped values
+ * trigger prompt-builder's intent-specific guardrails.
+ */
+function mapQuestionIntentToQueryIntent(
+  questionIntent: string | null,
+): AiDraftQueryIntent | null {
+  switch (questionIntent) {
+    case 'local_recommendation':
+      return 'how_to_choose_local'; // ← localRecBlock 防违规列别家医院
+    case 'comparison':
+      return 'which_is_better';
+    case 'procedure_info':
+      return 'what_is';
+    case 'risk_concern':
+      return 'when_to_seek_care';
+    case 'aftercare':
+      return 'what_to_do';
+    case 'price_inquiry':
+    case 'doctor_review':
+    case 'other':
+    default:
+      return null;
+  }
+}
+
 type Settings = {
   tenant_id: string;
   enabled: boolean;
@@ -154,17 +197,34 @@ async function processTenant(
     // Manual slots may have their own platforms[] override; for V1.10 simplify
     // by using the tenant-level platforms for ALL items (auto + manual).
     // Manual slot's per-row platforms can override in V1.11 if customers ask.
-    const autoTopics: Array<{ question_id: string | null; topic: string; audience: string }> =
-      picks.picked_questions.map((q) => ({
-        question_id: q.id,
-        topic: q.text,
-        audience: 'default', // V1.10: questions don't carry audience; pick a sensible default
-      }));
-    const manualTopics: Array<{ question_id: string | null; topic: string; audience: string }> =
+    //
+    // V1.13 D38: forward question.intent → ai-draft query_intent so the
+    // prompt builder can inject intent-specific guardrails (e.g. localRecBlock
+    // for "昆明 X 推荐"-style local-recommendation questions). Without this
+    // map the cron passes query_intent=null universally and prompt-builder's
+    // intent branches never fire.
+    const autoTopics: Array<{
+      question_id: string | null;
+      topic: string;
+      audience: string;
+      query_intent: AiDraftQueryIntent | null;
+    }> = picks.picked_questions.map((q) => ({
+      question_id: q.id,
+      topic: q.text,
+      audience: 'default', // V1.10: questions don't carry audience; pick a sensible default
+      query_intent: mapQuestionIntentToQueryIntent(q.intent),
+    }));
+    const manualTopics: Array<{
+      question_id: string | null;
+      topic: string;
+      audience: string;
+      query_intent: AiDraftQueryIntent | null;
+    }> =
       picks.manual_slots.map((m: ManualSlot) => ({
         question_id: null,
         topic: m.topic,
         audience: m.audience,
+        query_intent: null, // manual slots don't carry intent in V1.10 schema
       }));
     const allTopics = [...autoTopics, ...manualTopics];
 
@@ -240,10 +300,18 @@ async function processTenant(
       throw new Error(`create draft_batch_items failed: ${iErr?.message ?? 'unknown'}`);
     }
 
+    // V1.13 D38: build topic → query_intent map for enqueue lookup. We can't
+    // store query_intent on draft_batch_items rows (schema lacks the column),
+    // so derive from the in-memory topics array by topic-string key.
+    const topicToIntent = new Map<string, AiDraftQueryIntent | null>(
+      topics.map((t) => [t.topic, t.query_intent]),
+    );
+
     // 9. Enqueue one job per item (reuse V1.9 content.batch_draft_item)
     await Promise.all(
-      items.map((it) =>
-        enqueueViaSharedBoss('content.batch_draft_item', {
+      items.map((it) => {
+        const qi = topicToIntent.get(it.topic as string) ?? null;
+        return enqueueViaSharedBoss('content.batch_draft_item', {
           batch_id: batchId,
           item_id: it.id,
           tenant_id: settings.tenant_id,
@@ -251,14 +319,18 @@ async function processTenant(
           platform: it.platform as string,
           audience: batchAudience,
           writing_template_id: null,
-          query_intent: null,
-          primary_query: null,
+          // V1.13 D38: forward question-derived intent. When the question is
+          // intent='local_recommendation' (e.g. "昆明 X 推荐"), this triggers
+          // prompt-builder's localRecBlock guardrail (no competitor names,
+          // no ranking language, etc).
+          query_intent: qi,
+          primary_query: qi !== null ? (it.topic as string) : null,
           // V1.11 S3 fix: forward source question_id so batch-draft-item can
           // back-link content_items.target_questions → daily_ops_pick_topics
           // dedupe by last_used_at works on next run.
           question_id: (it.question_id as string | null) ?? null,
-        }),
-      ),
+        });
+      }),
     );
 
     // 10. Update run row with batch_draft_id + counts.planned + status

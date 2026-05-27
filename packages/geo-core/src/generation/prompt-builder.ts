@@ -312,6 +312,29 @@ ${ctx.keywords_to_plant.map((k) => `• ${k}`).join('\n')}
     when_to_seek_care: '何时需要就医',
     how_to_choose_local: '本地怎么选 / 选医院',
   };
+  // V1.13 D38 — 本地推荐题专用红线。当 query_intent='how_to_choose_local'
+  // (对应 questions.intent='local_recommendation', e.g. "昆明 X 医院推荐"
+  // 这类题), LLM 极易生成"列别家医院名/排名第几/性价比第一"等违规内容。
+  // 《广告法》第十三条贬低同行 / 第九条绝对化用语 / 医疗广告管理办法 都会踩。
+  // 单独一段强约束 + 让 LLM 把"对比竞争"重新定义为"通用选择标准"。
+  const localRecBlock =
+    ctx.query_intent === 'how_to_choose_local'
+      ? `
+
+━━━ 本地推荐题专用红线(违反任何一条直接 reject,无例外) ━━━
+1. **严禁列出其他医院/诊所/品牌名**。包括但不限于:"存济口腔""协尔""德韩""博牙士""医科大附属"等任何具名机构。即使是泛称如"某些公立医院""某连锁机构"也不许写。
+2. **严禁排名/绝对化表述**。禁词:"排名第一/前 N 强/最佳/最专业/最权威/性价比第一/独家/首选/口碑第一/治疗效果最好"等。
+3. **严禁横向比较**。不写"我院/本院比 XX 好/便宜/快"、不写"昆明最好的 X"、不写"西山区第一家 X"。
+4. **改用"选医院通用标准"框架**。文章应按以下结构组织(全文聚焦本院真实信息 + 客观选择维度):
+   - 一句话客观结论(本院 = 二级口腔专科 / 资质 / 数字化设备 / 数十年医生团队 / 价格区间透明)
+   - 选口腔医院应该看哪几个维度(资质等级 / 设备 / 医生经验 / 价格透明度 / 距离方便等通用维度,不点名其他机构)
+   - 本院在每个维度的真实情况(用 KB 数据,刘彦廷院长 20 年/韩峄主任 10 年/CBCT+iTero/价格区间 起价表 等)
+   - 适合什么样的患者(用本院科室特色定位:种植/正畸/儿牙)+ 不强推
+   - 通用提醒:面诊后才能确认方案,不要单看广告
+5. 让读者自己判断是否合适,不替读者排序、不替读者贴标签。
+`
+      : '';
+
   const intentBlock =
     ctx.query_intent || ctx.primary_query
       ? `
@@ -344,7 +367,7 @@ ${ctx.writing_template.structure_hint.sections.map((s, i) => `${i + 1}. ${s}`).j
 特别注意 tactics_applied 字段: 只能从下面这些 id 里选 (英文,带下划线): ${allowedTacticIds}。禁止返回中文、禁止新造 id。
 
 目标平台格式: ${spec.format_hint}
-目标长度: ${spec.length_hint}${brandLine}${hintLine}${intentBlock}${geoBlock}${citationsBlock}${keywordsBlock}${structureBlock}
+目标长度: ${spec.length_hint}${brandLine}${hintLine}${intentBlock}${localRecBlock}${geoBlock}${citationsBlock}${keywordsBlock}${structureBlock}
 
 必须应用的 GEO 技法(每一条都要在正文中体现):
 ${tacticBlock}
