@@ -133,10 +133,20 @@ export function TaskCard({ task }: { task: TaskProps }) {
   const [mode, setMode] = useState<'idle' | 'publish' | 'skip'>('idle');
   const [input, setInput] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  const [showFullBody, setShowFullBody] = useState(false);
 
   const platformLabel = PLATFORM_LABEL[task.platform] ?? task.platform;
   const target = PLATFORM_TARGET[task.platform];
   const isAppScheme = target?.url.endsWith('://') ?? false;
+
+  // 2026-05-27 P0 UI fix: previously rendered raw markdown (### / **bold**)
+  // directly which员工 saw as garbled text. Now strip markdown for the preview
+  // and JS-truncate (Tailwind line-clamp plugin may not be in the prod bundle).
+  // The copy button still uses stripMarkdown internally to produce platform-
+  // appropriate output, so the preview shown here matches what they'll paste.
+  const bodyPreview = stripMarkdown(task.body, task.platform);
+  const bodyTooLong = bodyPreview.length > 120;
+  const bodyToShow = showFullBody || !bodyTooLong ? bodyPreview : `${bodyPreview.slice(0, 120)}…`;
 
   const copyContent = async () => {
     // FEATURE_HOOKS_DISABLED 2026-05-12 — 暗号 CTA 不再拼接(产品决策见 publish/actions.ts 同名标记)
@@ -289,9 +299,18 @@ export function TaskCard({ task }: { task: TaskProps }) {
       </div>
 
       <h2 className="mb-2 font-medium leading-snug">{task.title}</h2>
-      <p className="mb-3 line-clamp-3 whitespace-pre-wrap text-sm text-muted-foreground">
-        {task.body}
-      </p>
+      <div className="mb-3 text-sm text-muted-foreground">
+        <p className="whitespace-pre-wrap">{bodyToShow}</p>
+        {bodyTooLong ? (
+          <button
+            type="button"
+            onClick={() => setShowFullBody((v) => !v)}
+            className="mt-1 text-xs text-blue-400 underline-offset-2 hover:underline"
+          >
+            {showFullBody ? '收起' : '展开看全文'}
+          </button>
+        ) : null}
+      </div>
 
       {/* FEATURE_HOOKS_DISABLED 2026-05-12 — 暗号提示不再展示 */}
 
