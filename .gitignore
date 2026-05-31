@@ -69,3 +69,10 @@ ops/kb-compliance-report.md
 # Real data goes in data/. Only the .example template is committed.
 data/*
 !data/*.example
+
+# Content drafts & KB staging — working scratch, kept local (client medical
+# content; belongs in the product DB, not the code repo).
+/round*.md
+/geo_studio_标准GEO文章规范_*.md
+docs/kb-staging/
+/project.json

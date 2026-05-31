@@ -312,3 +312,84 @@
 **每周五**:我主动同步本周完成度 + 下周计划,你决定要不要调整优先级。
 
 **每个 V 结束**:做完整 demo + 复盘,决定下一版方向。
+
+---
+
+## V3 候选模块 — AEO Readiness + Agent Service Feed + AI Answer Pollution Monitoring
+
+> **Status**: V3 候选(条件触发,不预设排期)
+> **立项**: 2026-05-27,配套 ADR 011 + `docs/10-aeo-readiness.md`
+> **由来**: 论文《Agentic Web: Weaving the Next Web with AI Agents》(arxiv 2507.21206)对 Agent Attention Economy 的论证 → 客户/投资人会问"GEO Studio 怎么应对 Agent 时代" → 用 P0 文档化锁住决策 + P1/P2 由条件触发
+
+### 触发条件(满足任一即可开 Sprint)
+
+1. 多客户(≥ 3 家)上线 + Layer A 完整度普遍 ≥ 70%
+2. 国内任一主流 AI 平台(豆包 / 元宝 / 夸克 / Kimi)公布对外 MCP 端点或 Agent Browser SDK
+3. 客户主动提"Agent 时代我们怎么准备" / "AI 答案错误怎么纠偏"
+
+### 实施范围(分三块)
+
+| 子模块 | 内容 | 工时估 |
+|---|---|---|
+| AEO Readiness Score | 8 维度评分 SQL view + `/t/[slug]/discoverability/aeo` tab + 教育文档 | 1.5d |
+| Agent Service Feed | JSON 草案预览(管理员可见,未对外)+ 后续 `/api/agent-feed/[slug].json` 公开路由 | 2d(预览)+ 2d(对外,V3 触发后)|
+| AI Answer Pollution Monitoring | 7 类监测对象 + 6 类纠偏动作 + `/t/[slug]/aeo/pollution-monitor` 看板 + 监测 cron | 3d(v1 基于 SQL view)+ 2d(LLM 抽取 cron,V3 触发后) |
+
+**总工时**:P1 阶段 6.5d(V2 后期实验性 ship 后台,客户教育)+ P2 阶段 4d(V3 触发后对外)
+
+### 做范围 vs 不做范围(2026-05-27 对齐)
+
+#### ✅ 明确允许做(B+C 类激进合规 GEO,详 ADR 011 §5.4)
+
+- ✅ **B 类激进合规**:子问题 700+ 量级覆盖 / 同主题多角度同日发布 / 占满 AI 偏好源 / 高频刷 updated_at / 数量级压制
+- ✅ **C 类灰色合规**:借品类词阵地 / 真数据可视化诱导 / AI 友好结构信号(reviewed_by/updated_at/citation **真值**)
+- ✅ 监测模块除了防御外,**可主动发现 GEO 战术机会并 enqueue 工单**(详 `docs/10` §五.2 职责 B)
+
+#### ❌ 明确不做(A 类违法黑帽 + D 类攻击 + 边界外)
+
+| 项 | 为什么不做 |
+|---|---|
+| ❌ A 类:RAG Poisoning / Citation Poisoning(假 DOI 假期刊) / Entity Poisoning(假资质假补贴)/ Service Registry Poisoning(假服务条目) | 《广告法》第 16 条 + 《刑法》222 条 + 《反不正当竞争法》第 8 条 |
+| ❌ A 类:数据造假 / 疗效造假(100% / 根治 / 无副作用 / 首家)| 《广告法》第 16/17 条 |
+| ❌ A 类:竞品贬低 / 比较性广告 | D32 + 《反不正当竞争法》第 11 条 |
+| ❌ D 类:攻击竞品(Negative SEO / 买号假装患者发负评 / 在第三方站投毒)| 反不正当竞争法 + ROI 计算上不划算(豆包反恶意一次永久降权)|
+| ❌ MCP Server / A2A 协议落地 | 国内 agent 平台未消费,做了客户用不上(ADR 011 §5.1) |
+| ❌ 自动支付 / 自动预约成交 | 医疗合规红线(ADR 011 §5.2)|
+| ❌ 自动医疗诊断 / 治疗建议 | D5/D12/D33-D36 已禁(ADR 011 §5.3)|
+| ❌ 自动登录员工平台 / 自动发布到平台 App | D3 + D9 红线(封号风险)|
+| ❌ AEO Readiness 分数强卡内容发布 | 合规四道门是发布闸门;AEO 只展示不阻塞(`docs/10` §2.4 警告)|
+| ❌ Agent-as-User 自动浏览器代理 | 我们是内容供给方,不是 agent 运营方 |
+| ❌ Cross-Agent Billing Ledger | ADR 011 §5.2 红线 |
+| ❌ 在客户主页推广 "AEO" buzzword | UI 在 V2 之前不暴露,客户教育文档同步给到 |
+
+### 验收标准
+
+- [ ] 客户后台 `/t/[slug]/discoverability/aeo` 显示 8 维度评分 + 总分(0-32)+ 4 档等级
+- [ ] Agent Service Feed JSON 包含 12 个强制字段(详 `docs/10` §4.3),特别是 `forbidden_actions` / `human_confirmation_required` / `compliance_notes`
+- [ ] Agent Service Feed 公开路由 ≥ 99.9% 可用 + 单行 < 50ms(延续 D17 build-on-write)
+- [ ] AI 答案污染监测每日 cron 跑通,异常检出召回率 ≥ 80%(人工抽检 100 条)
+- [ ] 至少 1 起真实纠偏案例完整闭环(监测告警 → 人审 → 工单 → wizard → D21 contract → 合规四道门 → 派单 → 重新追踪验证 → 关闭工单)
+- [ ] AEO Readiness 分数与 Discoverability Audit 分数并列展示,客户能区分两个视角
+- [ ] 客户教育文档 + pitch deck 升级("Agent Attention Economy" 章节) ship
+
+### 与 V2 feedback loops(`docs/08`)的关系
+
+| docs/08 5 断点 | AEO 演进对应 |
+|---|---|
+| 断点 1(追踪 → 选题) | AEO 维度 1(Agent Discoverability)反映追踪覆盖率,**信号联动** |
+| 断点 2(引用 → 关键词热度) | AEO 维度 1 + 维度 7,**信号联动** |
+| 断点 3(归因 → 内容业务价值) | AEO 不依赖 — 归因独立路径 |
+| 断点 4(员工反馈 → 难发布标签) | AEO 不依赖 — 派单独立路径 |
+| 断点 5(Audit → 内容生产 banner) | **直接共用 banner UI**;AEO 是 banner 的"agent 视角"版本 |
+| (新增)断点 7 — 污染监测 → 纠偏工单 | AEO 演进引入的**第 6 条候选回路**;C 验证层 → B 生产层的新通道 |
+
+### 与 ADR 011 的关系
+
+本模块是 ADR 011 § 9 实施分阶段中 P1 / P2 阶段的具体执行。P0 阶段(2026-05-27 已 ship)只包括:
+
+- ADR 011 决策档
+- `docs/10-aeo-readiness.md` 设计文档
+- 本路线图条目
+- CLAUDE.md D37 草案
+
+P1 / P2 启动条件由本节"触发条件"门控,不预设排期。Sprint 启动时另开 ADR 012。

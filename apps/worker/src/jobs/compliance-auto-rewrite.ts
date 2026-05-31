@@ -13,8 +13,17 @@
  * No new DB write paths — reuses content_variants + compliance_reviews +
  * audit_logs schemas identical to the manual path.
  */
-import { buildRewriteHint, chat, isAvailable as llmAvailable, scoreGeo, type GeoScore } from '@geo/geo-core';
-import { reportError } from '@geo/shared';
+import {
+  buildRewriteHint,
+  chat,
+  isAvailable as llmAvailable,
+  renderDoctorBlock,
+  scoreGeo,
+  type DoctorCandidate,
+  type GeoScore,
+} from '@geo/geo-core';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { prettifyMarkdown, reportError } from '@geo/shared';
 import { enqueueViaSharedBoss } from '../lib/boss-ref';
 import { getServiceClient } from '../lib/supabase';
 
@@ -47,6 +56,31 @@ type Finding = {
   matched_span?: string;
   context_snippet?: string;
 };
+
+// 2026-05-28: 与 web actions.ts loadDoctorBlockForRewrite 对齐 — auto-rewrite
+// 路径也要给 LLM 看 doctor candidates + credentials,让 LLM 在改写时补全
+// "审核信息" / "Trust Block" 这种本应带医生资质的 section。
+async function loadDoctorBlockForRewrite(
+  client: SupabaseClient,
+  tenantId: string,
+): Promise<string> {
+  const { data: rows } = await client
+    .from('staff_accounts')
+    .select('real_name, persona, credentials')
+    .eq('tenant_id', tenantId)
+    .eq('kind', 'doctor')
+    .eq('status', 'active')
+    .is('deleted_at', null)
+    .limit(8);
+  const doctors: DoctorCandidate[] = (rows ?? []).map((d) => {
+    const tagsArr = (d.persona as { tags?: unknown } | null)?.tags;
+    const tags = Array.isArray(tagsArr)
+      ? (tagsArr as unknown[]).filter((x): x is string => typeof x === 'string')
+      : [];
+    return { name: (d.real_name as string | null) ?? '', tags, credentials: d.credentials };
+  });
+  return renderDoctorBlock(doctors, { mode: 'rewrite' });
+}
 
 const REWRITE_SYSTEM = `你是医疗行业合规改写专家。把违规文案改写为合规版本,严格遵守:
 
@@ -161,6 +195,7 @@ export async function handleComplianceAutoRewrite(
         : '(关键词扫描无具体命中,综合 LLM 评审意见改写)';
 
     systemPrompt = REWRITE_SYSTEM;
+    const doctorBlock = await loadDoctorBlockForRewrite(client, tenant_id);
     userPrompt =
       `# 任务\n把下列被拒绝的医疗营销文案改写为合规版本。\n\n` +
       `# 平台\n${variant.platform}\n\n` +
@@ -168,7 +203,8 @@ export async function handleComplianceAutoRewrite(
       `# 原始正文\n${variant.body}\n\n` +
       `# 合规扫描发现的违规词\n${findingsBlock}\n\n` +
       (llmRationale ? `# LLM 审查意见\n${llmRationale}\n\n` : '') +
-      `# 输出 JSON\n` +
+      doctorBlock +
+      `\n\n# 输出 JSON\n` +
       `- title: 合规改写后的标题(可保持不变,只要不违规)\n` +
       `- body: 合规改写后的正文(markdown,字数与原文 ±20%)\n` +
       `- changes: 列出主要替换(原词 → 替代词)的字符串数组\n`;
@@ -191,6 +227,7 @@ export async function handleComplianceAutoRewrite(
     const rewriteHint = buildRewriteHint(geoScore);
 
     systemPrompt = GEO_REWRITE_SYSTEM;
+    const doctorBlock = await loadDoctorBlockForRewrite(client, tenant_id);
     userPrompt =
       `# 任务\n基于下方"最弱项提示",对一条医疗营销文案做精准改写,提升其在 AI 搜索引擎里的被引概率。\n\n` +
       `# 平台\n${variant.platform}\n\n` +
@@ -198,7 +235,8 @@ export async function handleComplianceAutoRewrite(
       `# 原始标题\n${variant.title}\n\n` +
       `# 原始正文\n${variant.body}\n\n` +
       `# 最弱项提示\n${rewriteHint}\n\n` +
-      `# 输出 JSON\n` +
+      doctorBlock +
+      `\n\n# 输出 JSON\n` +
       `- title: 改写后的标题(原则上不变,违规或不达标才动)\n` +
       `- body: 改写后的正文(markdown,字数 ±20%)\n` +
       `- changes: 主要改进点的字符串数组(例如 ["补充《XX 指南》引用", "首句加入主题词"])\n`;
@@ -246,7 +284,7 @@ export async function handleComplianceAutoRewrite(
     return;
   }
 
-  const newBody = parsed.body?.trim() ?? '';
+  const newBody = prettifyMarkdown(parsed.body?.trim() ?? '');
   const newTitle = parsed.title?.trim() || variant.title;
   if (newBody.length < 30) {
     console.warn(`[compliance-auto-rewrite] body too short (${newBody.length}) variant=${variant_id}`);

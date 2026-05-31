@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateVariantContent } from '../actions';
 import { HighlightedBody } from './highlighted-body';
+import { prettifyMarkdown } from '@geo/shared';
 
 type Finding = {
   keyword_id: string;
@@ -69,6 +70,8 @@ export function InlineEditBody({
 
   if (editing) {
     const dirty = body !== initialBody;
+    const onPrettify = () => setBody((prev) => prettifyMarkdown(prev));
+    const prettifyDisabled = pending || !body.trim() || prettifyMarkdown(body) === body;
     return (
       <form onSubmit={onSave} className="space-y-3">
         <div className="flex items-baseline justify-between gap-3">
@@ -77,6 +80,28 @@ export function InlineEditBody({
           </h2>
           <div className="flex items-center gap-3">
             {err ? <span className="text-xs text-rose-400">{err}</span> : null}
+            <button
+              type="button"
+              onClick={onPrettify}
+              disabled={prettifyDisabled}
+              title="把 LLM 单行 markdown 重新排版:### 标题分段、FAQ Q/A 独立成段、数字格式抖动修正"
+              className="inline-flex items-center gap-1.5 rounded-md border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-300 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M4 6h16M4 12h10M4 18h16" />
+              </svg>
+              美化排版
+            </button>
             <button
               type="button"
               onClick={onCancel}

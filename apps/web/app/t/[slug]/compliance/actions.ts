@@ -6,10 +6,13 @@ import {
   buildRewriteHint,
   chat,
   isAvailable as llmAvailable,
+  renderDoctorBlock,
   scoreGeo,
+  type DoctorCandidate,
   type GeoScore,
 } from '@geo/geo-core';
-import { reportError } from '@geo/shared';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { prettifyMarkdown, reportError } from '@geo/shared';
 import { lookupNeedlesInKb } from '@/lib/kb-needle-lookup';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/current-user';
@@ -389,6 +392,34 @@ type Finding = {
   context_snippet?: string;
 };
 
+/**
+ * 2026-05-28: shared loader for rewrite-side doctor candidates.
+ * Returns a fully rendered prompt block (or '' when no doctors found).
+ * Used by aiRewriteVariant (compliance reject path) + aiRewriteForGeoScore
+ * (GEO 9 法薄弱项 path) so改写后内容可以补全 credentials。
+ */
+async function loadDoctorBlockForRewrite(
+  service: SupabaseClient,
+  tenantId: string,
+): Promise<string> {
+  const { data: rows } = await service
+    .from('staff_accounts')
+    .select('real_name, persona, credentials')
+    .eq('tenant_id', tenantId)
+    .eq('kind', 'doctor')
+    .eq('status', 'active')
+    .is('deleted_at', null)
+    .limit(8);
+  const doctors: DoctorCandidate[] = (rows ?? []).map((d) => {
+    const tagsArr = (d.persona as { tags?: unknown } | null)?.tags;
+    const tags = Array.isArray(tagsArr)
+      ? (tagsArr as unknown[]).filter((x): x is string => typeof x === 'string')
+      : [];
+    return { name: (d.real_name as string | null) ?? '', tags, credentials: d.credentials };
+  });
+  return renderDoctorBlock(doctors, { mode: 'rewrite' });
+}
+
 const REWRITE_SYSTEM = `你是医疗行业合规改写专家。把违规文案改写为合规版本,严格遵守:
 
 1. 不引入新违规词:绝对化(最/第一/独家/根治/包治)、效果承诺(保证/100%/治愈率/无效退款/永久/立竿见影)、夸大安全(无痛/零风险/绝对安全/无并发症)、违规比较(比XX好/碾压同行)、恐吓营销(不治后果严重/再不治就晚了)
@@ -454,6 +485,9 @@ export async function aiRewriteVariant(
         .join('\n')
     : '(关键词扫描无具体命中,改写时综合考虑 LLM 评审意见)';
 
+  // 2026-05-28: doctor block 注入 — 改写时如果原文已引用医生,补全 credentials
+  const doctorBlock = await loadDoctorBlockForRewrite(service, tenant.id);
+
   const userPrompt =
     `# 任务\n` +
     `把下列被拒绝的医疗营销文案改写为合规版本。\n\n` +
@@ -462,7 +496,8 @@ export async function aiRewriteVariant(
     `# 原始正文\n${variant.body}\n\n` +
     `# 合规扫描发现的违规词\n${findingsBlock}\n\n` +
     (llmRationale ? `# LLM 审查意见\n${llmRationale}\n\n` : '') +
-    `# 输出 JSON\n` +
+    doctorBlock +
+    `\n\n# 输出 JSON\n` +
     `- title: 合规改写后的标题(可保持不变,只要不违规)\n` +
     `- body: 合规改写后的正文(markdown,字数与原文 ±20%)\n` +
     `- changes: 列出主要替换(原词 → 替代词)的字符串数组\n`;
@@ -499,7 +534,7 @@ export async function aiRewriteVariant(
     };
   }
 
-  const newBody = parsed.body?.trim() ?? '';
+  const newBody = prettifyMarkdown(parsed.body?.trim() ?? '');
   const newTitle = parsed.title?.trim() || variant.title;
   if (newBody.length < 30) {
     return { ok: false, reason: 'AI 返回正文过短(< 30 字),改写失败' };
@@ -629,6 +664,8 @@ export async function aiRewriteForGeoScore(
   }
 
   const rewriteHint = buildRewriteHint(geoScore);
+  // 2026-05-28: 专家署名是 GEO 9 法之一(+28%),补 doctor block 给 LLM
+  const doctorBlock = await loadDoctorBlockForRewrite(service, tenant.id);
 
   const userPrompt =
     `# 任务\n基于下方"最弱项提示",对一条医疗营销文案做精准改写,提升其在 AI 搜索引擎里的被引概率。\n\n` +
@@ -637,7 +674,8 @@ export async function aiRewriteForGeoScore(
     `# 原始标题\n${variant.title}\n\n` +
     `# 原始正文\n${variant.body}\n\n` +
     `# 最弱项提示\n${rewriteHint}\n\n` +
-    `# 输出 JSON\n` +
+    doctorBlock +
+    `\n\n# 输出 JSON\n` +
     `- title: 改写后的标题(原则上不变,违规或不达标才动)\n` +
     `- body: 改写后的正文(markdown,字数 ±20%)\n` +
     `- changes: 主要改进点的字符串数组(例如 ["补充《XX 指南》引用", "首句加入主题词"])\n`;
@@ -670,7 +708,7 @@ export async function aiRewriteForGeoScore(
     };
   }
 
-  const newBody = parsed.body?.trim() ?? '';
+  const newBody = prettifyMarkdown(parsed.body?.trim() ?? '');
   const newTitle = parsed.title?.trim() || variant.title;
   if (newBody.length < 30) {
     return { ok: false, reason: 'AI 返回正文过短(< 30 字),改写失败' };
@@ -854,7 +892,7 @@ export async function aiRewriteCitations(
   }
 
   const newTitle = (parsed.title ?? variant.title).trim().slice(0, 200);
-  const newBody = (parsed.body ?? '').trim();
+  const newBody = prettifyMarkdown((parsed.body ?? '').trim());
   if (newBody.length < 30) {
     return { ok: false, reason: 'LLM 返回的正文过短,改写失败' };
   }

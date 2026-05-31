@@ -19,8 +19,8 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { chat, evaluateDod, extractSlices, isAvailable as llmAvailable, sanitizeAbsoluteWords } from '@geo/geo-core';
-import { PLATFORM_HINT, reportError } from '@geo/shared';
+import { chat, evaluateDod, extractSlices, isAvailable as llmAvailable, renderDoctorBlock, sanitizeAbsoluteWords } from '@geo/geo-core';
+import { PLATFORM_HINT, prettifyMarkdown, reportError } from '@geo/shared';
 
 export type AiDraftPlatform =
   | 'xiaohongshu'
@@ -556,7 +556,7 @@ export async function runAiDraft(
       .maybeSingle(),
     supabase
       .from('staff_accounts')
-      .select('real_name, persona')
+      .select('real_name, persona, credentials')
       .eq('tenant_id', tenantId)
       .eq('kind', 'doctor')
       .eq('status', 'active')
@@ -578,7 +578,7 @@ export async function runAiDraft(
   // a doctor whose specialty didn't match the article topic (e.g. picked the
   // 儿牙 doctor for an adult-implant piece). Scoring by topic keyword overlap
   // with persona.tags surfaces only the top 3 candidates.
-  type DoctorRow = { real_name: string | null; persona: unknown };
+  type DoctorRow = { real_name: string | null; persona: unknown; credentials: unknown };
   const doctorsRaw = (doctorsRes.data ?? []) as DoctorRow[];
   const topicHaystack = `${topic} ${audience}`.toLowerCase();
   const scoredDoctors = doctorsRaw
@@ -603,29 +603,14 @@ export async function runAiDraft(
           }
         }
       }
-      return { name: d.real_name ?? '', tags, score };
+      return { name: d.real_name ?? '', tags, score, credentials: d.credentials };
     })
     .filter((d) => d.name.length > 0)
     .sort((a, b) => b.score - a.score);
   // 取 top 3 相关的;如果全 0 分,保留前 3 作通用候选(LLM 仍可挑)
   const topDoctors = scoredDoctors.slice(0, 3);
-  const doctorBlock =
-    topDoctors.length > 0
-      ? `\n\n# 真实医生候选名单 ${
-          topDoctors.some((d) => d.score > 0) ? '(按主题匹配度排序)' : '(通用候选)'
-        }\n` +
-        topDoctors
-          .map((d) => {
-            const tagSuffix = d.tags.length > 0 ? ` — 擅长 ${d.tags.slice(0, 4).join('、')}` : '';
-            return `• ${d.name}${tagSuffix}`;
-          })
-          .join('\n') +
-        `\n\n硬约束:\n` +
-        `- 引用医生时**只能用列表里的真实姓名 + 专长**\n` +
-        `- **绝对禁止**写 \`[医生姓名]\` / \`XX 医生\` 这种占位符 — 一旦出现整篇 reject\n` +
-        `- 如果列表里没人专长真正匹配主题(top score 是 0),**不要硬塞医生名** — 改用"医院医疗团队"通用表述\n` +
-        `- 优先选**列表最上面那位**(主题匹配度最高)`
-      : '';
+  // 2026-05-28: credentials 注入(用户选 C 方案,不暴露执业证号)— renderer 共享给改写路径
+  const doctorBlock = renderDoctorBlock(topDoctors, { mode: 'draft' });
 
   // SYSTEM_PROMPT (immutable) first; template skeleton appended.
   const systemContent = SYSTEM_PROMPT + templateSystemAppend;
@@ -789,6 +774,11 @@ export async function runAiDraft(
   }
   draftTitle = titleSan.cleaned;
   draftBody = bodySan.cleaned;
+
+  // 2026-05-28: 自动 prettify — LLM 思考模型偶尔吐 "2026 - 04" / 单行挤死的 markdown,
+  // 入库前过一道纯文本变换,客户编辑面板看到的就是排好版的;手工「美化排版」按钮作 fallback。
+  // 在 sanitizer 之后跑,避免被切换 lint 影响。
+  draftBody = prettifyMarkdown(draftBody);
 
   // 5. Slice extraction (D21 / ADR 009 P1) — heuristic, no LLM call.
   // Pull brand name + city for entity_snapshot enrichment.

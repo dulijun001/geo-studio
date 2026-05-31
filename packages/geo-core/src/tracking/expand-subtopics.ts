@@ -117,7 +117,7 @@ export async function expandSubtopics(input: ExpansionInput): Promise<ExpansionR
       temperature: 0.6, // 略偏定向 — 太高会跑题
       max_tokens: 2000,
       response_format: 'json_object',
-      timeout_ms: 120_000, // 加严 prompt 后 Ark 思考更久,实测 58-90s,留 buffer
+      timeout_ms: 180_000, // 2026-05-27 实测:加严 prompt + 复杂 query 下 Ark 思考耗时分布 60-120s 边界附近抖动,120s 触发 5.3% abort 失败率。180s 留充足 buffer。
     });
   } catch (err) {
     return {
