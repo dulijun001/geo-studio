@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { AdminShell } from '@/components/admin-shell';
 import { SidebarNav, type NavItem } from '@/components/sidebar-nav';
 import { TenantProvider } from '@/lib/tenant-context';
 import { requireTenantMember } from '@/lib/tenant';
@@ -30,12 +31,9 @@ export default async function TenantLayout({
     staff: '员工',
   };
 
-  return (
-    <TenantProvider tenant={tenant}>
-      <div className="relative flex min-h-screen bg-background">
-        <SpotlightCursor />
-        <aside className="sticky top-0 z-10 flex h-screen w-60 shrink-0 flex-col border-r border-border bg-background/80 backdrop-blur-md">
-          <div className="flex items-center gap-2.5 px-5 pb-3 pt-6">
+  const sidebarInner = (
+    <>
+      <div className="flex items-center gap-2.5 px-5 pb-3 pt-6">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg gradient-brand text-white shadow-md">
               <svg
                 width="16"
@@ -109,17 +107,19 @@ export default async function TenantLayout({
               </button>
             </form>
           </div>
-        </aside>
-        <main className="relative z-10 flex-1 overflow-x-hidden">
-          <div className="mx-auto w-full max-w-[1600px] px-6 py-8 lg:px-10 xl:px-12">{children}</div>
-        </main>
-        <CommandPalette
-          tenantSlug={tenant.slug}
-          tenantName={tenant.name}
-          items={buildCommandItems(menu, badges)}
-        />
-        <CommandPaletteHint />
-      </div>
+    </>
+  );
+
+  return (
+    <TenantProvider tenant={tenant}>
+      <AdminShell sidebar={sidebarInner}>{children}</AdminShell>
+      <SpotlightCursor />
+      <CommandPalette
+        tenantSlug={tenant.slug}
+        tenantName={tenant.name}
+        items={buildCommandItems(menu, badges)}
+      />
+      <CommandPaletteHint />
     </TenantProvider>
   );
 }
