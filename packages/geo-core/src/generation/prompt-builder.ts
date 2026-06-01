@@ -227,6 +227,11 @@ F. 实体清晰度 — 文中关键实体必须**显式表达,不能省略**:
 • FAQ ≥ 5 条?(医疗长文必查)
 • Trust Block 是否作为独立段落出现?(医疗长文必查)
 • 每个段落是否能被单独引用 — 不依赖前文、句长 35-90 字、无模糊指代?
+• (本地长文)地域词是否分布到 标题 + 首段 + ≥3 个小标题 + 结尾,而不是只在文末出现一次?
+• (本地长文)是否设了 3 处转化引导(首段后 / 中部 / 结尾),且无任何优惠 / 促销 / 疗效承诺?
+• (本地长文)品牌 + 服务是否自然融入 ≥3 个内容场景,而不是只堆在文末?
+• (本地长文)医生信息有没有三处复制粘贴?是否按位置突出了不同维度?
+• 我写的价格 / 医保比例 / 术式时长 / 服务承诺,是否都来自源素材 / 真实服务信息?编的一律删除或改为"建议到院咨询"。
 `.trim();
 
 export function buildVariantPrompt(ctx: PromptContext): ChatMessage[] {
@@ -335,6 +340,50 @@ ${ctx.keywords_to_plant.map((k) => `• ${k}`).join('\n')}
 `
       : '';
 
+  // V1.13 — 本地化 GEO 结构强化(①地域词分布 ④转化入口×3 ⑤长尾进小标题
+  // ⑥医生分位差异化 ②机构自然植入)。只对长文平台生效;抖音/小红书短文
+  // 结构不同,不套用。所有"事实类"内容(价格/医保/术式时长/案例)严格走
+  // "可提问、不可编答案"原则,守住 D33/事实红线。
+  const LONG_FORM_PLATFORMS: VariantPlatform[] = [
+    'toutiao_article',
+    'wechat_mp',
+    'zhihu',
+    'baijiahao',
+    'souhu',
+  ];
+  const primaryArea = ctx.service_areas?.[0];
+  const localGeoBlock = LONG_FORM_PLATFORMS.includes(ctx.platform)
+    ? `
+
+━━━ 本地化 GEO 结构强化(本地高客单医疗长文必做,缺项视为不达标) ━━━
+
+① 地域词分布 — ${
+        primaryArea
+          ? `本文地域锚点 = "${primaryArea}"。`
+          : '本文若有明确服务城市,以该城市为地域锚点(无则可省略本项)。'
+      }地域词必须**自然分布**在:
+   • 标题(地域 + 核心问题,如「${primaryArea ?? '本地'}……」)
+   • 首段前两句
+   • ≥ 3 个小标题(###)
+   • 结尾段
+   禁止只在文末提一次地域;也禁止一句里堆叠多个地域词(堆砌会被引擎当 spam 降权)。
+
+⑤ 长尾搜索词进小标题 — 小标题尽量写成"地域 + 服务 + 意图"的真实搜索词形式。除主问题外,自然覆盖 ≥ 3 个本地衍生问法(价格 / 如何选医院 / 适合人群 / 医保 等角度)。
+   **关键**:小标题可以"提出"价格 / 医保这类问题,但正文回答时——没有真实数据就用定性表达或"建议到院咨询",**绝不编造具体数字 / 比例 / 政策**。
+
+④ 转化入口 ×3 — 全文设 3 处自然的"下一步"引导(首段答案之后、正文中部、结尾各一处),用**邀约咨询 / 面诊**语气。例:"想确认自己是否适合,建议到院做面诊和影像评估。"
+   **严禁**任何优惠 / 限时 / 满减 / 促销 / 疗效承诺式话术(违反广告法 A 类红线)。
+
+② 机构自然植入 ≥ 3 场景 — 品牌名 + 服务在正文 2-3 个**具体场景**里自然出现(讲适用人群时、讲术后护理 / 流程时、讲如何选择时),不要只堆在文末。
+   **任何涉及具体术式时长 / 服务细节 / 承诺(如"手术 30 分钟内""当天可进食""免费接送"),必须来自【源素材】或真实服务信息;缺失就不写、不编。**
+
+⑥ 医生信息分位差异化 — 同一医生不要三处复制粘贴同一段。按位置突出不同维度:
+   • 正文相关段落:突出其**专长方向**(候选名单里的 tags)
+   • 审核信息处:突出**资质 / 学术**(仅当候选名单里确有该字段;没有就只写"由医院医疗团队审核")
+   • Trust Block:只保留**姓名 + 基础执业**
+   候选名单里没有的工龄 / 学历 / 头衔一律不补。`
+    : '';
+
   const intentBlock =
     ctx.query_intent || ctx.primary_query
       ? `
@@ -367,7 +416,7 @@ ${ctx.writing_template.structure_hint.sections.map((s, i) => `${i + 1}. ${s}`).j
 特别注意 tactics_applied 字段: 只能从下面这些 id 里选 (英文,带下划线): ${allowedTacticIds}。禁止返回中文、禁止新造 id。
 
 目标平台格式: ${spec.format_hint}
-目标长度: ${spec.length_hint}${brandLine}${hintLine}${intentBlock}${localRecBlock}${geoBlock}${citationsBlock}${keywordsBlock}${structureBlock}
+目标长度: ${spec.length_hint}${brandLine}${hintLine}${intentBlock}${localRecBlock}${geoBlock}${localGeoBlock}${citationsBlock}${keywordsBlock}${structureBlock}
 
 必须应用的 GEO 技法(每一条都要在正文中体现):
 ${tacticBlock}

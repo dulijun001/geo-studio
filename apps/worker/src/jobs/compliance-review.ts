@@ -362,17 +362,49 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   // V1.10 nightly-draft 漏调 evaluateDod,生产真跑后 30 个 variants 全 unknown
   // → cron #2 永远跳过 advance run. 这里 hook 进 compliance.review 完成路径,
   // 简化版只跑 L2 总分(skip_required_slices),完整 DoD with slices 留 V1.11.
+  // V1.13 — 本地化 GEO 结构检查需要品牌锚点(城市 / 服务区 / 品牌名)。轻量取一次。
+  let brandCtx: { name?: string; city?: string; service_areas?: string[] } = {};
+  try {
+    const { data: brandRow } = await client
+      .from('brands')
+      .select('name, location, service_areas')
+      .eq('tenant_id', tenant_id)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (brandRow) {
+      const loc = (brandRow.location ?? {}) as { city?: string };
+      brandCtx = {
+        name: (brandRow.name as string | null) ?? undefined,
+        city: typeof loc.city === 'string' ? loc.city : undefined,
+        service_areas: Array.isArray(brandRow.service_areas)
+          ? (brandRow.service_areas as string[])
+          : undefined,
+      };
+    }
+  } catch {
+    /* brand lookup best-effort; local-geo check just skips if anchor missing */
+  }
+  const LONG_FORM_PLATFORMS = ['toutiao_article', 'wechat_mp', 'zhihu', 'baijiahao', 'souhu'];
+  const isLongForm = LONG_FORM_PLATFORMS.includes(variant.platform);
+
   let dodStatus: 'passed' | 'failed' | 'legacy_passed' = 'passed';
   let dodScore: number | null = null;
+  let localGeoFailures: string[] = [];
   try {
     const dod = evaluateDod({
       title: variant.title,
       body: variant.body,
       threshold: 60,
       skip_required_slices: true,
+      is_long_form: isLongForm,
+      service_areas: brandCtx.service_areas,
+      ctx: { brand_name: brandCtx.name, city: brandCtx.city, is_medical: true },
     });
     dodStatus = dod.status;
     dodScore = dod.score;
+    localGeoFailures = dod.evidence.local_geo_failures;
   } catch (err) {
     reportError(err, {
       scope: 'compliance-review.evaluate_dod',
@@ -410,7 +442,11 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   // bumps the counter and re-enqueues review; on the second pass, the
   // counter is 1, this block no-ops, and the variant naturally lands in
   // pending/rejected for operator handling.
-  if (finalStatus === 'rejected' || warnNeedsRewrite) {
+  // V1.13 — 第三个触发条件:合规干净(非 reject/warn)但本地化 GEO 结构不达标。
+  // 优先级低于合规改写(合规问题先修);两者只触发一次(auto_rewrite_count cap=1)。
+  const complianceRewrite = finalStatus === 'rejected' || warnNeedsRewrite;
+  const localGeoRewrite = !complianceRewrite && localGeoFailures.length > 0;
+  if (complianceRewrite || localGeoRewrite) {
     const { data: post } = await client
       .from('content_variants')
       .select('auto_rewrite_count')
@@ -419,12 +455,25 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
     const count = (post?.auto_rewrite_count as number | null) ?? 0;
     if (count === 0) {
       try {
-        await enqueueViaSharedBoss('compliance.auto_rewrite', {
-          variant_id,
-          tenant_id,
-          reason: warnNeedsRewrite ? 'warn-d33' : 'reject',
-        });
-        const trigger = warnNeedsRewrite ? 'warn(D33)' : 'reject';
+        const payload = complianceRewrite
+          ? {
+              variant_id,
+              tenant_id,
+              reason: warnNeedsRewrite ? ('warn-d33' as const) : ('reject' as const),
+            }
+          : {
+              variant_id,
+              tenant_id,
+              mode: 'local_geo' as const,
+              reason: 'localgeo' as const,
+              geo_hints: localGeoFailures,
+            };
+        await enqueueViaSharedBoss('compliance.auto_rewrite', payload);
+        const trigger = warnNeedsRewrite
+          ? 'warn(D33)'
+          : complianceRewrite
+            ? 'reject'
+            : `local_geo(${localGeoFailures.length})`;
         console.log(
           `[compliance-review] variant=${variant_id} → auto_rewrite enqueued (count=0, trigger=${trigger})`,
         );
@@ -436,7 +485,7 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
       }
     } else {
       console.log(
-        `[compliance-review] variant=${variant_id} ${finalStatus}/warn but auto_rewrite_count=${count} → operator review`,
+        `[compliance-review] variant=${variant_id} rewrite needed but auto_rewrite_count=${count} → operator review`,
       );
     }
   }

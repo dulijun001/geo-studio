@@ -4,6 +4,7 @@ export * from './scorer';
 export * from './scorer-l2';
 export * from './slice-extractor';
 export * from './dod-evaluator';
+export * from './local-geo-check';
 export * from './citation-check';
 export * from './uniqueness';
 export * from './eeat-mapping';

@@ -76,3 +76,6 @@ data/*
 /geo_studio_标准GEO文章规范_*.md
 docs/kb-staging/
 /project.json
+
+# landing 设计参考稿(本地)
+/geo-landing.html

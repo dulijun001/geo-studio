@@ -37,16 +37,21 @@ export type ComplianceAutoRewriteJob = {
    *  - 'geo_score' (V1.11 T4 yellow 触发):用 GEO_REWRITE_SYSTEM,
    *    buildRewriteHint-based 改写 GEO 9 法薄弱项。镜像 web 端
    *    aiRewriteForGeoScore server action 的逻辑。
+   *  - 'local_geo' (V1.13 触发):本地化 GEO 结构(地域分布/转化入口/机构植入)
+   *    不达标,用 GEO_REWRITE_SYSTEM + geo_hints 逐条定向补强。计数同 compliance(cap=1)。
    */
-  mode?: 'compliance' | 'geo_score';
+  mode?: 'compliance' | 'geo_score' | 'local_geo';
   /**
    * V1.13 D33 — trigger context. When 'warn-d33', the upstream stage-2 LLM
    * gave warn (soft) so compliance_status stayed 'pending' rather than
    * flipping to 'rejected'. The mode=compliance gate normally requires
    * rejected; this flag bypasses it for the warn path while keeping all
    * other guards (auto_rewrite_count cap, dispatch state, etc).
+   * 'localgeo' (V1.13) → 本地化 GEO 结构不达标触发。
    */
-  reason?: 'reject' | 'warn-d33';
+  reason?: 'reject' | 'warn-d33' | 'localgeo';
+  /** V1.13 — local_geo 模式的逐条修复提示(来自 evaluateDod 的 local_geo_failures)。 */
+  geo_hints?: string[];
 };
 
 type Finding = {
@@ -111,7 +116,7 @@ export async function handleComplianceAutoRewrite(
   data: ComplianceAutoRewriteJob,
 ): Promise<void> {
   const { variant_id, tenant_id } = data;
-  const mode: 'compliance' | 'geo_score' = data.mode ?? 'compliance';
+  const mode: 'compliance' | 'geo_score' | 'local_geo' = data.mode ?? 'compliance';
   const client = getServiceClient();
   const started = Date.now();
 
@@ -145,6 +150,12 @@ export async function handleComplianceAutoRewrite(
       (data.reason === 'warn-d33' && variant.compliance_status === 'pending');
     if (!okStatus) {
       return; // Already moved on (manual approve / rewrite happened first)
+    }
+  } else if (mode === 'local_geo') {
+    // V1.13 — 本地化 GEO 结构不达标。compliance 本身可能 pending 或 auto_approved
+    // (结构失败与合规独立);两种状态都允许进入定向结构改写。
+    if (!['pending', 'auto_approved'].includes(variant.compliance_status as string)) {
+      return;
     }
   } else {
     // mode === 'geo_score' — yellow (pending) variants with low GEO score
@@ -209,6 +220,30 @@ export async function handleComplianceAutoRewrite(
       `- body: 合规改写后的正文(markdown,字数与原文 ±20%)\n` +
       `- changes: 列出主要替换(原词 → 替代词)的字符串数组\n`;
     promptMeta.findings_count = findings.length;
+  } else if (mode === 'local_geo') {
+    // V1.13 — 本地化 GEO 结构定向补强。合规没问题,只补 地域分布/转化入口/机构植入。
+    systemPrompt = GEO_REWRITE_SYSTEM;
+    const doctorBlock = await loadDoctorBlockForRewrite(client, tenant_id);
+    const hints =
+      (data.geo_hints ?? []).map((h, i) => `${i + 1}. ${h}`).join('\n') ||
+      '(无具体提示,按本地化 GEO 标准补强:地域词分布、转化引导、品牌自然植入)';
+    userPrompt =
+      `# 任务\n下面这条医疗文案合规没问题,但「本地化 GEO 结构」不达标。请在**不改事实、不引入违规词**的前提下,逐条修复下列问题,提升被 AI 引擎引用的概率。\n\n` +
+      `# 平台\n${variant.platform}\n\n` +
+      `# 原始标题\n${variant.title}\n\n` +
+      `# 原始正文\n${variant.body}\n\n` +
+      `# 需逐条修复的结构问题\n${hints}\n\n` +
+      `# 改写要求\n` +
+      `- 地域词自然分布到 标题 / 首段 / 小标题 / 结尾,但**禁止堆砌**(一句不重复多次)\n` +
+      `- 转化引导用「面诊 / 咨询」邀约语气,首段答案后 + 中部 + 结尾各一处,**禁优惠 / 促销 / 疗效承诺**\n` +
+      `- 品牌名 + 服务自然融入正文 ≥3 个场景(适用人群 / 护理流程 / 如何选择),不堆文末\n` +
+      `- **绝不编造**价格 / 医保比例 / 术式时长 / 案例 — 没有真实数据就定性表达或写"建议到院咨询"\n` +
+      doctorBlock +
+      `\n\n# 输出 JSON\n` +
+      `- title: 改写后标题(需含地域词)\n` +
+      `- body: 改写后正文(markdown,字数 ±20%)\n` +
+      `- changes: 主要改进点字符串数组\n`;
+    promptMeta.rewrite_hint = (data.geo_hints ?? []).join(' | ').slice(0, 100);
   } else {
     // mode === 'geo_score' — mirror of web aiRewriteForGeoScore
     const geoScore = variant.geo_score as GeoScore;
@@ -263,9 +298,9 @@ export async function handleComplianceAutoRewrite(
     console.error(`[compliance-auto-rewrite] LLM failed variant=${variant_id}: ${msg.slice(0, 200)}`);
     reportError(err, { scope: 'compliance-auto-rewrite', tenant_id, extra: { variant_id, mode } });
     // V1.10.3: bump appropriate counter to prevent infinite retry.
-    // compliance mode → auto_rewrite_count (D5/D12 §13.3 max 1×)
+    // compliance / local_geo mode → auto_rewrite_count (D5/D12 §13.3 max 1×)
     // geo_score mode  → geo_score.rewrite_count (soft cap max 3)
-    if (mode === 'compliance') {
+    if (mode === 'compliance' || mode === 'local_geo') {
       await client
         .from('content_variants')
         .update({ auto_rewrite_count: (variant.auto_rewrite_count ?? 0) + 1 })
@@ -289,7 +324,7 @@ export async function handleComplianceAutoRewrite(
   if (newBody.length < 30) {
     console.warn(`[compliance-auto-rewrite] body too short (${newBody.length}) variant=${variant_id}`);
     // Same bump logic as LLM-fail branch
-    if (mode === 'compliance') {
+    if (mode === 'compliance' || mode === 'local_geo') {
       await client
         .from('content_variants')
         .update({ auto_rewrite_count: (variant.auto_rewrite_count ?? 0) + 1 })
@@ -321,7 +356,7 @@ export async function handleComplianceAutoRewrite(
     compliance_status: 'pending',
     compliance_review_id: null,
   };
-  if (mode === 'compliance') {
+  if (mode === 'compliance' || mode === 'local_geo') {
     updatePayload.auto_rewrite_count = (variant.auto_rewrite_count ?? 0) + 1;
   } else {
     // geo_score mode: re-score + bump geo_score.rewrite_count, NOT auto_rewrite_count.
