@@ -161,7 +161,10 @@ export function scoreGeo(input: {
   rewrite_count?: number;
 }): GeoScore {
   const { title, body } = input;
-  const primary = (input.primary_keyword ?? title.slice(0, 8)).trim();
+  // V1.13 修复:旧实现 `title.slice(0,8)` 会切出"昆明西山区儿童早"这种残片,
+  // 正文里永远不出现 → 关键词密度/位置恒为 0(白丢 18 分)。改为从标题/主题词里
+  // 挑出**正文真正复现的最长主题词**(如"儿童早期矫正"),再算密度/位置。
+  const primary = pickTopicKeyword(input.primary_keyword ?? title, body);
 
   const breakdown: GeoScoreBreakdown = {
     statistics: scoreStatistics(body),
@@ -265,6 +268,42 @@ function scoreReadability(body: string): TacticScore {
   return { score, max: 8, note: `avg=${avg.toFixed(1)} chars/sentence` };
 }
 
+/**
+ * 从 seed(主题词或标题)里挑出**正文里真正复现的最长主题词**。
+ *
+ * 旧 bug:直接用 `title.slice(0,8)`,对"昆明西山区儿童早期矫正哪家好"这种
+ * 带地域前缀 + 意图后缀的标题,切出的片段在正文不存在 → 密度/位置恒 0。
+ *
+ * 算法:把 seed 去标点后,从长(6)到短(2)枚举子串,选出**在正文出现 ≥2 次**
+ * 的**最长**子串(同长取出现最多的)。长串优先 = 更具体的主题词(如"儿童早期
+ * 矫正"优于"矫正")。都不达 2 次则降到 ≥1 次;再不行回退前 4 字(诚实低分)。
+ */
+function pickTopicKeyword(seed: string, body: string): string {
+  const cleaned = (seed ?? '').replace(/[^一-龥A-Za-z0-9]/g, '');
+  if (cleaned.length === 0) return '';
+  const countOf = (s: string): number => {
+    if (!s) return 0;
+    const esc = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return (body.match(new RegExp(esc, 'g')) ?? []).length;
+  };
+  for (const minCount of [2, 1]) {
+    let best = '';
+    let bestCount = 0;
+    for (let len = Math.min(6, cleaned.length); len >= 2; len--) {
+      for (let i = 0; i + len <= cleaned.length; i++) {
+        const cand = cleaned.slice(i, i + len);
+        const c = countOf(cand);
+        if (c >= minCount && c > bestCount) {
+          bestCount = c;
+          best = cand;
+        }
+      }
+      if (best) return best; // 当前(最长)长度已找到,长串优先,直接返回
+    }
+  }
+  return cleaned.slice(0, 4);
+}
+
 /** Keyword density: primary keyword appears 2-5 times in body. Max 10. */
 function scoreKeywordFreq(keyword: string, body: string): TacticScore {
   if (!keyword) return { score: 5, max: 10, note: 'no keyword' };
@@ -312,10 +351,12 @@ function scoreUnique(body: string): TacticScore {
 function scoreAuthority(body: string): TacticScore {
   // Positive: 临床研究表明 / 依据指南 / 推荐使用 / 数据显示
   const goodPatterns = [
-    /临床(研究|数据|经验|实践)(表明|显示)/,
-    /依据(.{0,10})指南/,
-    /(医生|专家)(建议|推荐|指出)/,
-    /(数据|研究)(表明|显示|证明)/,
+    /临床(研究|数据|经验|实践)(表明|显示|证实|发现)/,
+    /(依据|根据|参照)(.{0,12})(指南|共识|规范|标准)/,
+    /(医生|专家|医师|学界|业内)(建议|推荐|指出|认为|强调|提醒)/,
+    /(数据|研究|文献|证据)(表明|显示|证明|证实|发现|支持)/,
+    /(指南|共识|规范)(推荐|建议|指出|强调|认为|要求)/,
+    /循证|专业(医师|医生|团队)(评估|判断)/,
   ];
   // Negative: 绝对 / 100% 治愈 / 强烈推荐购买 / 错过血亏 (also flagged in compliance scan)
   const badPatterns = [/绝对.{0,5}有效/, /100\s*%\s*治愈/, /包治/, /错过.{0,5}血亏/];
