@@ -6,6 +6,7 @@ import {
   buildRewriteHint,
   chat,
   isAvailable as llmAvailable,
+  personaToDoctorFields,
   renderDoctorBlock,
   scoreGeo,
   type DoctorCandidate,
@@ -411,11 +412,11 @@ async function loadDoctorBlockForRewrite(
     .is('deleted_at', null)
     .limit(8);
   const doctors: DoctorCandidate[] = (rows ?? []).map((d) => {
-    const tagsArr = (d.persona as { tags?: unknown } | null)?.tags;
-    const tags = Array.isArray(tagsArr)
-      ? (tagsArr as unknown[]).filter((x): x is string => typeof x === 'string')
-      : [];
-    return { name: (d.real_name as string | null) ?? '', tags, credentials: d.credentials };
+    // 2026-06-06 (B 方案): persona.specialties + basic_info → tags/credentials.
+    // KB persona 优先,credentials 列兜底(用户拍板,见 ai-draft-core)。
+    const { tags, credentials } = personaToDoctorFields(d.persona);
+    const cred = Object.keys(credentials).length > 0 ? credentials : (d.credentials ?? {});
+    return { name: (d.real_name as string | null) ?? '', tags, credentials: cred };
   });
   return renderDoctorBlock(doctors, { mode: 'rewrite' });
 }

@@ -13,6 +13,8 @@
  * Schema contract (matches packages/geo-core/src/discoverability/profile/physician.ts):
  *   credentials = {
  *     experience_years?: number,
+ *     department?: string,        // 科室, e.g. "种植科" (from KB persona.basic_info)
+ *     title?: string,             // 职称, e.g. "副主任医师"
  *     education?: [{ degree?: string, school?: string }],
  *     practice?: {
  *       primary_institution?: string,
@@ -43,6 +45,10 @@ function renderCredentialLines(raw: unknown): string[] {
   if (typeof cred.experience_years === 'number' && cred.experience_years > 0) {
     lines.push(`  · ${cred.experience_years} 年口腔临床经验`);
   }
+  const dept = typeof cred.department === 'string' ? cred.department : '';
+  const title = typeof cred.title === 'string' ? cred.title : '';
+  const deptTitle = [dept, title].filter(Boolean).join(' · ');
+  if (deptTitle) lines.push(`  · ${deptTitle}`);
   const eduArr = Array.isArray(cred.education) ? cred.education : [];
   const edu = (eduArr[0] && typeof eduArr[0] === 'object' ? eduArr[0] : null) as
     | Record<string, unknown>
@@ -64,6 +70,68 @@ function renderCredentialLines(raw: unknown): string[] {
     lines.push(`  · 主执业:${practice.primary_institution}${since}`);
   }
   return lines;
+}
+
+/**
+ * Adapt a KB-synced `persona` jsonb into the DoctorCandidate fields the
+ * renderer + scorer consume.
+ *
+ * Why this exists (2026-06-06):
+ *   KB sync writes a doctor's real specialties into `persona.specialties` and
+ *   credentials into `persona.basic_info` (Chinese keys), but the draft scorer
+ *   was reading `persona.tags` (always null) and the renderer was reading the
+ *   `credentials` column (always {}). Result: every doctor scored 0 → the first
+ *   DB rows (often 儿牙) got picked for implant articles, and the renderer flagged
+ *   every doctor ⚠️ "no credentials" → LLM fabricated experience years.
+ *
+ * This maps the real, KB-sourced fields into the structures both already read.
+ * Only safe fields are mapped — NEVER 执业证号 / PII (D9).
+ *
+ * Returns { tags, credentials } ready to spread into a DoctorCandidate.
+ */
+export function personaToDoctorFields(persona: unknown): {
+  tags: string[];
+  credentials: Record<string, unknown>;
+} {
+  const p = (persona && typeof persona === 'object' ? persona : {}) as Record<string, unknown>;
+
+  // tags: prefer real specialties array; fall back to legacy persona.tags.
+  const specialties = Array.isArray(p.specialties) ? p.specialties : [];
+  const legacyTags = Array.isArray(p.tags) ? p.tags : [];
+  const tags = [...specialties, ...legacyTags].filter(
+    (x): x is string => typeof x === 'string' && x.length > 0,
+  );
+
+  // credentials: map basic_info (Chinese keys) → renderer's English contract.
+  const bi = (p.basic_info && typeof p.basic_info === 'object'
+    ? p.basic_info
+    : {}) as Record<string, unknown>;
+  const credentials: Record<string, unknown> = {};
+
+  // 从业年限: "20年" / "十年有余" → number when parseable, else keep nothing
+  // (renderer only prints experience_years when it's a positive number, so a
+  // non-numeric "十年有余" stays out — no fabricated digits).
+  const yearsRaw = typeof bi['从业年限'] === 'string' ? bi['从业年限'] : '';
+  const yearsMatch = yearsRaw.match(/(\d+)/);
+  if (yearsMatch?.[1]) {
+    const n = Number.parseInt(yearsMatch[1], 10);
+    if (Number.isFinite(n) && n > 0) credentials.experience_years = n;
+  }
+
+  // 教育背景: free-text school string → education[0].school
+  const edu = typeof bi['教育背景'] === 'string' ? bi['教育背景'].trim() : '';
+  if (edu) credentials.education = [{ school: edu }];
+
+  // 科室 / 职称 — truthful as their own field, NOT shoehorned into
+  // practice.primary_institution (which means "执业机构" and would mislabel
+  // "种植科" as an institution). KB has no 主执业机构 for songshu, so we leave
+  // practice empty rather than fabricate one.
+  const dept = typeof bi['科室'] === 'string' ? bi['科室'].trim() : '';
+  const title = typeof bi['职称'] === 'string' ? bi['职称'].trim() : '';
+  if (dept) credentials.department = dept;
+  if (title) credentials.title = title;
+
+  return { tags, credentials };
 }
 
 export type RenderDoctorBlockOptions = {

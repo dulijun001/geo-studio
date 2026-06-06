@@ -19,7 +19,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { chat, evaluateDod, extractSlices, isAvailable as llmAvailable, renderDoctorBlock, sanitizeAbsoluteWords } from '@geo/geo-core';
+import { chat, evaluateDod, extractSlices, isAvailable as llmAvailable, personaToDoctorFields, renderDoctorBlock, sanitizeAbsoluteWords } from '@geo/geo-core';
 import { PLATFORM_HINT, prettifyMarkdown, reportError } from '@geo/shared';
 
 export type AiDraftPlatform =
@@ -580,23 +580,28 @@ export async function runAiDraft(
   // Prior version dumped all 12 doctors into the prompt; LLM frequently picked
   // a doctor whose specialty didn't match the article topic (e.g. picked the
   // 儿牙 doctor for an adult-implant piece). Scoring by topic keyword overlap
-  // with persona.tags surfaces only the top 3 candidates.
+  // surfaces only the top 3 candidates.
+  //
+  // 2026-06-06 (B 方案): the scorer used to read `persona.tags`, but KB sync
+  // writes specialties into `persona.specialties` and `persona.tags` is always
+  // null → every doctor scored 0 → the first DB rows (often 儿牙) got picked for
+  // implant articles, and the renderer flagged everyone ⚠️ "no credentials" so
+  // the LLM fabricated experience years. personaToDoctorFields() now maps the
+  // real, KB-sourced specialties + 科室/职称/年限/教育背景 into the structures
+  // the scorer and renderer actually read.
   type DoctorRow = { real_name: string | null; persona: unknown; credentials: unknown };
   const doctorsRaw = (doctorsRes.data ?? []) as DoctorRow[];
   const topicHaystack = `${topic} ${audience}`.toLowerCase();
   const scoredDoctors = doctorsRaw
     .map((d) => {
-      const tagsArr = (d.persona as { tags?: unknown } | null)?.tags;
-      const tags = Array.isArray(tagsArr)
-        ? (tagsArr as unknown[]).filter((x): x is string => typeof x === 'string')
-        : [];
-      // 重叠分:每个 tag 出现在 topic+audience 里加 10,token-level partial 加 3
+      const { tags, credentials } = personaToDoctorFields(d.persona);
+      // 重叠分:每个专长出现在 topic+audience 里加 10,bigram 部分匹配加 3
       let score = 0;
       for (const tag of tags) {
         const tagLower = tag.toLowerCase();
         if (topicHaystack.includes(tagLower)) score += 10;
         else {
-          // 子串部分匹配(如 tag="种植牙" topic="缺牙人群" 共享"牙")
+          // 子串部分匹配(如 specialty="单颗牙种植" topic="60岁以上种植牙" 共享"种植")
           for (let i = 0; i < tagLower.length - 1; i++) {
             const bi = tagLower.slice(i, i + 2);
             if (topicHaystack.includes(bi)) {
@@ -606,13 +611,19 @@ export async function runAiDraft(
           }
         }
       }
-      return { name: d.real_name ?? '', tags, score, credentials: d.credentials };
+      // KB persona 优先(医院自维护源头,更新更勤);credentials 列仅在 KB 无值时兜底。
+      // 2026-06-06: credentials 列里有过时数据(刘彦廷 12 年 vs KB 20 年),
+      // 用户拍板以 KB 为准 → KB-derived 优先。
+      const mergedCred =
+        Object.keys(credentials).length > 0
+          ? credentials
+          : (d.credentials ?? {});
+      return { name: d.real_name ?? '', tags, score, credentials: mergedCred };
     })
     .filter((d) => d.name.length > 0)
     .sort((a, b) => b.score - a.score);
   // 取 top 3 相关的;如果全 0 分,保留前 3 作通用候选(LLM 仍可挑)
   const topDoctors = scoredDoctors.slice(0, 3);
-  // 2026-05-28: credentials 注入(用户选 C 方案,不暴露执业证号)— renderer 共享给改写路径
   const doctorBlock = renderDoctorBlock(topDoctors, { mode: 'draft' });
 
   // SYSTEM_PROMPT (immutable) first; template skeleton appended.
