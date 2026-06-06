@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { DemoModal } from './demo-modal';
 
 export const metadata: Metadata = {
   title: 'GEO Studio · 让 AI 在客户问起时，引用你',
@@ -53,6 +54,7 @@ export default function HomePage() {
         <FinalCta />
       </main>
       <Footer />
+      <DemoModal />
     </div>
   );
 }
@@ -122,7 +124,8 @@ function Nav() {
           </Link>
           <a
             href="#cta"
-            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-semibold transition"
+            data-demo-trigger
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-semibold transition"
             style={{ background: PALETTE.fg, color: PALETTE.ink }}
           >
             预约演示
@@ -219,7 +222,8 @@ function Hero() {
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
           <a
             href="#cta"
-            className="inline-flex items-center gap-1.5 rounded-md px-5 py-2.5 text-[14px] font-semibold transition"
+            data-demo-trigger
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-5 py-2.5 text-[14px] font-semibold transition"
             style={{ background: PALETTE.fg, color: PALETTE.ink }}
           >
             预约 30 分钟演示
@@ -1264,7 +1268,8 @@ function PriceCard({
       </ul>
       <a
         href="#cta"
-        className="inline-flex w-full items-center justify-center gap-1.5 rounded-md py-2.5 text-[13px] font-semibold transition"
+        data-demo-trigger
+        className="inline-flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md py-2.5 text-[13px] font-semibold transition"
         style={{
           background: featured ? PALETTE.accent : 'transparent',
           color: featured ? PALETTE.ink : PALETTE.fg,
@@ -1318,8 +1323,9 @@ function FinalCta() {
           </p>
           <div className="mt-7 flex flex-wrap justify-center gap-3">
             <a
-              href="mailto:hello@geo-studio.cn"
-              className="inline-flex items-center gap-1.5 rounded-md px-6 py-3 text-[14px] font-semibold transition"
+              href="#cta"
+              data-demo-trigger
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-6 py-3 text-[14px] font-semibold transition"
               style={{ background: PALETTE.accent, color: PALETTE.ink }}
             >
               预约 30 分钟演示
