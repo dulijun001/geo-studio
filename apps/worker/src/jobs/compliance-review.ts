@@ -392,6 +392,8 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   let dodStatus: 'passed' | 'failed' | 'legacy_passed' = 'passed';
   let dodScore: number | null = null;
   let localGeoFailures: string[] = [];
+  // 2026-06-06: 之前没写 dod_evidence → 失败原因不可见(库里恒 {}),无法排查为何 failed。
+  let dodEvidence: unknown = null;
   try {
     const dod = evaluateDod({
       title: variant.title,
@@ -405,6 +407,7 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
     dodStatus = dod.status;
     dodScore = dod.score;
     localGeoFailures = dod.evidence.local_geo_failures;
+    dodEvidence = dod.evidence;
   } catch (err) {
     reportError(err, {
       scope: 'compliance-review.evaluate_dod',
@@ -423,6 +426,7 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
       status: variantStatus,
       dod_status: dodStatus,
       dod_score: dodScore,
+      dod_evidence: dodEvidence,
       dod_evaluated_at: new Date().toISOString(),
     })
     .eq('id', variant_id);

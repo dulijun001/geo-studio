@@ -29,6 +29,13 @@ export type DodEvidence = {
   local_geo_failures: string[];
   /** 人话解释为什么 failed(passed 时此数组空)。 */
   reasons: string[];
+  /**
+   * 软警告 — 不影响 passed/failed 判定的优化项(如本地化 GEO 品牌植入不足)。
+   * 2026-06-06: 本地化 GEO 从 reasons(硬性 failed) 降级到这里。它是 GEO 优化项
+   * 不是合规底线,不该一票否决自动放行;改由 local_geo 自动改写(靠 local_geo_failures
+   * 触发)异步补强。Trust Block / 总分阈值 仍是硬门槛留在 reasons。
+   */
+  warnings: string[];
   /** Threshold used. */
   threshold: number;
   evaluated_at: string;
@@ -119,6 +126,10 @@ export function evaluateDod(input: DodInput): DodResult {
   }
 
   // (4) 本地化 GEO 结构检查 (V1.13) — 仅长文医疗。地域分布/机构植入/转化入口。
+  // 2026-06-06: 降级为软警告。本地化 GEO 是 GEO 优化项(品牌植入次数/地域分布)而非
+  // 合规底线,不该让 99 分优质内容仅因"品牌名少提 1 次"就 failed 卡人审。失败项进
+  // warnings(不影响 status) + 保留在 local_geo_failures(触发 local_geo 自动改写异步补强)。
+  const warnings: string[] = [];
   let localGeoFailures: string[] = [];
   if (input.is_long_form && input.ctx?.is_medical !== false) {
     const anchorCity = input.ctx?.city ?? input.service_areas?.[0];
@@ -130,7 +141,7 @@ export function evaluateDod(input: DodInput): DodResult {
     });
     localGeoFailures = lg.failures;
     if (lg.failures.length > 0) {
-      reasons.push(`本地化 GEO 结构不达标: ${lg.failures.length} 项`);
+      warnings.push(`本地化 GEO 结构待补强: ${lg.failures.length} 项(不阻断放行,自动改写补)`);
     }
   }
 
@@ -145,6 +156,7 @@ export function evaluateDod(input: DodInput): DodResult {
       missing_slices: missing,
       local_geo_failures: localGeoFailures,
       reasons,
+      warnings,
       threshold,
       evaluated_at: new Date().toISOString(),
     },
