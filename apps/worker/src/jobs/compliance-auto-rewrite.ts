@@ -41,7 +41,12 @@ export type ComplianceAutoRewriteJob = {
    *  - 'local_geo' (V1.13 触发):本地化 GEO 结构(地域分布/转化入口/机构植入)
    *    不达标,用 GEO_REWRITE_SYSTEM + geo_hints 逐条定向补强。计数同 compliance(cap=1)。
    */
-  mode?: 'compliance' | 'geo_score' | 'local_geo';
+  /**
+   * 'doctor_fix' (2026-06-06): 正文署名医生与文章主题专科不对口(如种植文署儿牙
+   * 医生)。用 DOCTOR_FIX_SYSTEM,只替换医生段落为候选名单 top1,其余 verbatim 保留。
+   * 不消耗 auto_rewrite_count(那是合规改写额度,数据纠错不应占用)。
+   */
+  mode?: 'compliance' | 'geo_score' | 'local_geo' | 'doctor_fix';
   /**
    * V1.13 D33 — trigger context. When 'warn-d33', the upstream stage-2 LLM
    * gave warn (soft) so compliance_status stayed 'pending' rather than
@@ -102,6 +107,16 @@ const REWRITE_SYSTEM = `你是医疗行业合规改写专家。把违规文案�
 4. 保留结构和大致字数(±20%)
 5. 保留平台调性(如小红书的痛点开头/列表)`;
 
+// 2026-06-06: doctor_fix mode — 正文署名医生与文章主题专科不对口时,只替换医生段落。
+const DOCTOR_FIX_SYSTEM = `你是医疗内容编辑。任务:把文中署名 / 引用的医生,换成「真实医生候选名单」里与文章主题专科对口的那一位(列表第一位匹配度最高)。
+
+铁律:
+1. **只动医生相关内容**:姓名、职称、科室、工龄、毕业院校、主执业机构、"本文由 XX 医生审核"、Trust Block / 审核信息段。文章主体论述、FAQ、结构、字数一律 verbatim 保留。
+2. **新医生的资质必须 verbatim 抄候选名单**:工龄 / 学历 / 科室 / 职称只能用列表里写的,**列表没有的字段一律不写**,绝不编造(年限、执业证号、院校都不许编)。
+3. **标 ⚠️ 的医生**:正文只可出现姓名 + 专长方向,禁写任何工龄 / 学历 / 院校 / 职称 / 机构 / 年份。
+4. 不引入任何违规词(绝对化 / 疗效承诺 / 贬低同行)。
+5. 如果原文医生本来就对口(已是种植科医生写种植文),保持不动,仅在 changes 里说明"医生已对口,无需替换"。`;
+
 // V1.10.2 2026-05-19: mirror of web app aiRewriteForGeoScore's system prompt.
 // Used when mode='geo_score' (cron T4 yellow rewrite). Different focus than
 // REWRITE_SYSTEM: not stripping violations, but补GEO 9-tactic 弱项.
@@ -118,7 +133,8 @@ export async function handleComplianceAutoRewrite(
   data: ComplianceAutoRewriteJob,
 ): Promise<void> {
   const { variant_id, tenant_id } = data;
-  const mode: 'compliance' | 'geo_score' | 'local_geo' = data.mode ?? 'compliance';
+  const mode: 'compliance' | 'geo_score' | 'local_geo' | 'doctor_fix' =
+    data.mode ?? 'compliance';
   const client = getServiceClient();
   const started = Date.now();
 
@@ -153,6 +169,11 @@ export async function handleComplianceAutoRewrite(
     if (!okStatus) {
       return; // Already moved on (manual approve / rewrite happened first)
     }
+  } else if (mode === 'doctor_fix') {
+    // 2026-06-06 — 医生署名不对口。pending / auto_approved 都可改(与合规独立)。
+    if (!['pending', 'auto_approved'].includes(variant.compliance_status as string)) {
+      return;
+    }
   } else if (mode === 'local_geo') {
     // V1.13 — 本地化 GEO 结构不达标。compliance 本身可能 pending 或 auto_approved
     // (结构失败与合规独立);两种状态都允许进入定向结构改写。
@@ -170,8 +191,10 @@ export async function handleComplianceAutoRewrite(
       return;
     }
   }
-  if ((variant.auto_rewrite_count ?? 0) >= 1) {
+  if (mode !== 'doctor_fix' && (variant.auto_rewrite_count ?? 0) >= 1) {
     // Auto cap reached — operator's turn (D5/D12 §13.3 max 1×).
+    // doctor_fix 不受此 cap(它不消耗 auto_rewrite_count),否则已合规改写过 1 次的
+    // variant 永远修不了医生署名。
     return;
   }
   if (['dispatched', 'published'].includes(variant.status as string)) {
@@ -222,6 +245,21 @@ export async function handleComplianceAutoRewrite(
       `- body: 合规改写后的正文(markdown,字数与原文 ±20%)\n` +
       `- changes: 列出主要替换(原词 → 替代词)的字符串数组\n`;
     promptMeta.findings_count = findings.length;
+  } else if (mode === 'doctor_fix') {
+    // 2026-06-06 — 医生署名不对口,只换医生段落。doctorBlock 已按主题匹配度排序
+    // (ai-draft-core 修复后 persona.specialties 正确打分),top1 即应署的医生。
+    systemPrompt = DOCTOR_FIX_SYSTEM;
+    const doctorBlock = await loadDoctorBlockForRewrite(client, tenant_id);
+    userPrompt =
+      `# 任务\n下面这篇医疗文案,正文里署名 / 引用的医生与文章主题专科不对口(例如种植牙文章却署了儿牙医生)。请只把医生相关内容替换为候选名单里对口的医生,文章其余部分原样保留。\n\n` +
+      `# 文章主题(据此判断该署哪个专科的医生)\n${variant.title}\n\n` +
+      `# 平台\n${variant.platform}\n\n` +
+      `# 原始正文\n${variant.body}\n\n` +
+      doctorBlock +
+      `\n\n# 输出 JSON\n` +
+      `- title: 标题(医生若出现在标题才改,否则保持不变)\n` +
+      `- body: 替换医生后的正文(markdown,除医生段落外 verbatim 保留)\n` +
+      `- changes: 列出替换(原医生 → 新医生)的字符串数组\n`;
   } else if (mode === 'local_geo') {
     // V1.13 — 本地化 GEO 结构定向补强。合规没问题,只补 地域分布/转化入口/机构植入。
     systemPrompt = GEO_REWRITE_SYSTEM;
@@ -307,7 +345,7 @@ export async function handleComplianceAutoRewrite(
         .from('content_variants')
         .update({ auto_rewrite_count: (variant.auto_rewrite_count ?? 0) + 1 })
         .eq('id', variant_id);
-    } else {
+    } else if (mode !== 'doctor_fix') {
       const oldScore = (variant.geo_score as GeoScore | null) ?? null;
       if (oldScore) {
         await client
@@ -331,7 +369,7 @@ export async function handleComplianceAutoRewrite(
         .from('content_variants')
         .update({ auto_rewrite_count: (variant.auto_rewrite_count ?? 0) + 1 })
         .eq('id', variant_id);
-    } else {
+    } else if (mode !== 'doctor_fix') {
       const oldScore = (variant.geo_score as GeoScore | null) ?? null;
       if (oldScore) {
         await client
@@ -360,6 +398,9 @@ export async function handleComplianceAutoRewrite(
   };
   if (mode === 'compliance' || mode === 'local_geo') {
     updatePayload.auto_rewrite_count = (variant.auto_rewrite_count ?? 0) + 1;
+  } else if (mode === 'doctor_fix') {
+    // doctor_fix: 只换医生段,不碰 auto_rewrite_count / geo_score。重置 compliance_status
+    // 到 pending(已在 updatePayload),让改写后正文重跑合规,其余不动。
   } else {
     // geo_score mode: re-score + bump geo_score.rewrite_count, NOT auto_rewrite_count.
     const oldScore = (variant.geo_score as GeoScore | null) ?? null;
