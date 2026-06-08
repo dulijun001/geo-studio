@@ -559,7 +559,7 @@ export async function runAiDraft(
       .maybeSingle(),
     supabase
       .from('staff_accounts')
-      .select('real_name, persona, credentials')
+      .select('real_name, persona, credentials, settings')
       .eq('tenant_id', tenantId)
       .eq('kind', 'doctor')
       .eq('status', 'active')
@@ -589,7 +589,12 @@ export async function runAiDraft(
   // the LLM fabricated experience years. personaToDoctorFields() now maps the
   // real, KB-sourced specialties + 科室/职称/年限/教育背景 into the structures
   // the scorer and renderer actually read.
-  type DoctorRow = { real_name: string | null; persona: unknown; credentials: unknown };
+  type DoctorRow = {
+    real_name: string | null;
+    persona: unknown;
+    credentials: unknown;
+    settings: unknown;
+  };
   const doctorsRaw = (doctorsRes.data ?? []) as DoctorRow[];
   const topicHaystack = `${topic} ${audience}`.toLowerCase();
   const scoredDoctors = doctorsRaw
@@ -611,6 +616,13 @@ export async function runAiDraft(
           }
         }
       }
+      // 2026-06-08: 品牌台柱医生加成(配置化,settings.featured_doctor=true)。
+      // **只在该医生专长真匹配(score>0)时加成** — 让台柱在对口主题置顶,但绝不会
+      // 让儿牙台柱去署种植/正畸文(那些 score=0 不加),守住专科对口底线(D38)。
+      // 不写死人名,延续 D2 配置化:换客户/换台柱只需改 settings。
+      const isFeatured =
+        (d.settings as { featured_doctor?: boolean } | null)?.featured_doctor === true;
+      if (isFeatured && score > 0) score += 15;
       // KB persona 优先(医院自维护源头,更新更勤);credentials 列仅在 KB 无值时兜底。
       // 2026-06-06: credentials 列里有过时数据(刘彦廷 12 年 vs KB 20 年),
       // 用户拍板以 KB 为准 → KB-derived 优先。
