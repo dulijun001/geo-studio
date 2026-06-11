@@ -184,6 +184,59 @@ export default async function TenantHomePage({ params }: { params: { slug: strin
     .is('deleted_at', null);
   const weekDelta = weekTotal - (prevWeekCount ?? 0);
 
+  // ─────────────────────────────────────────────────────────────────
+  // V1.12.1 (A4): KPI sparkline 真实日序列(近 8 天,老→新)。
+  // 替换 genSpark mock — 之前 4 张 KPI 卡的曲线是 value+label 伪随机假图。
+  // 口径:待审/可派 = 当前该状态的 variant 按创建日分桶("积压是哪天产生的");
+  //      派单/追踪 = 真实事件流水按日分桶。
+  // ─────────────────────────────────────────────────────────────────
+  const sparkStart = new Date(startOfDay);
+  sparkStart.setDate(sparkStart.getDate() - 7);
+  const [sparkVariantsRes, sparkTasksRes, sparkSnapsRes] = await Promise.all([
+    supabase
+      .from('content_variants')
+      .select('created_at, compliance_status')
+      .eq('tenant_id', tenant.id)
+      .gte('created_at', sparkStart.toISOString())
+      .is('deleted_at', null),
+    supabase
+      .from('publish_tasks')
+      .select('created_at')
+      .eq('tenant_id', tenant.id)
+      .gte('created_at', sparkStart.toISOString())
+      .is('deleted_at', null),
+    supabase
+      .from('geo_snapshots')
+      .select('asked_at')
+      .eq('tenant_id', tenant.id)
+      .eq('status', 'done')
+      .gte('asked_at', sparkStart.toISOString()),
+  ]);
+  const sparkVariants = (sparkVariantsRes.data ?? []) as Array<{
+    created_at: string;
+    compliance_status: string;
+  }>;
+  const sparkPending = bucketDaily(
+    sparkVariants.filter((v) => v.compliance_status === 'pending').map((v) => v.created_at),
+    startOfDay,
+  );
+  const sparkApproved = bucketDaily(
+    sparkVariants
+      .filter((v) => ['auto_approved', 'manual_approved'].includes(v.compliance_status))
+      .map((v) => v.created_at),
+    startOfDay,
+  );
+  const sparkTasks = bucketDaily(
+    ((sparkTasksRes.data ?? []) as Array<{ created_at: string }>).map((t) => t.created_at),
+    startOfDay,
+  );
+  const sparkCoverage = bucketDaily(
+    ((sparkSnapsRes.data ?? []) as Array<{ asked_at: string | null }>)
+      .map((s) => s.asked_at)
+      .filter((x): x is string => !!x),
+    startOfDay,
+  );
+
   // Compliance stuck > 2h (operational red flag)
   const twoHoursAgo = new Date(Date.now() - 2 * 3600 * 1000).toISOString();
   const { count: stuckComplianceCount } = await supabase
@@ -284,7 +337,7 @@ export default async function TenantHomePage({ params }: { params: { slug: strin
             hint={pendingCompliance === 0 ? '无待审 · 系统正常' : '建议 2 小时内处理'}
             tone={pendingCompliance > 0 ? 'warning' : 'good'}
             href={`/t/${tenant.slug}/compliance?tab=pending`}
-            spark={genSpark(pendingCompliance, 'compliance')}
+            spark={sparkPending}
             animate
           />
         </Reveal>
@@ -295,7 +348,7 @@ export default async function TenantHomePage({ params }: { params: { slug: strin
             hint={approvedVariants === 0 ? '先生成几条变体' : '到派单页一键分配'}
             tone={approvedVariants > 0 ? 'good' : 'neutral'}
             href={`/t/${tenant.slug}/publish`}
-            spark={genSpark(approvedVariants, 'variants')}
+            spark={sparkApproved}
             animate
           />
         </Reveal>
@@ -306,7 +359,7 @@ export default async function TenantHomePage({ params }: { params: { slug: strin
             hint={`已发布 ${publishedTasks} 条 (累计)`}
             tone="brand"
             href={`/t/${tenant.slug}/publish`}
-            spark={genSpark(todayTasks + publishedTasks, 'tasks')}
+            spark={sparkTasks}
             animate
           />
         </Reveal>
@@ -317,7 +370,7 @@ export default async function TenantHomePage({ params }: { params: { slug: strin
             hint={`${snapshotsCovered} / ${questionsTotal} 个问题已抓`}
             tone={trackingCoveragePct >= 50 ? 'good' : 'neutral'}
             href={`/t/${tenant.slug}/tracking`}
-            spark={genSpark(trackingCoveragePct, 'coverage')}
+            spark={sparkCoverage}
             animateValue={trackingCoveragePct}
             suffix="%"
           />
@@ -689,21 +742,16 @@ function Sparkline({
 }
 
 /**
- * Deterministic sparkline data from a seed (KPI value + label).
- * TODO V1.8.1 — 接真实日聚合查询替换 mock。
+ * V1.12.1 (A4): 真实日聚合 — 把时间戳列表分到近 8 天的桶里(老→新,
+ * 最后一桶=今天)。替换原 genSpark(伪随机假曲线)。
  */
-function genSpark(seed: number, label: string): number[] {
-  const len = 8;
-  const out: number[] = [];
-  // simple xorshift-ish hash
-  let h = (seed * 9301 + 49297) % 233280;
-  for (const ch of label) {
-    h = (h * 31 + ch.charCodeAt(0)) % 233280;
-  }
-  for (let i = 0; i < len; i++) {
-    h = (h * 1103515245 + 12345) % 2 ** 31;
-    const noise = (h / 2 ** 31) * 0.6 - 0.3;
-    out.push(Math.max(0, seed * (0.6 + 0.4 * (i / len)) + seed * noise));
+function bucketDaily(timestamps: string[], startOfDay: Date): number[] {
+  const DAY = 86_400_000;
+  const rangeStart = startOfDay.getTime() - 7 * DAY;
+  const out = new Array<number>(8).fill(0);
+  for (const ts of timestamps) {
+    const idx = Math.floor((new Date(ts).getTime() - rangeStart) / DAY);
+    if (idx >= 0 && idx < 8) out[idx] = (out[idx] ?? 0) + 1;
   }
   return out;
 }

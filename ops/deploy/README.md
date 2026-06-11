@@ -7,7 +7,7 @@ ECS 国内单机部署。架构、决策见 [`docs/05-deployment.md`](../../docs
 | 项 | 值 |
 |---|---|
 | 实例 | `iZbp1142ll59xz5l8zrpcyZ` |
-| 公网 IP | `47.98.131.138` |
+| 公网 IP | `120.26.103.14`(⚠️ 停机重开会漂移,以阿里云控制台为准) |
 | 配置 | 4C16G,Ubuntu 22.04,40GB ESSD,杭州 |
 | Docker | 已装(扩展程序) |
 | 试用期到 | **2026-07-28**(到期未续费 → 释放,数据全没,务必转包年包月) |
@@ -30,7 +30,7 @@ ECS 国内单机部署。架构、决策见 [`docs/05-deployment.md`](../../docs
 1. 本地 push 最新代码到 GitHub
 2. SSH 进 ECS:
    ```
-   ssh <user>@47.98.131.138
+   ssh -i ~/.ssh/id_ecs root@<ECS当前IP>
    ```
 3. 拉 install 脚本(假设你已经把仓库 git url 告诉我):
    ```
@@ -38,19 +38,19 @@ ECS 国内单机部署。架构、决策见 [`docs/05-deployment.md`](../../docs
    ```
    或者先 `git clone` 再 `bash ops/deploy/install.sh`。
 4. 第一次跑会停在「填 `.env.production`」处。`nano /opt/geo-studio/.env.production` 把所有 `<...>` 占位填上,保存,**再跑一次** install.sh。
-5. 看到 `[install] DONE` + 健康检查 OK,浏览器开 `https://47.98.131.138:9443`(自签证书提示点继续)。
+5. 看到 `[install] DONE` + 健康检查 OK,浏览器开 `https://geo.dulijun.icu`(自签证书提示点继续)。
 
 ### 后续更新
 
 ```
-ssh <user>@47.98.131.138 'bash /opt/geo-studio/ops/deploy/deploy.sh'
+ssh -i ~/.ssh/id_ecs root@<ECS当前IP> 'bash /opt/geo-studio/ops/deploy/deploy.sh'
 ```
 
 会自动:`git pull` → 必要时 `pnpm install` → 必要时 `pnpm db:migrate` → `pnpm build` → PM2 reload → 健康检查。
 
 ### 备案下来后切域名
 
-1. 阿里云 DNS 控制台:`dulijun.icu` 加 A 记录 → `47.98.131.138`,等 5-10 分钟生效
+1. 阿里云 DNS 控制台:`dulijun.icu` 加 A 记录 → `120.26.103.14`(⚠️ 停机重开会漂移,以阿里云控制台为准),等 5-10 分钟生效
 2. SSH 进 ECS,编辑 `/etc/caddy/Caddyfile`:
    - 注释/删除 `:9443` 块
    - 取消注释 `dulijun.icu` 块

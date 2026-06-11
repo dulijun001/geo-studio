@@ -132,7 +132,7 @@ echo "  Caddy (公网 :9443,自签 cert):"
 curl -fsSk https://127.0.0.1:9443/api/health || echo "  ✗ Caddy 没起"
 echo ""
 echo "[install] DONE。"
-echo "  外部访问:https://47.98.131.138:9443"
+echo "  外部访问:https://geo.dulijun.icu"
 echo "  PM2 状态:pm2 status"
 echo "  日志:pm2 logs / tail -f /var/log/geo-studio/*.log"
 

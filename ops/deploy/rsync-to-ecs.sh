@@ -12,7 +12,7 @@
 set -euo pipefail
 
 ECS_USER="${ECS_USER:-root}"             # 阿里云 Ubuntu 默认 root,除非创建时改了
-ECS_HOST="${ECS_HOST:-47.98.131.138}"
+ECS_HOST="${ECS_HOST:-120.26.103.14}"  # IP 会漂移,以阿里云控制台为准(可用 ECS_HOST 环境变量覆盖)
 ECS_PATH="${ECS_PATH:-/opt/geo-studio}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
 

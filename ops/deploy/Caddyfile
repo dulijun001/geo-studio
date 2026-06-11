@@ -19,7 +19,7 @@
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 阶段 1:备案前 — IP + 9443 + HTTP(无 TLS)
-# 访问方式:http://47.98.131.138:9443
+# 访问方式:http://<ECS当前IP>:9443(IP 会漂移,以阿里云控制台为准)
 # IP 阶段是临时通道,只给你和你太太手机加 hosts 内部测试,数据只在内网走
 # Caddy → Next.js,公网到 Caddy 这一段是 HTTP 但端口非标准,可接受。
 # 备案下来后切到下面 dulijun.icu 块,Caddy 自动签 Let's Encrypt 即真 HTTPS。
@@ -54,7 +54,7 @@ http://:9443 {
         # │ 不动 Next 内部,在 Caddy 出口处把 Location header 重写过来。     │
         # │ 备案后切到域名 dulijun.icu 时记得同步改这两个 regex。           │
         # ╰────────────────────────────────────────────────────────────────╯
-        header_down Location "https?://(localhost|127\.0\.0\.1)(:[0-9]+)?" "http://47.98.131.138:9443"
+        header_down Location "https?://(localhost|127\.0\.0\.1)(:[0-9]+)?" "http://{hostport}"
 
         health_uri /api/health
         health_interval 10s

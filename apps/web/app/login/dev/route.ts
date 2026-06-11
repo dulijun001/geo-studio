@@ -5,14 +5,9 @@
  * ECS we self-host on. For single-operator development, this skips the
  * whole auth dance and sets an HMAC cookie directly.
  *
- * Default: disabled when NODE_ENV === 'production'.
- *
- * Demo escape hatch: set `ALLOW_DEV_LOGIN=1` in .env.production. This
- * keeps the route alive on a live URL so you and the team can demo
- * without going through magic links every time. ⚠️ ANY visitor who hits
- * /login/dev becomes a super-admin of every tenant for 30 days. Only
- * enable on a deploy that isn't shared publicly yet, and flip it off
- * before real customers (with their own auth) come online.
+ * HARD disabled when NODE_ENV === 'production' — no env override.
+ * (V1.12.1 B6: 原 ALLOW_DEV_LOGIN=1 逃生口 2026-06-11 在生产被发现开着,
+ * 任何访客可成为全租户超管 30 天。演示用 /login/quick;该后门永久移除。)
  *
  *   1. Set DEV_ADMIN_EMAIL + (optional) DEV_ADMIN_USER_ID in env
  *   2. Open /login/dev in browser
@@ -25,12 +20,8 @@ import { getSupabaseServiceClient } from '@/lib/supabase/service';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const isDev = process.env.NODE_ENV !== 'production';
-  const allowDevInProd = process.env.ALLOW_DEV_LOGIN === '1';
-  if (!isDev && !allowDevInProd) {
-    return new NextResponse('Dev login disabled. Set ALLOW_DEV_LOGIN=1 to enable.', {
-      status: 404,
-    });
+  if (process.env.NODE_ENV === 'production') {
+    return new NextResponse('Not found', { status: 404 });
   }
 
   const email = process.env.DEV_ADMIN_EMAIL?.trim();

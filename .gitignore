@@ -79,3 +79,7 @@ docs/kb-staging/
 
 # landing 设计参考稿(本地)
 /geo-landing.html
+
+# 一次性调试脚本(D43 后约定:_dev 下新增脚本默认不入库,已跟踪的不受影响)
+apps/worker/src/_dev/
+packages/db/src/_dev/

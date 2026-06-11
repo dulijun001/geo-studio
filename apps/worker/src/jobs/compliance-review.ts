@@ -389,7 +389,7 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   const LONG_FORM_PLATFORMS = ['toutiao_article', 'wechat_mp', 'zhihu', 'baijiahao', 'souhu'];
   const isLongForm = LONG_FORM_PLATFORMS.includes(variant.platform);
 
-  let dodStatus: 'passed' | 'failed' | 'legacy_passed' = 'passed';
+  let dodStatus: 'passed' | 'failed' | 'legacy_passed' | 'unknown' = 'passed';
   let dodScore: number | null = null;
   let localGeoFailures: string[] = [];
   // 2026-06-06: 之前没写 dod_evidence → 失败原因不可见(库里恒 {}),无法排查为何 failed。
@@ -414,8 +414,10 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
       tenant_id,
       extra: { variant_id },
     });
-    // Safe fallback — don't block compliance review if DoD eval crashes
-    dodStatus = 'passed';
+    // V1.12.1 fail-safe 方向修正:评估器崩溃时兜底 'unknown'(走人审),
+    // 不是 'passed'(自动放行)。崩溃 ≠ 通过 — 原兜底让 daily-ops 自动放行
+    // 从未被 DoD 检查过的内容。reportError 已上报,人审入口在 UI 可见。
+    dodStatus = 'unknown';
   }
 
   const { error: upErr } = await client

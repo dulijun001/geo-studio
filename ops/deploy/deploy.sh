@@ -6,7 +6,7 @@
 #   bash /opt/geo-studio/ops/deploy/deploy.sh
 #
 # 也可以本地 ssh 触发:
-#   ssh ubuntu@47.98.131.138 'bash /opt/geo-studio/ops/deploy/deploy.sh'
+#   ssh -i ~/.ssh/id_ecs root@<ECS当前IP> 'bash /opt/geo-studio/ops/deploy/deploy.sh'  # IP 会漂移,以阿里云控制台为准(memory: reference-ecs-ssh)
 ###############################################################################
 set -euo pipefail
 

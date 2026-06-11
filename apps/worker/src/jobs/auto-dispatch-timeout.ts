@@ -1,7 +1,12 @@
 /**
  * V1.10 / docs/09 cron #2 — Auto-dispatch timeout poller.
  *
- * Polled every 30 min by pg-boss. Two responsibilities:
+ * Polled every 30 min by pg-boss. Three responsibilities:
+ *
+ *   0. (V1.12.1 B4) 超期派单回收:dispatched 超过 14 天仍未发布的任务标
+ *      skipped(skip_reason='expired')。审计发现 119 条积压里 23 条超过
+ *      30 天 — 员工不会再发这些旧任务,烂在队列里污染积压指标,且 variant
+ *      内容随时间过时(价格/活动失效),强行补发反而有合规风险。
  *
  *   1. drafting → awaiting_review: when the V1.9 batch_drafts attached to a
  *      run reaches terminal status (completed/partial/failed), backfill
@@ -41,8 +46,41 @@ type SettingsLite = {
   notify_email: string | null;
 };
 
+/** B4: dispatched 超过该天数未发布 → 自动回收为 skipped。 */
+const DISPATCH_EXPIRY_DAYS = 14;
+
+async function sweepExpiredDispatch(
+  client: ReturnType<typeof getServiceClient>,
+): Promise<void> {
+  const cutoff = new Date(Date.now() - DISPATCH_EXPIRY_DAYS * 24 * 3600 * 1000).toISOString();
+  const { data: expired, error } = await client
+    .from('publish_tasks')
+    .update({
+      status: 'skipped',
+      skip_reason: `expired — dispatched >${DISPATCH_EXPIRY_DAYS}d unpublished (auto-recycled)`,
+    })
+    .eq('status', 'dispatched')
+    .lt('dispatched_at', cutoff)
+    .is('deleted_at', null)
+    .select('id');
+  if (error) {
+    // 回收是清洁工,失败不阻塞主职责
+    reportError(error, { scope: 'daily-ops.auto-dispatch-timeout.sweep_expired' });
+    return;
+  }
+  if (expired && expired.length > 0) {
+    console.log(`[auto-dispatch-timeout] recycled ${expired.length} expired dispatched tasks (>${DISPATCH_EXPIRY_DAYS}d)`);
+    reportEvent('daily-ops.dispatch_expired_recycled', {
+      scope: 'daily-ops.auto-dispatch-timeout',
+      extra: { count: expired.length, expiry_days: DISPATCH_EXPIRY_DAYS },
+    });
+  }
+}
+
 export async function handleAutoDispatchTimeout(): Promise<void> {
   const client = getServiceClient();
+
+  await sweepExpiredDispatch(client);
 
   const { data: runs, error } = await client
     .from('daily_ops_runs')

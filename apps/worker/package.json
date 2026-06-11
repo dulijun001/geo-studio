@@ -23,17 +23,19 @@
     "@geo/geo-core": "workspace:*",
     "@geo/shared": "workspace:*",
     "@supabase/supabase-js": "^2.46.1",
+    "cloakbrowser": "^0.3.28",
     "dotenv": "^16.4.5",
     "fast-glob": "^3.3.3",
     "gray-matter": "^4.0.3",
     "mammoth": "^1.8.0",
+    "nodemailer": "^8.0.11",
     "pdf-parse": "^1.1.1",
     "pg-boss": "^10.1.6",
-    "playwright": "^1.48.2",
-    "cloakbrowser": "^0.3.28"
+    "playwright": "^1.48.2"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
+    "@types/nodemailer": "^8.0.1",
     "@types/pdf-parse": "^1.1.4",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
