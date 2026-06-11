@@ -29,12 +29,64 @@ export type GeoSnapshotJob = {
   engine: Engine;
 };
 
+/**
+ * V1.12.1 熔断器(D43)。2026-06-08 周一 baseline 458 题批次在 ~60 题后被
+ * 豆包风控,worker 继续打了 30+ 小时(350+ 次全失败),每次失败都在加深
+ * 设备黑分。熔断规则(纯 DB 查询,无进程状态):
+ *   - 同 engine 最近 BREAKER_WINDOW 次「真实尝试」(done/failed,不含
+ *     rate_limited 快速失败,防止熔断输出污染自身判定)全部 failed
+ *   - 且最近一次尝试距今 < BREAKER_COOLDOWN_MS
+ *   → 不启动浏览器,直接标 rate_limited。
+ * 冷却到期后下一个 job 真实放行(half-open):成功 → 熔断闭合;再失败 →
+ * 窗口刷新,重新冷却。
+ */
+const BREAKER_WINDOW = 5;
+const BREAKER_COOLDOWN_MS = 2 * 3600 * 1000;
+
+async function breakerIsOpen(
+  client: ReturnType<typeof getServiceClient>,
+  engine: Engine,
+): Promise<boolean> {
+  const { data: recent, error } = await client
+    .from('geo_snapshots')
+    .select('status, asked_at')
+    .eq('engine', engine)
+    .in('status', ['done', 'failed'])
+    .not('asked_at', 'is', null)
+    .order('asked_at', { ascending: false })
+    .limit(BREAKER_WINDOW);
+  // 查询失败时保守放行 — 熔断是优化不是闸门,不能因为它自己挂了阻塞追踪
+  if (error || !recent || recent.length < BREAKER_WINDOW) return false;
+  const allFailed = recent.every((r) => r.status === 'failed');
+  if (!allFailed) return false;
+  const newestAskedAt = recent[0]?.asked_at;
+  if (typeof newestAskedAt !== 'string') return false;
+  return Date.now() - new Date(newestAskedAt).getTime() < BREAKER_COOLDOWN_MS;
+}
+
 export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
   const { snapshot_id, tenant_id, question_id, engine } = data;
   const client = getServiceClient();
   const started = Date.now();
 
   console.log(`[geo-snapshot] snapshot=${snapshot_id} q=${question_id} engine=${engine}`);
+
+  // V1.12.1 熔断检查 — 在标 running / 启动浏览器之前
+  if (await breakerIsOpen(client, engine)) {
+    await client
+      .from('geo_snapshots')
+      .update({
+        status: 'rate_limited',
+        failure_reason:
+          `circuit breaker open — last ${BREAKER_WINDOW} ${engine} attempts all failed ` +
+          `(rate-limit suspected); fast-fail without launching browser. ` +
+          `Auto half-open after ${BREAKER_COOLDOWN_MS / 3600000}h quiet.`,
+        asked_at: new Date().toISOString(),
+      })
+      .eq('id', snapshot_id);
+    console.log(`[geo-snapshot] ${snapshot_id} → rate_limited (breaker open, engine=${engine})`);
+    return;
+  }
 
   await client
     .from('geo_snapshots')
@@ -138,10 +190,12 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
     if (cErr) console.error(`[geo-snapshot] citations insert: ${cErr.message}`);
   }
 
+  const meta = (result.meta ?? {}) as Record<string, unknown>;
   console.log(
     `[geo-snapshot] ${snapshot_id} done — ${scan.mentions.length} mentions ` +
       `(brand=${scan.count_by_type.brand} comp=${scan.count_by_type.competitor} ` +
-      `doc=${scan.count_by_type.doctor}) total=${Date.now() - started}ms`,
+      `doc=${scan.count_by_type.doctor}) sources=${(result.citation_urls ?? []).length} ` +
+      `(expander=${meta.sources_expander ?? '—'}) total=${Date.now() - started}ms`,
   );
 }
 

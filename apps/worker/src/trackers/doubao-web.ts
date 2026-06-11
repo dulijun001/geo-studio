@@ -287,10 +287,19 @@ class DoubaoWebAdapter implements TrackerAdapter {
         };
       }
 
+      // V1.12.1 (D43-B): 引用源采集。豆包来源是「参考 N 篇资料」点击展开的
+      // 面板,链接不在初始 DOM(citation_urls 历史 123 个 done 快照全空)。
+      // 点击展开后用 href 差集隔离来源链接;采不到不影响 done 状态。
+      const sources = await this.#extractSources(page).catch((e) => ({
+        urls: [] as string[],
+        meta: { sources_error: e instanceof Error ? e.message : String(e) } as Record<string, unknown>,
+      }));
+      const citationUrls = [...new Set([...extracted.citation_urls, ...sources.urls])];
+
       return {
         status: 'done',
         raw_response: extracted.raw_response,
-        citation_urls: extracted.citation_urls,
+        citation_urls: citationUrls,
         meta: {
           elapsed_ms: Date.now() - started,
           session_url: page.url(),
@@ -298,6 +307,7 @@ class DoubaoWebAdapter implements TrackerAdapter {
           submitted_via: submittedVia,
           flipped_by: advancedByUrl ? 'url' : 'dom',
           winning_selector: lastWinner,
+          ...sources.meta,
         },
       };
     } catch (err) {
@@ -311,6 +321,99 @@ class DoubaoWebAdapter implements TrackerAdapter {
       // login cookie to survive between tracker runs.
       await context?.close().catch(() => undefined);
     }
+  }
+
+  /**
+   * V1.12.1 (D43-B): 展开「参考 N 篇资料 / 信息来源」面板并采集来源链接。
+   *
+   * 策略(D27/D29 纪律 — 短超时 fall-through + meta 全记录):
+   *   1. 记录点击前页面上全部 http href(基线集合)
+   *   2. 依次试 expander 候选(文本 pattern 优先,class 兜底),每个 2s 上限
+   *   3. 点开后等 1.5s 渲染,再收集全部 href — 与基线的差集 = 来源面板链接
+   *      (差集法不依赖面板 selector,猜错只是采不到,不会误采正文链接)
+   *   4. 误触发导航离开 chat 页时 goBack 兜底
+   *   5. meta 记录:用了哪个 expander / 差集数量 / 点击前后 href 数,
+   *      Sentry 上能直接看到哪步断了(禁止黑盒)
+   */
+  async #extractSources(page: import('playwright').Page): Promise<{
+    urls: string[];
+    meta: Record<string, unknown>;
+  }> {
+    const collectHrefs = () =>
+      page
+        .evaluate(() =>
+          Array.from(document.querySelectorAll('a[href]'))
+            .map((a) => (a as HTMLAnchorElement).href)
+            .filter((h) => h.startsWith('http')),
+        )
+        .catch(() => [] as string[]);
+
+    const before = new Set(await collectHrefs());
+    const urlBeforeClick = page.url();
+
+    // expander 候选:文本 pattern 最稳(CSS modules 频繁改名,文案不改)
+    const textPatterns = [/参考\s*\d+\s*篇资料/, /信息来源/, /资料来源/];
+    const classCandidates = [
+      '[class*="search-reference"]',
+      '[class*="reference-entry"]',
+      '[class*="search-result-entry"]',
+      '[class*="source-entry"]',
+    ];
+    let expanderUsed: string | null = null;
+    for (const pat of textPatterns) {
+      const loc = page.getByText(pat).first();
+      const ok = await loc
+        .click({ timeout: 2000, force: true })
+        .then(() => true)
+        .catch(() => false);
+      if (ok) {
+        expanderUsed = `text:${pat.source}`;
+        break;
+      }
+    }
+    if (!expanderUsed) {
+      for (const sel of classCandidates) {
+        const el = await page.$(sel).catch(() => null);
+        if (!el) continue;
+        const ok = await el
+          .click({ timeout: 2000, force: true })
+          .then(() => true)
+          .catch(() => false);
+        if (ok) {
+          expanderUsed = sel;
+          break;
+        }
+      }
+    }
+    if (!expanderUsed) {
+      return {
+        urls: [],
+        meta: { sources_expander: null, sources_found: 0, sources_note: 'no expander matched' },
+      };
+    }
+
+    await page.waitForTimeout(1500);
+
+    // 误触发整页导航(力点到正文链接) → 回退,放弃本次采集
+    if (page.url() !== urlBeforeClick && !page.url().includes('doubao.com')) {
+      await page.goBack().catch(() => undefined);
+      return {
+        urls: [],
+        meta: { sources_expander: expanderUsed, sources_found: 0, sources_note: 'click navigated away' },
+      };
+    }
+
+    const after = await collectHrefs();
+    const fresh = [...new Set(after.filter((h) => !before.has(h)))];
+    return {
+      urls: fresh,
+      meta: {
+        sources_expander: expanderUsed,
+        sources_found: fresh.length,
+        sources_hrefs_before: before.size,
+        sources_hrefs_after: after.length,
+      },
+    };
   }
 
   async #extract(page: import('playwright').Page): Promise<{
