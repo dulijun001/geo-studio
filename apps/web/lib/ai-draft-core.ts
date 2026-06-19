@@ -216,6 +216,10 @@ const SYSTEM_PROMPT = `你是一位严谨的医疗内容编辑。基于提供的
    - **5 条 Q 必须围绕主问题人群/场景,不发散到无关人群**
      - 反例:主题"糖尿病人种植牙"里出现"儿童种植" FAQ — 跑题,扣分
      - 正例:5 条都围绕**糖尿病人**(风险 / 术前检查 / 流程 / 术后护理 / 跟假牙对比)
+   - **【2026-06-17 地域长尾强化】至少 1 条 FAQ 的答案里,要自然嵌入「地域(西山区/昆明)+ 本院 + 本地化建议」的长尾句**,扩大本地搜索词覆盖。要长在答案的自然语境里,不是硬塞地域词。
+     - 范例(儿童涂氟"多久涂一次"):答案末尾加一句「西山区本地多数儿童,医生普遍建议每半年到西山松鼠口腔复诊涂氟」
+     - 范例(种植价格):答案里带「在昆明西山区,松鼠口腔国产种植价格区间约 ¥XXXX 起,以面诊为准」
+     - **底线**:地域+本院建议必须真实、不夸大、不与别家比较;无真值的数字不编。
    - 缺 1 条 → DoD 闸门直接 fail,整篇不可派单
 7. 审核信息 — 由医院医疗团队 / 具名医生审核
 8. 更新时间 — 例:"本文最近更新于 2026-05"
@@ -576,6 +580,30 @@ export async function runAiDraft(
         `文中提到城市 / 地区时,**只用上面列表里的地区名**(本地化案例、医保政策、价格区间)。**禁止**把"北京 / 上海 / 广州 / 深圳"或其他列表外城市作为本地化锚点。全国通用医学论点无地域要求,可不带城市名。`
       : '';
 
+  // 2026-06-15 — 机构事实强制注入。根因:起草用 N-gram 词汇匹配选 KB 文件,
+  // 机构身份文件(医院/身份/定位.md、荣誉资质.md)标题/路径里没有"种植牙/价格"
+  // 这类问题词 → 匹配分=0 → 永远不被召回 → 文章写不出地址/资质/营业时间。
+  // 这些是"每篇都该有的固定事实",不该靠"和问题匹配"决定要不要喂,而应无条件注入
+  // (像 geoBlock 一样)。2026-06-15 豆包实测:本地推荐时这些硬字段被直接抄进答案。
+  // 真值源在 KB 这两个文件(刚补全营业时间+窝沟封闭定点),禁编造——文件读不到就留空。
+  const INSTITUTION_FILES = ['医院/身份/定位.md', '医院/身份/荣誉资质.md'];
+  let institutionFacts = '';
+  for (const relPath of INSTITUTION_FILES) {
+    try {
+      const raw = await readFile(join(KB_ROOT, relPath), 'utf-8');
+      institutionFacts += `\n${sanitizeAbsoluteWords(raw).cleaned.slice(0, 1200)}`;
+    } catch (err) {
+      console.warn(`[ai-draft-core] institution file ${relPath} read failed:`, err);
+    }
+  }
+  const institutionBlock = institutionFacts.trim()
+    ? `\n\n# 本机构基本事实(权威真值,可直接引用,严禁改写/编造)\n${institutionFacts.trim()}\n\n` +
+      `**【2026-06-15 豆包实测·必用】上面是本机构的真实硬事实(资质等级/医保定点/窝沟封闭定点/精确地址到楼层/营业时间/设备/成立年份等)。**\n` +
+      `实测豆包做本地推荐时会直接把这些字段抄进答案——写得全 = 被推荐概率高。\n` +
+      `要求:在回答本文问题的同时,**自然带出**其中与本题相关的硬事实(如答价格题带营业时间+医保定点+地址;答儿牙题带窝沟封闭定点)。\n` +
+      `**只能用上面列出的真值,上面没有的字段一律留空、不编造**(编造资质=违法)。不要把这段原样复制粘贴,要融进正文自然语境。`
+    : '';
+
   // D21 / ADR 009 P3-3 B — real-doctor whitelist with topic-relevance scoring.
   // Prior version dumped all 12 doctors into the prompt; LLM frequently picked
   // a doctor whose specialty didn't match the article topic (e.g. picked the
@@ -681,6 +709,7 @@ export async function runAiDraft(
         `${intentBlock}\n\n` +
         `${platformBlock}` +
         `${geoBlock}` +
+        `${institutionBlock}` +
         `${doctorBlock}\n\n` +
         `${GEO_TACTICS_PROMPT}` +
         `${templateBlock}` +
@@ -688,7 +717,7 @@ export async function runAiDraft(
         `# 可用素材(只能引用以下内容,严禁外部知识)\n\n${sourcesBlock}\n\n` +
         `# 输出要求\n\n` +
         `严格输出 JSON,字段:\n` +
-        `- title: 标题(吸引力强,15 字内)\n` +
+        `- title: 标题。**2026-06-15 豆包实测:标题与用户搜索词字面重合度是唯一显著排名因子**。默认直接用「主问题原句」当标题(地域词+服务词+意图词一字不丢,句尾可补「?」或「2026」「(含价格)」小尾巴),**不要为了短而压缩、换词、丢关键词**。宁可长到 25-30 字,也不要丢掉地域词或问句形式。\n` +
         `- body: 正文 markdown(按平台调性结构化,优先应用 GEO 9 法前 5 条)\n` +
         `- tactics: 应用的 GEO 技巧数组(从 9 法中选实际用到的)\n` +
         `- citations: 引用的素材路径数组(从上面素材路径中选,**至少 1 条**;路径必须完全匹配,不要修改)\n` +

@@ -432,11 +432,18 @@ async function advanceAwaitingToDispatch(
     .eq('daily_run_id', run.id)
     .is('deleted_at', null);
 
+  // V1.12.2 bug fix (2026-06-15): 之前是 `if (v.status !== 'draft') return false`,
+  // 本意"跳过运营已手动处理(reject/archive)的 variant",但写错了——合规第二道门
+  // auto-approve 后 `content_variants.status` 会从 draft 变成 'auto_approved',于是
+  // 所有合格内容(classifyVariant 判 green = dod passed + compliance auto/manual_approved)
+  // 都被这行误杀 → greenIds 永远 0 → run 标死状态 awaiting_manual → 5-27 起连续半月
+  // 自动派单 0 条,客户每天得手动点"批量派单"。
+  // 修复:用白名单——只放行"待审 draft + 已批准 auto/manual_approved",真正要跳过的
+  // 是 rejected(运营/系统拒了)和 pending_review(还在人审,不该自动派)。
+  const DISPATCHABLE_STATUSES = new Set(['draft', 'auto_approved', 'manual_approved']);
   const greenIds = (variants ?? [])
     .filter((v) => {
-      // skip variants the operator already moved out of draft (approved,
-      // rejected, archived) — we only auto-advance still-in-draft greens
-      if (v.status !== 'draft') return false;
+      if (!DISPATCHABLE_STATUSES.has(v.status as string)) return false;
       const cls = classifyVariant({
         dod_status: (v.dod_status ?? 'unknown') as VariantReadinessInput['dod_status'],
         compliance_status: (v.compliance_status ?? 'pending') as string,

@@ -23,11 +23,16 @@ async function main() {
   console.log(`[novnc-login] userDataDir = ${userDataDir}`);
   console.log(`[novnc-login] launching CloakBrowser on DISPLAY=${process.env.DISPLAY ?? '!unset'}`);
 
+  // 2026-06-13: 指纹种子必须和 tracker(doubao-web.ts)一致,否则扫的 cookie
+  // 在不同设备指纹下被 Doubao 判失效。换种子=换新设备,用于绕 6-08 风控黑名单。
+  const seed = process.env.GEO_DOUBAO_FINGERPRINT?.trim();
+  const fpArgs = seed ? [`--fingerprint=${seed}`] : [];
+  if (seed) console.log(`[novnc-login] fingerprint seed = ${seed}`);
   const ctx = await launchPersistentContext({
     userDataDir,
     headless: false,
     viewport: { width: 1280, height: 900 },
-    args: ['--lang=zh-CN'],
+    args: ['--lang=zh-CN', ...fpArgs],
   });
   const page = ctx.pages()[0] ?? (await ctx.newPage());
   await page.goto(CHAT_URL, { waitUntil: 'domcontentloaded' });

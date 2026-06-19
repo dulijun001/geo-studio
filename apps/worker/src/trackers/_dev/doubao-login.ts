@@ -36,11 +36,16 @@ async function main() {
 
   // 2026-05-21 V1.11.2: CloakBrowser 替换 Playwright vanilla。Mac 跟 ECS
   // 都默认伪装 Windows fingerprint,设备指纹一致,登录 cookie 可跨设备复用。
+  // 2026-06-13: GEO_DOUBAO_FINGERPRINT 必须和 tracker 端一致 —— 扫码时用哪个
+  // 指纹种子,追踪时就得用同一个,否则 cookie 在不同设备指纹下被 Doubao 判失效。
+  const seed = process.env.GEO_DOUBAO_FINGERPRINT?.trim();
+  const fpArgs = seed ? [`--fingerprint=${seed}`] : [];
+  if (seed) console.log(`[doubao-login] fingerprint seed = ${seed}`);
   const ctx = await launchPersistentContext({
     userDataDir,
     headless: false,
     viewport: { width: 1280, height: 900 },
-    args: ['--lang=zh-CN'],
+    args: ['--lang=zh-CN', ...fpArgs],
   });
 
   const page = ctx.pages()[0] ?? (await ctx.newPage());

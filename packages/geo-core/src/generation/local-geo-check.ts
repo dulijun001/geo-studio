@@ -19,6 +19,8 @@ export type LocalGeoInput = {
   body: string;
   /** 地域锚点(ctx.city 或 service_areas[0])。缺省 → 跳过地域分布检查。 */
   city?: string;
+  /** 区县级地域词(如「西山区」)。缺省 → 跳过区县级检查。 */
+  district?: string;
   /** 品牌展示名。缺省 → 跳过机构植入检查。 */
   brand_name?: string;
 };
@@ -69,13 +71,43 @@ export function checkLocalGeo(input: LocalGeoInput): LocalGeoResult {
     }
   }
 
-  // ② 机构自然植入 ≥3 次
+  // ①b 区县级地域词(D44: 区县级长尾 50% 被引用,城市级 0%)
+  const district = input.district?.trim();
+  if (district) {
+    const inTitle = title.includes(district);
+    const districtBodyCount = body.split(district).length - 1;
+    if (!inTitle || districtBodyCount < 2) {
+      const miss: string[] = [];
+      if (!inTitle) miss.push('标题');
+      if (districtBodyCount < 2) miss.push(`正文(仅 ${districtBodyCount} 次,需 ≥2)`);
+      failures.push(
+        `区县级地域词「${district}」不足(${miss.join('、')})——区县级长尾被 AI 引用率远高于城市级,标题必须含区县词,正文至少 2 次。`,
+      );
+    }
+  }
+
+  // ② 机构自然植入 ≥5 次(D44: 品牌名密度直接影响 AI 引擎归因)
   if (brand) {
     const count = brand.length > 0 ? body.split(brand).length - 1 : 0;
-    if (count < 3) {
+    if (count < 5) {
       failures.push(
-        `品牌「${brand}」植入不足(正文仅 ${count} 次)——应自然融入 ≥3 个内容场景(适用人群/护理流程/如何选择等),不要只堆文末。`,
+        `品牌「${brand}」植入不足(正文仅 ${count} 次,要求 ≥5 次)——应自然融入首段 + 中部场景 + FAQ答案 + 结尾等 ≥3 个不同位置,不要只堆文末。`,
       );
+    }
+  }
+
+  // ③ 品牌名必须出现在 FAQ 区域(≥1 条 FAQ 答案含品牌名)
+  if (brand) {
+    // Find FAQ section: starts with Q/A pattern or ## FAQ / 常见问题
+    const faqStart = body.search(/(?:^|\n)(?:#{1,3}\s*(?:FAQ|常见问题|问[答题])|\*\*Q\d|Q\d[.:：])/im);
+    if (faqStart >= 0) {
+      const faqBody = body.slice(faqStart);
+      const faqBrandCount = faqBody.split(brand).length - 1;
+      if (faqBrandCount < 1) {
+        failures.push(
+          `FAQ 区域未包含品牌名「${brand}」——至少 1 条 FAQ 答案应自然融入品牌名+地域,提高 AI 引擎在回答用户问题时引用本品牌的概率。`,
+        );
+      }
     }
   }
 

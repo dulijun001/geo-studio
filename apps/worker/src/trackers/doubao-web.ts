@@ -50,6 +50,19 @@ function getUserDataDir(): string {
 }
 
 /**
+ * Optional CloakBrowser fingerprint seed. When set (e.g. GEO_DOUBAO_FINGERPRINT=88888),
+ * CloakBrowser produces a deterministic device identity from the seed — every launch
+ * looks like the *same* Windows desktop. Changing the seed = pretending to be a brand-new
+ * device, used to escape a device-fingerprint blocklist (see 2026-06-08 Doubao 风控 / D43).
+ * MUST pair with a fresh GEO_DOUBAO_USERDATA profile — reusing the blocklisted profile
+ * with a new seed defeats the purpose. Unset → CloakBrowser auto-generates a random seed.
+ */
+function fingerprintArgs(): string[] {
+  const seed = process.env.GEO_DOUBAO_FINGERPRINT?.trim();
+  return seed ? [`--fingerprint=${seed}`] : [];
+}
+
+/**
  * Wait until the answer stops growing. We poll the message-list text length;
  * three consecutive idle samples with >= 100 chars means the stream finished.
  * The hard cap is ctx.timeout_ms.
@@ -90,7 +103,7 @@ class DoubaoWebAdapter implements TrackerAdapter {
         viewport: { width: 1280, height: 900 },
         // locale/timezone 走 binary --lang/--fingerprint-timezone,不传 context option
         // (CloakBrowser 文档:走 CDP emulation 会被 detect)
-        args: ['--lang=zh-CN'],
+        args: ['--lang=zh-CN', ...fingerprintArgs()],
       });
       const page = context.pages()[0] ?? (await context.newPage());
 

@@ -34,7 +34,13 @@ export default async function StaffHomePage() {
 
   // "Today" = local calendar day. Since we can't know the viewer's timezone reliably
   // on the server, we window on [now - 12h, now + 12h] and bucket by status.
+  //
+  // 2026-06-15 bug fix: 之前只有上界 lte(horizon) + ORDER scheduled_at ASC + LIMIT 20。
+  // 老员工历史 published 任务一多,ASC 排序让最老的 20 条占满结果集,**当天新派的
+  // 任务排在 20 名开外被 LIMIT 截断 → 员工端永远显示 0 条新任务**(林光曦 "已完成 18
+  // 条 / 今天 0 条" 就是这么来的)。修复:加下界 gte(floor),只取今天窗口的任务。
   const horizon = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+  const floor = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
 
   const { data: rawTasks, error } = await client
     .from('publish_tasks')
@@ -44,6 +50,7 @@ export default async function StaffHomePage() {
     .eq('staff_account_id', ctx.staff_id)
     .eq('tenant_id', ctx.tenant_id)
     .in('status', ['pending', 'dispatched', 'published', 'skipped'])
+    .gte('scheduled_at', floor)
     .lte('scheduled_at', horizon)
     .is('deleted_at', null)
     .order('scheduled_at', { ascending: true })
