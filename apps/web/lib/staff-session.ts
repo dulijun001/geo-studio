@@ -12,7 +12,7 @@
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 
 const COOKIE_NAME = 'geo_staff_session';
 // 7-day session: empirically the right balance for staff. Longer than a single
@@ -78,10 +78,19 @@ export function issueStaffSession(staffId: string, tenantId: string): void {
     iat: now,
     exp: now + SESSION_DURATION_MS,
   };
+  // 2026-06-26 fix: secure 必须跟「当前请求的实际协议」走,不能锁死在
+  // NEXT_PUBLIC_APP_URL。ICP 拦截期员工被迫两种入口并存:域名(https) +
+  // IP:9443(http)。若 secure 恒为 true(因 APP_URL 是 https 域名),走 http 的
+  // IP 链接登录时浏览器拒存 secure cookie → 一提交就被踢回登录页(保媛的 bug)。
+  // Caddy 两个反代块都传 X-Forwarded-Proto {scheme}(域名=https / IP=http),
+  // 读它判断真实协议;读不到再 fallback 到 APP_URL 判断(本地 dev / 直连)。
+  const fwdProto = headers().get('x-forwarded-proto');
+  const isHttps = fwdProto
+    ? fwdProto.split(',')[0]?.trim() === 'https'
+    : (process.env.NEXT_PUBLIC_APP_URL?.startsWith('https://') ?? false);
   cookies().set(COOKIE_NAME, encode(session), {
     httpOnly: true,
-    // Honour actual public URL scheme — see admin-session.ts for why.
-    secure: process.env.NEXT_PUBLIC_APP_URL?.startsWith('https://') ?? false,
+    secure: isHttps,
     sameSite: 'lax',
     path: '/staff',
     maxAge: Math.floor(SESSION_DURATION_MS / 1000),
