@@ -26,7 +26,11 @@ type Kpis = {
   ready_to_dispatch: number;
   conversions_yesterday: number;
   overdue_tasks: number;
+  /** P1-4 (docs/11) 发布→被引回路:每平台累计发布数 vs 被 AI 引擎引用数。 */
+  platform_loop: PlatformLoop[];
 };
+
+type PlatformLoop = { platform: string; published: number; cited: number };
 
 export async function handleDailyReport(data: DailyReportJob = {}): Promise<void> {
   const client = getServiceClient();
@@ -125,7 +129,75 @@ async function computeKpis(tenantId: string, dayStart: string, dayEnd: string): 
     ready_to_dispatch: readyRes.count ?? 0,
     conversions_yesterday: convRes.count ?? 0,
     overdue_tasks: overdueRes.count ?? 0,
+    platform_loop: await computePlatformLoop(tenantId),
   };
+}
+
+/**
+ * P1-4 (docs/11,2026-07-03) — 发布→被引回路。
+ *
+ * 把「哪个平台的内容真的被 AI 引擎引用了」变成每天可见的常态指标,
+ * 替代一次性人工分析。首测结果(songshu):头条 130 发/14 引(10.8%),
+ * 知乎 93 发/0 引 — 且豆包全部引用池里 zhihu.com 域名出现 0 次(结构性
+ * 不引用,非内容质量问题)。平台配比是否调整由运营拍板,本回路只负责
+ * 让数字每天出现在早报里。
+ *
+ * 匹配方式:文章数字 ID(≥9 位数字串,躲开 8 位日期串)交叉,
+ * 不做 URL 字符串精确匹配 — 同一篇头条文被引时是 m.toutiao.com 移动版
+ * 链接,域名路径都不同,只有 ID 稳定(2026-07-03 踩过:URL 精确匹配得 0,
+ * ID 匹配得 14)。全内存计算,~200 行量级。
+ */
+async function computePlatformLoop(tenantId: string): Promise<PlatformLoop[]> {
+  const client = getServiceClient();
+  try {
+    const [pubRes, snapRes] = await Promise.all([
+      client
+        .from('publish_tasks')
+        .select('published_url, content_variants!inner(platform)')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'published')
+        .not('published_url', 'is', null)
+        .is('deleted_at', null),
+      client
+        .from('geo_snapshots')
+        .select('citation_urls')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'done')
+        .not('citation_urls', 'is', null),
+    ]);
+
+    const idOf = (url: string): string | null => url.match(/(\d{9,20})/)?.[1] ?? null;
+
+    const citedIds = new Set<string>();
+    for (const row of (snapRes.data ?? []) as Array<{ citation_urls: string[] }>) {
+      for (const url of row.citation_urls ?? []) {
+        const id = idOf(url);
+        if (id) citedIds.add(id);
+      }
+    }
+
+    const byPlatform = new Map<string, { published: number; cited: number }>();
+    for (const row of (pubRes.data ?? []) as Array<{
+      published_url: string;
+      content_variants: { platform: string } | { platform: string }[];
+    }>) {
+      const cv = Array.isArray(row.content_variants) ? row.content_variants[0] : row.content_variants;
+      const platform = cv?.platform ?? 'unknown';
+      const entry = byPlatform.get(platform) ?? { published: 0, cited: 0 };
+      entry.published += 1;
+      const id = idOf(row.published_url);
+      if (id && citedIds.has(id)) entry.cited += 1;
+      byPlatform.set(platform, entry);
+    }
+
+    return [...byPlatform.entries()]
+      .map(([platform, v]) => ({ platform, ...v }))
+      .sort((a, b) => b.published - a.published);
+  } catch (err) {
+    // best-effort:回路统计失败不影响早报其余部分
+    console.error('[daily-report] platform loop failed:', err);
+    return [];
+  }
 }
 
 async function findRecipients(tenantId: string): Promise<string[]> {
@@ -176,6 +248,8 @@ function renderHtml(tenantName: string, tenantSlug: string, kpis: Kpis): string 
         : ''
     }
 
+    ${renderPlatformLoop(kpis.platform_loop)}
+
     <a href="${link('')}" style="display:inline-block;padding:10px 18px;border-radius:8px;background:linear-gradient(135deg,#6366f1,#a855f7);color:white;font-weight:500;text-decoration:none;font-size:14px">打开 GEO Studio →</a>
 
     <hr style="border:none;border-top:1px solid #e6e8ee;margin:24px 0">
@@ -186,6 +260,44 @@ function renderHtml(tenantName: string, tenantSlug: string, kpis: Kpis): string 
   </div>
 </body>
 </html>`;
+}
+
+/** P1-4 发布→被引回路表(累计,基于本租户追踪快照的引用源)。 */
+function renderPlatformLoop(loop: PlatformLoop[]): string {
+  if (!loop.length) return '';
+  const PLATFORM_LABEL: Record<string, string> = {
+    toutiao_article: '今日头条',
+    zhihu: '知乎',
+    wechat_mp: '公众号',
+    xiaohongshu: '小红书',
+    douyin_script: '抖音',
+    baijiahao: '百家号',
+    souhu: '搜狐号',
+  };
+  const rows = loop
+    .map((p) => {
+      const rate = p.published > 0 ? `${((100 * p.cited) / p.published).toFixed(1)}%` : '—';
+      const zero = p.cited === 0 && p.published >= 20;
+      return `<tr>
+        <td style="padding:6px 10px;border-bottom:1px solid #eef0f4;font-size:13px">${PLATFORM_LABEL[p.platform] ?? p.platform}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eef0f4;font-size:13px;text-align:right">${p.published}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eef0f4;font-size:13px;text-align:right;${zero ? 'color:#9f1239;font-weight:600' : ''}">${p.cited}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eef0f4;font-size:13px;text-align:right;${zero ? 'color:#9f1239' : 'color:#7d8594'}">${rate}</td>
+      </tr>`;
+    })
+    .join('');
+  return `<div style="margin-bottom:18px">
+    <p style="font-size:12px;color:#7d8594;margin:0 0 6px;letter-spacing:0.5px">发布 → AI 引用回路(累计)</p>
+    <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;border:1px solid #e6e8ee;border-radius:8px">
+      <tr>
+        <th style="padding:6px 10px;font-size:11px;color:#7d8594;text-align:left;border-bottom:1px solid #e6e8ee">平台</th>
+        <th style="padding:6px 10px;font-size:11px;color:#7d8594;text-align:right;border-bottom:1px solid #e6e8ee">已发布</th>
+        <th style="padding:6px 10px;font-size:11px;color:#7d8594;text-align:right;border-bottom:1px solid #e6e8ee">被引用</th>
+        <th style="padding:6px 10px;font-size:11px;color:#7d8594;text-align:right;border-bottom:1px solid #e6e8ee">引用率</th>
+      </tr>
+      ${rows}
+    </table>
+  </div>`;
 }
 
 function kpiCell(label: string, value: number): string {
@@ -204,6 +316,11 @@ function renderText(tenantName: string, kpis: Kpis): string {
     `待审合规:${kpis.pending_compliance}`,
     `可派变体:${kpis.ready_to_dispatch}`,
     kpis.overdue_tasks > 0 ? `⚠ 逾期任务 ${kpis.overdue_tasks} 条` : '',
+    kpis.platform_loop.length > 0
+      ? `\n发布→AI引用回路(累计):\n${kpis.platform_loop
+          .map((p) => `  ${p.platform}: 发 ${p.published} / 引 ${p.cited}`)
+          .join('\n')}`
+      : '',
   ]
     .filter(Boolean)
     .join('\n');
