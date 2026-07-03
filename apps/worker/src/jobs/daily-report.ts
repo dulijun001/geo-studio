@@ -11,6 +11,11 @@
  * Each tenant gets one email summarizing the previous calendar day, so the
  * recipient can read it over morning coffee instead of clicking dashboards.
  */
+import {
+  computeCitationInsights,
+  type PublishedRowInput,
+  type SnapshotRowInput,
+} from '@geo/geo-core';
 import { getServiceClient } from '../lib/supabase';
 import { sendMail } from '../lib/mailer';
 
@@ -38,20 +43,6 @@ type Kpis = {
 };
 
 type PlatformLoop = { platform: string; published: number; cited: number };
-
-/**
- * P2 v0 — AI 答案污染监测的风险源域名模式(D37 防御职责的最小落地)。
- * 2026-07-03 DeepSeek 首采实锤:同名"松鼠口腔"(福州/中山)的新浪投诉 +
- * 中山行政处罚被合并进本品牌答案(实体混淆)。这类源出现在引用里 = 答案
- * 正在向潜在患者展示负面,必须当天知道。
- */
-const POLLUTION_DOMAIN_PATTERNS: Array<{ re: RegExp; label: string }> = [
-  { re: /tousu\.sina\.com/, label: '新浪投诉' },
-  { re: /credit\.[a-z]+\.gov\.cn/, label: '政府信用公示(含行政处罚)' },
-  { re: /wenshu\.court\.gov\.cn/, label: '裁判文书网' },
-  { re: /12315/, label: '12315 投诉' },
-  { re: /(heimao|blackcat)/, label: '黑猫投诉' },
-];
 
 export async function handleDailyReport(data: DailyReportJob = {}): Promise<void> {
   const client = getServiceClient();
@@ -150,7 +141,7 @@ async function computeKpis(tenantId: string, dayStart: string, dayEnd: string): 
     ready_to_dispatch: readyRes.count ?? 0,
     conversions_yesterday: convRes.count ?? 0,
     overdue_tasks: overdueRes.count ?? 0,
-    ...(await computeCitationInsights(tenantId)),
+    ...(await computeCitationInsightsForReport(tenantId)),
     llm_failures: await computeLlmFailures(tenantId),
   };
 }
@@ -192,7 +183,7 @@ async function computeLlmFailures(
  * 链接,域名路径都不同,只有 ID 稳定(2026-07-03 踩过:URL 精确匹配得 0,
  * ID 匹配得 14)。全内存计算,~200 行量级。
  */
-async function computeCitationInsights(tenantId: string): Promise<{
+async function computeCitationInsightsForReport(tenantId: string): Promise<{
   platform_loop: PlatformLoop[];
   stale_uncited: { count: number; examples: string[] };
   pollution_alerts: Array<{ question: string; domain: string }>;
@@ -200,90 +191,26 @@ async function computeCitationInsights(tenantId: string): Promise<{
   const client = getServiceClient();
   const empty = { platform_loop: [], stale_uncited: { count: 0, examples: [] }, pollution_alerts: [] };
   try {
-    const [pubRes, snapRes] = await Promise.all([
-      client
-        .from('publish_tasks')
-        .select('published_url, published_at, content_variants!inner(platform, title)')
-        .eq('tenant_id', tenantId)
-        .eq('status', 'published')
-        .not('published_url', 'is', null)
-        .is('deleted_at', null),
-      client
-        .from('geo_snapshots')
-        .select('citation_urls, question_id, created_at')
-        .eq('tenant_id', tenantId)
-        .eq('status', 'done')
-        .not('citation_urls', 'is', null),
-    ]);
-
-    const idOf = (url: string): string | null => url.match(/(\d{9,20})/)?.[1] ?? null;
-
-    // (a) 被引 ID 池 + (c) 污染源扫描(近 7 天)
-    const citedIds = new Set<string>();
-    const sevenDaysAgo = Date.now() - 7 * 24 * 3600 * 1000;
-    const pollutionRaw: Array<{ question_id: string; domain: string }> = [];
-    for (const row of (snapRes.data ?? []) as Array<{
-      citation_urls: string[];
-      question_id: string;
-      created_at: string;
-    }>) {
-      const recent = new Date(row.created_at).getTime() >= sevenDaysAgo;
-      for (const url of row.citation_urls ?? []) {
-        const id = idOf(url);
-        if (id) citedIds.add(id);
-        if (recent) {
-          const hit = POLLUTION_DOMAIN_PATTERNS.find((p) => p.re.test(url));
-          if (hit) pollutionRaw.push({ question_id: row.question_id, domain: hit.label });
-        }
-      }
-    }
-
-    // (b) 平台回路 + 时效候选(>45 天未被引)
-    const STALE_MS = 45 * 24 * 3600 * 1000;
-    const byPlatform = new Map<string, { published: number; cited: number }>();
-    let staleCount = 0;
-    const staleExamples: string[] = [];
-    for (const row of (pubRes.data ?? []) as Array<{
-      published_url: string;
-      published_at: string | null;
-      content_variants: { platform: string; title: string } | { platform: string; title: string }[];
-    }>) {
-      const cv = Array.isArray(row.content_variants) ? row.content_variants[0] : row.content_variants;
-      const platform = cv?.platform ?? 'unknown';
-      const entry = byPlatform.get(platform) ?? { published: 0, cited: 0 };
-      entry.published += 1;
-      const id = idOf(row.published_url);
-      const cited = !!id && citedIds.has(id);
-      if (cited) entry.cited += 1;
-      byPlatform.set(platform, entry);
-
-      const publishedAt = row.published_at ? new Date(row.published_at).getTime() : null;
-      if (!cited && publishedAt && Date.now() - publishedAt > STALE_MS) {
-        staleCount += 1;
-        if (staleExamples.length < 3 && cv?.title) staleExamples.push(cv.title);
-      }
-    }
+    const { published, snapshots } = await fetchInsightRows(client, tenantId);
+    const insights = computeCitationInsights({ published, snapshots, maxStaleExamples: 3 });
 
     // 污染告警:question_id → 原题文本(去重后通常 0-3 条)
     const pollution_alerts: Array<{ question: string; domain: string }> = [];
-    if (pollutionRaw.length > 0) {
-      const qids = [...new Set(pollutionRaw.map((p) => p.question_id))];
+    if (insights.pollution.length > 0) {
+      const qids = [...new Set(insights.pollution.map((p) => p.question_id))];
       const { data: qRows } = await client.from('questions').select('id, text').in('id', qids);
       const qText = new Map((qRows ?? []).map((q) => [q.id as string, q.text as string]));
-      const seen = new Set<string>();
-      for (const p of pollutionRaw) {
-        const key = `${p.question_id}:${p.domain}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        pollution_alerts.push({ question: qText.get(p.question_id) ?? p.question_id, domain: p.domain });
+      for (const p of insights.pollution) {
+        pollution_alerts.push({ question: qText.get(p.question_id) ?? p.question_id, domain: p.domain_label });
       }
     }
 
     return {
-      platform_loop: [...byPlatform.entries()]
-        .map(([platform, v]) => ({ platform, ...v }))
-        .sort((a, b) => b.published - a.published),
-      stale_uncited: { count: staleCount, examples: staleExamples },
+      platform_loop: insights.platform_loop,
+      stale_uncited: {
+        count: insights.stale_uncited.count,
+        examples: insights.stale_uncited.examples.map((e) => e.title),
+      },
       pollution_alerts,
     };
   } catch (err) {
@@ -291,6 +218,43 @@ async function computeCitationInsights(tenantId: string): Promise<{
     console.error('[daily-report] citation insights failed:', err);
     return empty;
   }
+}
+
+/** 拉取回路计算的两组行 — web 回路看板用同一形状(计算在 @geo/geo-core 纯函数)。 */
+export async function fetchInsightRows(
+  client: ReturnType<typeof getServiceClient>,
+  tenantId: string,
+): Promise<{ published: PublishedRowInput[]; snapshots: SnapshotRowInput[] }> {
+  const [pubRes, snapRes] = await Promise.all([
+    client
+      .from('publish_tasks')
+      .select('published_url, published_at, content_variants!inner(platform, title)')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'published')
+      .not('published_url', 'is', null)
+      .is('deleted_at', null),
+    client
+      .from('geo_snapshots')
+      .select('citation_urls, question_id, created_at')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'done')
+      .not('citation_urls', 'is', null),
+  ]);
+  const published: PublishedRowInput[] = ((pubRes.data ?? []) as Array<{
+    published_url: string;
+    published_at: string | null;
+    content_variants: { platform: string; title: string } | { platform: string; title: string }[];
+  }>).map((row) => {
+    const cv = Array.isArray(row.content_variants) ? row.content_variants[0] : row.content_variants;
+    return {
+      published_url: row.published_url,
+      published_at: row.published_at,
+      platform: cv?.platform ?? 'unknown',
+      title: cv?.title ?? null,
+    };
+  });
+  const snapshots = (snapRes.data ?? []) as SnapshotRowInput[];
+  return { published, snapshots };
 }
 
 async function findRecipients(tenantId: string): Promise<string[]> {

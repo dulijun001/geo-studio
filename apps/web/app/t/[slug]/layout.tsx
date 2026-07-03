@@ -156,6 +156,7 @@ function buildCommandItems(menu: NavItem[], badges: Badges): CommandItem[] {
     '/content/rescue': { hint: '老内容救援', keywords: 'rescue old 老内容 救援' },
     '/publish': { hint: '员工矩阵派单', keywords: 'publish dispatch 派发 矩阵 员工' },
     '/tracking': { hint: '豆包真人模拟抓取', keywords: 'tracking geo 追踪 豆包' },
+    '/loops': { hint: '发布→引用→行动 四回路一页', keywords: 'loops feedback 回路 看板 引用率 污染 时效' },
     '/sov': { hint: '8 周 SOV 热力图', keywords: 'sov heatmap 战况 热力图 share of voice' },
     '/compliance': {
       hint: badges.compliance > 0 ? `${badges.compliance} 待审` : '医疗合规四道门',
@@ -189,6 +190,7 @@ function buildMenu(role: string, badges: Badges): NavItem[] {
     { href: '/content/rescue', label: '老内容救援', iconKey: 'content', allowed: ['owner', 'admin', 'operator'] },
     { href: '/publish', label: '派单', iconKey: 'publish' },
     { href: '/tracking', label: 'GEO 追踪', iconKey: 'tracking' },
+    { href: '/loops', label: '回路看板', iconKey: 'tracking', newBadge: 'NEW', allowed: ['owner', 'admin', 'operator'] },
     { href: '/sov', label: 'SOV 战况图', iconKey: 'tracking' },
     {
       href: '/compliance',
