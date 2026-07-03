@@ -320,7 +320,11 @@ async function autoRewriteYellows(
     .select('auto_rewrite_yellow')
     .eq('tenant_id', tenantId)
     .maybeSingle();
-  const enabled = (settings?.auto_rewrite_yellow as boolean | undefined) ?? true;
+  // P1-1 再校准(docs/11 §4.5,2026-07-03):默认值 true → false。
+  // geo_score 模式改写(最多 3×/variant)抬的 L1 分不在放行条件里(green=DoD+合规),
+  // 且 111 篇闭环样本实测同分带抬分不改变被引概率 — 纯 UI 数字成本。
+  // 显式设 auto_rewrite_yellow=true 的租户仍可用(advisory 降级,不删能力)。
+  const enabled = (settings?.auto_rewrite_yellow as boolean | undefined) ?? false;
   if (!enabled) {
     console.log(`[auto-rewrite-yellows] tenant=${tenantId} auto_rewrite_yellow=false, skip`);
     return;

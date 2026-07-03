@@ -280,8 +280,14 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
       let chosen = score0;
 
       const failedSignals = listFailedSignals(score0, REWRITE_THRESHOLD);
+      // P1-1 再校准(docs/11 §4.5,2026-07-03):L1 低分**不再单独触发**改写。
+      // 111 篇发布→引用闭环样本实测:被引 L1=81.6 vs 未被引 78.5,同分带内
+      // 抬分不改变引用概率(range restriction)— 为 geo<70 单独烧一次 LLM 是
+      // 优化噪声。合规 A 级 / 关键词补漏 / 平台差异化 / 引用幻觉照旧触发;
+      // 改写既已发生时 GEO hint 仍顺带注入(L299,同一次调用零成本)。
+      const actionableSignals = failedSignals.filter((s) => !s.startsWith('geo<'));
       const rewriteEligible =
-        result.variant.provider !== 'stub' && (failedSignals.length > 0 || v0AHits.length > 0);
+        result.variant.provider !== 'stub' && (actionableSignals.length > 0 || v0AHits.length > 0);
 
       if (rewriteEligible) {
         const hintParts: string[] = [];
