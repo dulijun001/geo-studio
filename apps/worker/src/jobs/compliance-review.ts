@@ -41,6 +41,7 @@ export type ComplianceReviewJob = {
 type VariantRow = {
   id: string;
   tenant_id: string;
+  content_item_id: string | null;
   title: string;
   body: string;
   platform: string;
@@ -69,7 +70,7 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   // 1. Fetch variant
   const { data: variant, error: vErr } = await client
     .from('content_variants')
-    .select('id, tenant_id, title, body, platform, compliance_status, geo_score, citation_check, numeric_check')
+    .select('id, tenant_id, content_item_id, title, body, platform, compliance_status, geo_score, citation_check, numeric_check')
     .eq('id', variant_id)
     .single<VariantRow>();
   if (vErr || !variant) {
@@ -389,6 +390,45 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   const LONG_FORM_PLATFORMS = ['toutiao_article', 'wechat_mp', 'zhihu', 'baijiahao', 'souhu'];
   const isLongForm = LONG_FORM_PLATFORMS.includes(variant.platform);
 
+  // docs/11 P0-1 — 取目标查询原句,激活 L2 query_coverage + 标题硬闸门。
+  // contract.primary_query 优先(D21 wizard 路径),target_questions[0] 兜底
+  // (nightly-draft 路径)。best-effort:取不到就跳过闸门,不阻断评估。
+  let primaryQuery: string | undefined;
+  if (variant.content_item_id) {
+    try {
+      const { data: ciRow } = await client
+        .from('content_items')
+        .select('content_contract_id, target_questions')
+        .eq('id', variant.content_item_id)
+        .maybeSingle();
+      if (ciRow?.content_contract_id) {
+        const { data: contract } = await client
+          .from('content_contracts')
+          .select('primary_query')
+          .eq('id', ciRow.content_contract_id as string)
+          .maybeSingle();
+        if (typeof contract?.primary_query === 'string' && contract.primary_query.length > 0) {
+          primaryQuery = contract.primary_query;
+        }
+      }
+      const firstQuestionId = Array.isArray(ciRow?.target_questions)
+        ? (ciRow?.target_questions as string[])[0]
+        : undefined;
+      if (!primaryQuery && firstQuestionId) {
+        const { data: qRow } = await client
+          .from('questions')
+          .select('text')
+          .eq('id', firstQuestionId)
+          .maybeSingle();
+        if (typeof qRow?.text === 'string' && qRow.text.length > 0) {
+          primaryQuery = qRow.text;
+        }
+      }
+    } catch {
+      /* best-effort; title gate simply skips without an anchor query */
+    }
+  }
+
   let dodStatus: 'passed' | 'failed' | 'legacy_passed' | 'unknown' = 'passed';
   let dodScore: number | null = null;
   let localGeoFailures: string[] = [];
@@ -402,7 +442,12 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
       skip_required_slices: true,
       is_long_form: isLongForm,
       service_areas: brandCtx.service_areas,
-      ctx: { brand_name: brandCtx.name, city: brandCtx.city, is_medical: true },
+      ctx: {
+        brand_name: brandCtx.name,
+        city: brandCtx.city,
+        is_medical: true,
+        primary_query: primaryQuery,
+      },
     });
     dodStatus = dod.status;
     dodScore = dod.score;

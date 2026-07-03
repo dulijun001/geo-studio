@@ -15,6 +15,7 @@
 import { checkLocalGeo } from './local-geo-check';
 import { scoreGeoL2, type GeoL2Score, type L2Context } from './scorer-l2';
 import type { ExtractedSlices } from './slice-extractor';
+import { checkTitleQueryMatch } from './title-gate';
 
 export type DodStatus = 'unknown' | 'passed' | 'failed' | 'legacy_passed' | 'manual_pass';
 
@@ -29,6 +30,11 @@ export type DodEvidence = {
   local_geo_failures: string[];
   /** 人话解释为什么 failed(passed 时此数组空)。 */
   reasons: string[];
+  /**
+   * 标题闸门缺失的查询实词(D45 候选 / docs/11 P0-1)。硬门槛:非空即 failed。
+   * 唯一实测显著因子(标题-子问题匹配 r=0.23)的机械保障 — 可直接作改写 hint。
+   */
+  title_gate_misses?: string[];
   /**
    * 软警告 — 不影响 passed/failed 判定的优化项(如本地化 GEO 品牌植入不足)。
    * 2026-06-06: 本地化 GEO 从 reasons(硬性 failed) 降级到这里。它是 GEO 优化项
@@ -119,6 +125,21 @@ export function evaluateDod(input: DodInput): DodResult {
     }
   }
 
+  // (2b) 标题-查询硬闸门 (D45 候选 / docs/11 P0-1)。唯一实测显著因子(r=0.23)
+  // 此前只有 prompt 级保障,2026-07-03 抽检实测已漂移(12/12 改写体标题)。
+  // 仅长文检查(短视频脚本/小红书标题是 hook 体,不套用);primary_query 缺省时跳过
+  // (与 L2 query_coverage 同一 unknown 语义,不惩罚早期入参不完整的调用方)。
+  let titleGateMisses: string[] = [];
+  if (input.ctx?.primary_query && input.is_long_form !== false) {
+    const gate = checkTitleQueryMatch(input.title, input.ctx.primary_query);
+    if (!gate.ok) {
+      titleGateMisses = gate.missing;
+      reasons.push(
+        `标题缺失查询实词: ${gate.missing.join('、')}(标题必须含目标子问题全部关键词,最稳做法=照抄问题原句)`
+      );
+    }
+  }
+
   // (3) Specific weak dimensions
   const trustDim = l2.breakdown.trust_block_completeness;
   if (input.ctx?.is_medical !== false && !trustDim.unknown && trustDim.score < 50) {
@@ -156,6 +177,7 @@ export function evaluateDod(input: DodInput): DodResult {
       missing_slices: missing,
       local_geo_failures: localGeoFailures,
       reasons,
+      title_gate_misses: titleGateMisses,
       warnings,
       threshold,
       evaluated_at: new Date().toISOString(),

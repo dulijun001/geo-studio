@@ -869,7 +869,9 @@ export async function runAiDraft(
     title: draftTitle,
     body: draftBody,
     slices,
-    ctx: { ...extractCtx, is_medical: true },
+    // primary_query 兜底 topic:nightly-draft 路径 topic 即 question 原句。
+    // 传入后激活 L2 query_coverage(此前恒 unknown)+ 标题硬闸门(docs/11 P0-1)。
+    ctx: { ...extractCtx, is_medical: true, primary_query: input.primary_query ?? topic },
   });
 
   // 5c. Persist content_contract (D21 / ADR 009 P3-2). When query_intent +
