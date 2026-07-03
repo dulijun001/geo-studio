@@ -164,6 +164,12 @@ Stage 3  抽取引用     → 选中后能不能被干净引用 【强项:直答
 
 **待用户充值后恢复动作**:对 4 个卡死 content_item 重 enqueue `content.variant_generate`(主稿完好,无需重起草);今晚 cron 若在充值前跑,新代码部署后会自动重试。
 
+## 4.10 回路看板上线(2026-07-03,前端可见层收官)
+
+docs/08"一页看全回路"愿景落地:新页 **`/t/[slug]/loops`(回路看板)**,四个回路一页——LLM 生产健康(绿/红)/ AI 答案污染(带来源链接+行动指引)/ 平台回路表(结构性零引用标红)/ 时效候选 top10。计算逻辑抽到 `@geo/geo-core/tracking/citation-insights` 纯函数(worker 早报与 web 页共用,8/8 单测),导航+命令面板已注册。真 HTML 验证:quick-login cookie + curl → 200,四区块以生产真数据渲染(污染区显示新浪投诉、LLM 失败告警实时亮着=欠费证据)。commit 3ae6b81。
+
+**⚠ 发现的独立问题**:用户未提交的 shadcn WIP(layout.tsx 引 `Geist` 字体)在 Next 14 下**全路由 500**——不影响已提交代码的构建/部署(WIP 未入库),但本地 dev 起不来;WIP 需要修正(Geist 是 Next 15 字体,Next 14 需用 `geist` npm 包)或暂缓。
+
 ## 5. 待用户拍板的决策候选(通过后升格为 D45+,写入 CLAUDE.md)
 - D45 候选:标题硬闸门(P0-1)
 - D46 候选:评分器坐标系换成自家实证数据,L1 降级 advisory(P1-1)
