@@ -330,6 +330,13 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
     if (numericVerdict === 'reject') {
       downgradeReasons.push('numeric_fact_reject');
     }
+    // P1-2 敏感题材人审地板(docs/11,2026-07-03):医保/集采/报销类是实测
+    // 被引最多的赢家题材(被引 14 篇集中于此),同时政策数字写错的代价也
+    // 最高(医保政策误导 >> 一般广告违规)。安全产线原则:这类题**永不
+    // 自动放行**,一律过人眼 — 只加审,不减审,不拦截生成。
+    if (/(医保|集采|报销)/.test(variant.title ?? '')) {
+      downgradeReasons.push('sensitive_policy_topic');
+    }
     if (downgradeReasons.length > 0) {
       finalStatus = 'pending';
       await writeAudit(tenant_id, triggered_by, 'compliance.quality_gate_downgrade', variant_id, {

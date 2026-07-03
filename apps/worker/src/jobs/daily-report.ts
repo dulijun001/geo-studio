@@ -32,6 +32,9 @@ type Kpis = {
   stale_uncited: { count: number; examples: string[] };
   /** P2 v0 (docs/11) AI 答案污染告警:近 7 天追踪答案引用了投诉/行政处罚类风险源。 */
   pollution_alerts: Array<{ question: string; domain: string }>;
+  /** P1-2 (docs/11) LLM 调用失败告警:近 24h variant 生成失败次数 + 最近原因。
+   *  方舟 4 个月内 4 次欠费停产,每次都数天后才发现 — 现在欠费次日早报必报。 */
+  llm_failures: { count: number; latest_reason: string | null };
 };
 
 type PlatformLoop = { platform: string; published: number; cited: number };
@@ -148,7 +151,31 @@ async function computeKpis(tenantId: string, dayStart: string, dayEnd: string): 
     conversions_yesterday: convRes.count ?? 0,
     overdue_tasks: overdueRes.count ?? 0,
     ...(await computeCitationInsights(tenantId)),
+    llm_failures: await computeLlmFailures(tenantId),
   };
+}
+
+/** P1-2 — 近 24h LLM 生成失败(audit_logs),欠费/限流当天可见。 */
+async function computeLlmFailures(
+  tenantId: string,
+): Promise<{ count: number; latest_reason: string | null }> {
+  const client = getServiceClient();
+  try {
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const { data, count } = await client
+      .from('audit_logs')
+      .select('payload', { count: 'exact' })
+      .eq('tenant_id', tenantId)
+      .eq('action', 'content.variant_generate_failed')
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    const latest = (data?.[0]?.payload as { reason?: string } | null)?.reason ?? null;
+    return { count: count ?? 0, latest_reason: latest };
+  } catch (err) {
+    console.error('[daily-report] llm failure stats failed:', err);
+    return { count: 0, latest_reason: null };
+  }
 }
 
 /**
@@ -315,6 +342,17 @@ function renderHtml(tenantName: string, tenantSlug: string, kpis: Kpis): string 
     }
 
     ${
+      kpis.llm_failures.count > 0
+        ? `<div style="background:#fff1f2;border:1px solid #fecdd3;border-radius:8px;padding:12px 14px;margin-bottom:18px;color:#9f1239;font-size:13px">
+          <strong>🔴 LLM 生成失败 ${kpis.llm_failures.count} 次(近 24h)</strong>${
+            kpis.llm_failures.latest_reason?.match(/[Oo]verdue|欠费/)
+              ? ' — <strong>疑似火山方舟欠费,请立即充值</strong>'
+              : ''
+          }<br><span style="color:#be123c;font-size:12px">最近原因:${(kpis.llm_failures.latest_reason ?? '未知').slice(0, 100)}</span></div>`
+        : ''
+    }
+
+    ${
       kpis.pollution_alerts.length > 0
         ? `<div style="background:#fff1f2;border:1px solid #fecdd3;border-radius:8px;padding:12px 14px;margin-bottom:18px;color:#9f1239;font-size:13px">
           <strong>🚨 AI 答案污染告警(近 7 天)</strong><br>
@@ -407,6 +445,9 @@ function renderText(tenantName: string, kpis: Kpis): string {
       ? `\n🚨 AI答案污染告警:\n${kpis.pollution_alerts.map((a) => `  「${a.question}」引用了 ${a.domain}`).join('\n')}`
       : '',
     kpis.stale_uncited.count > 0 ? `⏳ ${kpis.stale_uncited.count} 篇发布>45天未被引,建议更新` : '',
+    kpis.llm_failures.count > 0
+      ? `🔴 LLM 生成失败 ${kpis.llm_failures.count} 次(近24h),最近原因:${(kpis.llm_failures.latest_reason ?? '未知').slice(0, 80)}`
+      : '',
   ]
     .filter(Boolean)
     .join('\n');

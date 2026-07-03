@@ -30,9 +30,18 @@ import {
   type KeywordRow,
   type VerifiedCitation,
 } from '@geo/geo-core';
-import { RECOMMENDED_COMBO, type GeoTacticId, type VariantPlatform } from '@geo/shared';
+import { RECOMMENDED_COMBO, reportError, type GeoTacticId, type VariantPlatform } from '@geo/shared';
 import PgBoss from 'pg-boss';
 import { getServiceClient } from '../lib/supabase';
+
+/**
+ * 系统性 LLM 失败(欠费/限流/网关/网络)的识别模式(docs/11 P1-2,2026-07-03)。
+ * 实锤案例:方舟第 4 次欠费,`Ark 403: AccountOverdueError` 4 篇 variant 秒拒,
+ * 原逻辑当"内容失败"吞掉 → job completed → 排队位烧掉后永久沉默。
+ * 系统性失败是**暂时态**,必须抛错走 pg-boss 重试,充值/恢复后自动续跑。
+ * 内容级失败(JSON 解析不动/拒答)保持跳过 + audit,重跑白烧 token。
+ */
+const SYSTEMIC_LLM_FAILURE_RE = /Ark (401|403|429|5\d\d)|[Oo]verdue|timed? ?out|ECONN|ENOTFOUND|fetch failed/;
 
 export type VariantGenerateJob = {
   content_item_id: string;
@@ -198,6 +207,23 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
     );
     successCount = results.filter((r) => r.status === 'fulfilled' && r.value).length;
 
+    // P1-2 可观测性加固(docs/11,2026-07-03):
+    // (a) rejected 结果此前从不检查 — processPlatform 内任何 throw 完全静默(路径#6)。
+    const rejections = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    for (const r of rejections) {
+      reportError(r.reason, {
+        scope: 'variant-generate.platform',
+        tenant_id,
+        extra: { content_item_id },
+      });
+    }
+    // (b) 全军覆没且含系统性失败(欠费/限流)→ 抛错让 pg-boss 重试,恢复后自动续跑。
+    //     部分成功时不抛(重跑会重烧已成功平台的 token,维持既有 failure policy)。
+    const firstRejection = rejections[0];
+    if (successCount === 0 && firstRejection) {
+      throw firstRejection.reason;
+    }
+
     // Tier-C3: cross-platform diff labels — runs after all insertions land.
     // Best-effort: failures here don't fail the job (label is decorative).
     if (processedVariantIds.length >= 2) {
@@ -233,6 +259,11 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
           content_item_id,
           { platform, reason: result.reason, provider: result.provider, elapsed_ms: elapsed },
         );
+        // 系统性失败(欠费/限流/网关)抛给 allSettled 聚合层 → 全军覆没时整个
+        // job 重试;内容级失败(解析/拒答)保持跳过。见 SYSTEMIC_LLM_FAILURE_RE。
+        if (SYSTEMIC_LLM_FAILURE_RE.test(result.reason ?? '')) {
+          throw new Error(`systemic LLM failure on ${platform}: ${result.reason}`);
+        }
         return false;
       }
 
@@ -483,6 +514,14 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
       .from('content_items')
       .update({ status: 'variant_generated' })
       .eq('id', content_item_id);
+  } else if (successCount === 0 && platforms.length > 0) {
+    // P1-2:全部内容级失败(系统性失败已在上面 throw)也要在 Sentry 可见,
+    // 否则 content_item 卡 ai_drafted 与"还没轮到"在数据上不可区分。
+    reportError(new Error(`variant-generate produced 0/${platforms.length} variants`), {
+      scope: 'variant-generate.all_failed',
+      tenant_id,
+      extra: { content_item_id },
+    });
   }
 
   console.log(
@@ -708,7 +747,7 @@ async function writeAudit(
   payload: Record<string, unknown>,
 ): Promise<void> {
   const client = getServiceClient();
-  await client.from('audit_logs').insert({
+  const { error } = await client.from('audit_logs').insert({
     tenant_id,
     actor_user_id: actor_user_id ?? null,
     action,
@@ -716,4 +755,13 @@ async function writeAudit(
     target_id,
     payload,
   });
+  if (error) {
+    // P1-2:audit 静默丢失是 D36 已知同类 bug — 至少要在日志/Sentry 可见
+    console.error(`[variant-generate] audit write failed (${action}): ${error.message}`);
+    reportError(new Error(`audit write failed: ${error.message}`), {
+      scope: 'variant-generate.write_audit',
+      tenant_id,
+      extra: { action, target_id },
+    });
+  }
 }
