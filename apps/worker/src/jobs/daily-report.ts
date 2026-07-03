@@ -28,9 +28,27 @@ type Kpis = {
   overdue_tasks: number;
   /** P1-4 (docs/11) 发布→被引回路:每平台累计发布数 vs 被 AI 引擎引用数。 */
   platform_loop: PlatformLoop[];
+  /** P1-3 v0 (docs/11) 时效候选:发布 >45 天且未被引的头条文,建议安排员工更新。 */
+  stale_uncited: { count: number; examples: string[] };
+  /** P2 v0 (docs/11) AI 答案污染告警:近 7 天追踪答案引用了投诉/行政处罚类风险源。 */
+  pollution_alerts: Array<{ question: string; domain: string }>;
 };
 
 type PlatformLoop = { platform: string; published: number; cited: number };
+
+/**
+ * P2 v0 — AI 答案污染监测的风险源域名模式(D37 防御职责的最小落地)。
+ * 2026-07-03 DeepSeek 首采实锤:同名"松鼠口腔"(福州/中山)的新浪投诉 +
+ * 中山行政处罚被合并进本品牌答案(实体混淆)。这类源出现在引用里 = 答案
+ * 正在向潜在患者展示负面,必须当天知道。
+ */
+const POLLUTION_DOMAIN_PATTERNS: Array<{ re: RegExp; label: string }> = [
+  { re: /tousu\.sina\.com/, label: '新浪投诉' },
+  { re: /credit\.[a-z]+\.gov\.cn/, label: '政府信用公示(含行政处罚)' },
+  { re: /wenshu\.court\.gov\.cn/, label: '裁判文书网' },
+  { re: /12315/, label: '12315 投诉' },
+  { re: /(heimao|blackcat)/, label: '黑猫投诉' },
+];
 
 export async function handleDailyReport(data: DailyReportJob = {}): Promise<void> {
   const client = getServiceClient();
@@ -129,7 +147,7 @@ async function computeKpis(tenantId: string, dayStart: string, dayEnd: string): 
     ready_to_dispatch: readyRes.count ?? 0,
     conversions_yesterday: convRes.count ?? 0,
     overdue_tasks: overdueRes.count ?? 0,
-    platform_loop: await computePlatformLoop(tenantId),
+    ...(await computeCitationInsights(tenantId)),
   };
 }
 
@@ -147,20 +165,25 @@ async function computeKpis(tenantId: string, dayStart: string, dayEnd: string): 
  * 链接,域名路径都不同,只有 ID 稳定(2026-07-03 踩过:URL 精确匹配得 0,
  * ID 匹配得 14)。全内存计算,~200 行量级。
  */
-async function computePlatformLoop(tenantId: string): Promise<PlatformLoop[]> {
+async function computeCitationInsights(tenantId: string): Promise<{
+  platform_loop: PlatformLoop[];
+  stale_uncited: { count: number; examples: string[] };
+  pollution_alerts: Array<{ question: string; domain: string }>;
+}> {
   const client = getServiceClient();
+  const empty = { platform_loop: [], stale_uncited: { count: 0, examples: [] }, pollution_alerts: [] };
   try {
     const [pubRes, snapRes] = await Promise.all([
       client
         .from('publish_tasks')
-        .select('published_url, content_variants!inner(platform)')
+        .select('published_url, published_at, content_variants!inner(platform, title)')
         .eq('tenant_id', tenantId)
         .eq('status', 'published')
         .not('published_url', 'is', null)
         .is('deleted_at', null),
       client
         .from('geo_snapshots')
-        .select('citation_urls')
+        .select('citation_urls, question_id, created_at')
         .eq('tenant_id', tenantId)
         .eq('status', 'done')
         .not('citation_urls', 'is', null),
@@ -168,35 +191,78 @@ async function computePlatformLoop(tenantId: string): Promise<PlatformLoop[]> {
 
     const idOf = (url: string): string | null => url.match(/(\d{9,20})/)?.[1] ?? null;
 
+    // (a) 被引 ID 池 + (c) 污染源扫描(近 7 天)
     const citedIds = new Set<string>();
-    for (const row of (snapRes.data ?? []) as Array<{ citation_urls: string[] }>) {
+    const sevenDaysAgo = Date.now() - 7 * 24 * 3600 * 1000;
+    const pollutionRaw: Array<{ question_id: string; domain: string }> = [];
+    for (const row of (snapRes.data ?? []) as Array<{
+      citation_urls: string[];
+      question_id: string;
+      created_at: string;
+    }>) {
+      const recent = new Date(row.created_at).getTime() >= sevenDaysAgo;
       for (const url of row.citation_urls ?? []) {
         const id = idOf(url);
         if (id) citedIds.add(id);
+        if (recent) {
+          const hit = POLLUTION_DOMAIN_PATTERNS.find((p) => p.re.test(url));
+          if (hit) pollutionRaw.push({ question_id: row.question_id, domain: hit.label });
+        }
       }
     }
 
+    // (b) 平台回路 + 时效候选(>45 天未被引)
+    const STALE_MS = 45 * 24 * 3600 * 1000;
     const byPlatform = new Map<string, { published: number; cited: number }>();
+    let staleCount = 0;
+    const staleExamples: string[] = [];
     for (const row of (pubRes.data ?? []) as Array<{
       published_url: string;
-      content_variants: { platform: string } | { platform: string }[];
+      published_at: string | null;
+      content_variants: { platform: string; title: string } | { platform: string; title: string }[];
     }>) {
       const cv = Array.isArray(row.content_variants) ? row.content_variants[0] : row.content_variants;
       const platform = cv?.platform ?? 'unknown';
       const entry = byPlatform.get(platform) ?? { published: 0, cited: 0 };
       entry.published += 1;
       const id = idOf(row.published_url);
-      if (id && citedIds.has(id)) entry.cited += 1;
+      const cited = !!id && citedIds.has(id);
+      if (cited) entry.cited += 1;
       byPlatform.set(platform, entry);
+
+      const publishedAt = row.published_at ? new Date(row.published_at).getTime() : null;
+      if (!cited && publishedAt && Date.now() - publishedAt > STALE_MS) {
+        staleCount += 1;
+        if (staleExamples.length < 3 && cv?.title) staleExamples.push(cv.title);
+      }
     }
 
-    return [...byPlatform.entries()]
-      .map(([platform, v]) => ({ platform, ...v }))
-      .sort((a, b) => b.published - a.published);
+    // 污染告警:question_id → 原题文本(去重后通常 0-3 条)
+    const pollution_alerts: Array<{ question: string; domain: string }> = [];
+    if (pollutionRaw.length > 0) {
+      const qids = [...new Set(pollutionRaw.map((p) => p.question_id))];
+      const { data: qRows } = await client.from('questions').select('id, text').in('id', qids);
+      const qText = new Map((qRows ?? []).map((q) => [q.id as string, q.text as string]));
+      const seen = new Set<string>();
+      for (const p of pollutionRaw) {
+        const key = `${p.question_id}:${p.domain}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pollution_alerts.push({ question: qText.get(p.question_id) ?? p.question_id, domain: p.domain });
+      }
+    }
+
+    return {
+      platform_loop: [...byPlatform.entries()]
+        .map(([platform, v]) => ({ platform, ...v }))
+        .sort((a, b) => b.published - a.published),
+      stale_uncited: { count: staleCount, examples: staleExamples },
+      pollution_alerts,
+    };
   } catch (err) {
-    // best-effort:回路统计失败不影响早报其余部分
-    console.error('[daily-report] platform loop failed:', err);
-    return [];
+    // best-effort:洞察统计失败不影响早报其余部分
+    console.error('[daily-report] citation insights failed:', err);
+    return empty;
   }
 }
 
@@ -248,7 +314,23 @@ function renderHtml(tenantName: string, tenantSlug: string, kpis: Kpis): string 
         : ''
     }
 
+    ${
+      kpis.pollution_alerts.length > 0
+        ? `<div style="background:#fff1f2;border:1px solid #fecdd3;border-radius:8px;padding:12px 14px;margin-bottom:18px;color:#9f1239;font-size:13px">
+          <strong>🚨 AI 答案污染告警(近 7 天)</strong><br>
+          ${kpis.pollution_alerts.map((a) => `「${a.question}」的 AI 答案引用了 <strong>${a.domain}</strong>`).join('<br>')}
+          <br><span style="color:#be123c">可能是同名机构的负面被算到本品牌头上(实体混淆),建议核实并加强官网实体信息锚定。</span></div>`
+        : ''
+    }
+
     ${renderPlatformLoop(kpis.platform_loop)}
+
+    ${
+      kpis.stale_uncited.count > 0
+        ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 14px;margin-bottom:18px;color:#92400e;font-size:13px">
+          ⏳ <strong>${kpis.stale_uncited.count} 篇</strong>头条文发布超 45 天仍未被 AI 引用,建议安排员工更新内容刷新时效信号。如:${kpis.stale_uncited.examples.map((t) => `「${t.slice(0, 20)}…」`).join('、')}</div>`
+        : ''
+    }
 
     <a href="${link('')}" style="display:inline-block;padding:10px 18px;border-radius:8px;background:linear-gradient(135deg,#6366f1,#a855f7);color:white;font-weight:500;text-decoration:none;font-size:14px">打开 GEO Studio →</a>
 
@@ -321,6 +403,10 @@ function renderText(tenantName: string, kpis: Kpis): string {
           .map((p) => `  ${p.platform}: 发 ${p.published} / 引 ${p.cited}`)
           .join('\n')}`
       : '',
+    kpis.pollution_alerts.length > 0
+      ? `\n🚨 AI答案污染告警:\n${kpis.pollution_alerts.map((a) => `  「${a.question}」引用了 ${a.domain}`).join('\n')}`
+      : '',
+    kpis.stale_uncited.count > 0 ? `⏳ ${kpis.stale_uncited.count} 篇发布>45天未被引,建议更新` : '',
   ]
     .filter(Boolean)
     .join('\n');
