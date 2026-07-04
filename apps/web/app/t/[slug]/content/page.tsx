@@ -85,7 +85,7 @@ type Item = {
 
 function ContentTable({ items, canEdit: _canEdit }: { items: Item[]; canEdit: boolean }) {
   return (
-    <div className="overflow-hidden rounded-md border border-border">
+    <div className="overflow-x-auto rounded-md border border-border">
       <table className="w-full text-sm">
         <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
           <tr>

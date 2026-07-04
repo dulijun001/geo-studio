@@ -80,7 +80,7 @@ export default async function StaffSettingsPage({ params }: { params: { slug: st
           还没有员工。点右上角「+新建员工」开始添加。
         </div>
       ) : (
-        <div className="overflow-hidden rounded-md border border-border">
+        <div className="overflow-x-auto rounded-md border border-border">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground">
             <span>派单接收人 · {operators.length} 人 — 真正登录平台账号发布内容的运营</span>
             <span className="inline-flex items-center gap-1.5">

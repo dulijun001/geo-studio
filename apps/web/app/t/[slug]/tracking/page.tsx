@@ -196,7 +196,7 @@ export default async function TrackingPage({ params }: { params: { slug: string 
           问题库还是空的。先跑 <code className="rounded bg-muted px-1">pnpm --filter @geo/db dev-seed-w6</code> 填一份种子问题库。
         </div>
       ) : (
-        <div className="overflow-hidden rounded-md border border-border">
+        <div className="overflow-x-auto rounded-md border border-border">
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
               <tr>

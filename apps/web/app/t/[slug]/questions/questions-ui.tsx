@@ -122,9 +122,10 @@ export function QuestionsUI({
         显示 {filtered.length} / {rows.length}
       </div>
 
-      {/* Table */}
-      <div className="rounded-lg border border-border bg-card">
-        <ul className="divide-y divide-border">
+      {/* Table — overflow-x-auto + min-w:固定 7 列 grid 合计 ~496px 超手机屏,
+          外层 admin-shell 又是 overflow-x-hidden,不加横滚内容直接消失(docs/12 P0-3) */}
+      <div className="overflow-x-auto rounded-lg border border-border bg-card">
+        <ul className="min-w-[36rem] divide-y divide-border">
           {filtered.length === 0 ? (
             <li className="px-5 py-10 text-center text-sm text-muted-foreground">
               没有匹配的问题。试试清空筛选,或点右上角添加问题。

@@ -160,9 +160,7 @@ export async function TodayView({
           <p className="text-sm text-muted-foreground">{timeoutInfo}</p>
         )}
         {typedRun.failure_reason && (
-          <p className="rounded-md border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">
-            ⚠️ 运行失败:{typedRun.failure_reason}
-          </p>
+          <FailureBanner reason={typedRun.failure_reason} />
         )}
       </div>
 
@@ -264,4 +262,34 @@ function computeTimeoutDisplay(run: RunRow): string | null {
   const h = Math.floor(elapsedMin / 60);
   const m = elapsedMin % 60;
   return `审核窗口已开启 ${h}h ${m}m(超时后绿色将自动放行)`;
+}
+
+/**
+ * 失败横幅人话化(docs/12 P0-2,2026-07-04)。此前直接输出英文技术日志
+ * ("batch finished with 0 successful items…")给客户,违反「反馈引导行动」。
+ * 已知失败模式翻译成人话 + 给下一步动作;原始报错收进折叠不丢失。
+ */
+function FailureBanner({ reason }: { reason: string }) {
+  let headline = '今日自动起草失败';
+  let action = '系统会在下次运行时自动重试;若持续失败,请把下方技术详情发给技术支持。';
+  if (/overdue|欠费/i.test(reason)) {
+    headline = '火山方舟账户欠费,AI 生成暂停';
+    action = '请到火山方舟控制台(费用中心)充值。充值后无需其他操作:失败任务会自动重试,今晚定时任务也会正常运行。';
+  } else if (/0 successful|\d+\/\d+ failed/.test(reason)) {
+    headline = '今日起草全部失败';
+    action = '常见原因是 AI 账户欠费或服务波动。可到「内容 → 批量起草」页对失败项逐条重试,或等今晚定时任务自动重跑。';
+  } else if (/timeout|timed out|超时/i.test(reason)) {
+    headline = 'AI 服务响应超时';
+    action = '一般是临时波动,系统会自动重试,无需操作。';
+  }
+  return (
+    <div className="space-y-2 rounded-md border border-rose-500/30 bg-rose-500/10 p-3">
+      <p className="text-sm font-semibold text-rose-300">⚠️ {headline}</p>
+      <p className="text-sm leading-relaxed text-rose-200/90">{action}</p>
+      <details className="text-xs text-rose-300/60">
+        <summary className="cursor-pointer select-none">技术详情</summary>
+        <p className="mt-1 break-all font-mono">{reason}</p>
+      </details>
+    </div>
+  );
 }

@@ -139,7 +139,7 @@ export default async function PublishPage({ params }: { params: { slug: string }
           前提:至少有 1 条 compliance_status = auto_approved/manual_approved 的变体,并且已录入员工账号。
         </div>
       ) : (
-        <div className="overflow-hidden rounded-md border border-border">
+        <div className="overflow-x-auto rounded-md border border-border">
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
               <tr>

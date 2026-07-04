@@ -175,7 +175,8 @@ export default async function LoopsPage({ params }: { params: { slug: string } }
         <h2 className="text-sm font-semibold text-foreground">
           📡 平台回路<span className="ml-2 text-xs font-normal text-muted-foreground">累计 · 文章 ID 级匹配</span>
         </h2>
-        <table className="mt-3 w-full text-left text-xs">
+        <div className="overflow-x-auto">
+        <table className="mt-3 w-full min-w-[24rem] text-left text-xs">
           <thead>
             <tr className="border-b border-border text-muted-foreground">
               <th className="py-2 font-medium">平台</th>
@@ -202,6 +203,7 @@ export default async function LoopsPage({ params }: { params: { slug: string } }
             })}
           </tbody>
         </table>
+        </div>
         <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
           红色 = 发布 ≥20 篇但引用为 0(结构性无回报信号)。知乎已于 2026-07-03 停投(豆包 + DeepSeek
           引用池中 zhihu.com 均为 0),产能转投区县级选题覆盖。

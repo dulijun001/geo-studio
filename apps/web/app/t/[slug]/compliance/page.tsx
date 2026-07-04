@@ -145,7 +145,7 @@ function ReviewTable({
   showCheckbox: boolean;
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+    <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
       <table className="w-full text-sm">
         <thead className="bg-white/[0.02] text-left text-[10.5px] font-mono uppercase tracking-[0.12em] text-muted-foreground">
           <tr>
