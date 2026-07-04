@@ -25,6 +25,7 @@ import {
   classifySimilarity,
   checkNumericFacts,
   chat,
+  enforceTitleFromQuery,
   isAvailable as llmAvailable,
   scanKeywords,
   type KeywordRow,
@@ -79,7 +80,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
   // 1. Load context
   const { data: item, error: iErr } = await client
     .from('content_items')
-    .select('id, tenant_id, title, markdown, topics, status, keyword_ids')
+    .select('id, tenant_id, title, markdown, topics, status, keyword_ids, target_questions')
     .eq('id', content_item_id)
     .single<ContentItemRow>();
   if (iErr || !item) {
@@ -440,13 +441,28 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
         }
       }
 
+      // 标题确定性对齐(docs/11 P0-1,2026-07-04)。变体生成独立调 LLM 写 title,
+      // 会把起草层已对齐的标题又雅化回去(修起草层时漏了这条产线)。落库前用
+      // content_item.title(起草层已强制=问题原句)兜底对齐;长文平台才做。
+      const LONG_FORM_PLATFORMS_T = ['toutiao_article', 'wechat_mp', 'zhihu', 'baijiahao', 'souhu'];
+      let finalTitle = v.title;
+      if (LONG_FORM_PLATFORMS_T.includes(platform) && item!.title) {
+        const aligned = enforceTitleFromQuery(v.title, item!.title as string);
+        if (aligned.replaced) {
+          console.log(
+            `[variant-generate] ${platform} title realigned: "${v.title}" → "${aligned.title}"`,
+          );
+          finalTitle = aligned.title;
+        }
+      }
+
       const { data: inserted, error: insErr } = await client
         .from('content_variants')
         .insert({
           tenant_id,
           content_item_id,
           platform,
-          title: v.title,
+          title: finalTitle,
           body: v.body,
           geo_tactics: v.tactics_applied,
           extra_assets: {
