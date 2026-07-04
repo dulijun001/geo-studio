@@ -90,7 +90,7 @@ export default async function StaffSettingsPage({ params }: { params: { slug: st
               <span>{operators.length - activeOperators.length} 个辅助 / 潜伏</span>
             </span>
           </div>
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[42rem] text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-4 py-2 font-medium">姓名</th>
@@ -179,7 +179,7 @@ export default async function StaffSettingsPage({ params }: { params: { slug: st
           <summary className="cursor-pointer border-b border-border bg-muted/30 px-4 py-2 text-xs font-medium text-muted-foreground">
             医生 · {doctors.length} 人 — 内容署名 + persona 匹配,不接派单(从知识库自动同步)
           </summary>
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[42rem] text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-4 py-2 font-medium">姓名</th>

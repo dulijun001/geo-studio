@@ -86,7 +86,7 @@ type Item = {
 function ContentTable({ items, canEdit: _canEdit }: { items: Item[]; canEdit: boolean }) {
   return (
     <div className="overflow-x-auto rounded-md border border-border">
-      <table className="w-full text-sm">
+      <table className="w-full min-w-[42rem] text-sm">
         <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
           <tr>
             <th className="px-4 py-2 font-medium">标题</th>
