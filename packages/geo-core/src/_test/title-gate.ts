@@ -7,7 +7,7 @@
  * 用例来源:2026-07-03 生产库真实抽检(songshu 最近 12 篇头条标题 vs 目标子问题)。
  * 验证闸门方向:关键词保住(语序可变)= 放行;关键词丢失/被换词 = 拦截。
  */
-import { checkTitleQueryMatch, extractQuerySegments } from '../generation/title-gate';
+import { checkTitleQueryMatch, extractQuerySegments, enforceTitleFromQuery } from '../generation/title-gate';
 import { evaluateDod } from '../generation/dod-evaluator';
 
 type Result = { name: string; pass: boolean; detail?: string };
@@ -126,6 +126,24 @@ function ok(name: string, pass: boolean, detail?: string) {
   });
   const gateFired = dod.evidence.reasons.some((r) => r.includes('标题缺失查询实词'));
   ok('无 primary_query 不误伤', !gateFired);
+}
+
+// ── 12. enforceTitleFromQuery:雅化标题回退成原句(今天 5/5 真实失败 case) ──
+{
+  const r = enforceTitleFromQuery(
+    '昆明西山区儿童牙齿矫正:民营口腔与公立口腔科差异解析',
+    '昆明西山区儿童牙齿矫正，民营口腔 vs 公立口腔科有啥差异'
+  );
+  ok('雅化标题回退成原句', r.replaced && r.title === '昆明西山区儿童牙齿矫正，民营口腔 vs 公立口腔科有啥差异', `→ ${r.title}`);
+}
+
+// ── 13. enforceTitleFromQuery:已达标标题保留不动 ──
+{
+  const r = enforceTitleFromQuery(
+    '昆明西山区哪些口腔门诊能做集采种植牙?',
+    '昆明西山区哪些口腔门诊能做集采种植牙？'
+  );
+  ok('达标标题不回退', !r.replaced);
 }
 
 // ── Summary ─────────────────────────────────────────────────────────────

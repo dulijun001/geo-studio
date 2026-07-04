@@ -19,7 +19,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { chat, evaluateDod, extractSlices, isAvailable as llmAvailable, personaToDoctorFields, renderDoctorBlock, sanitizeAbsoluteWords } from '@geo/geo-core';
+import { chat, enforceTitleFromQuery, evaluateDod, extractSlices, isAvailable as llmAvailable, personaToDoctorFields, renderDoctorBlock, sanitizeAbsoluteWords } from '@geo/geo-core';
 import { PLATFORM_HINT, prettifyMarkdown, reportError } from '@geo/shared';
 
 export type AiDraftPlatform =
@@ -842,6 +842,20 @@ export async function runAiDraft(
   }
   draftTitle = titleSan.cleaned;
   draftBody = bodySan.cleaned;
+
+  // 标题确定性对齐(docs/11 P0-1 后续,2026-07-04)。改 prompt 让 LLM 逐字保留
+  // 标题实测无效(5/5 仍雅化),改由代码保证唯一显著因子(标题=问题原句)。
+  // LLM 标题不过闸门 → 回退成问题原句。长文才做(短脚本标题是 hook 体)。
+  const LONG_FORM = ['toutiao_article', 'wechat_mp', 'zhihu', 'baijiahao', 'souhu'];
+  if (LONG_FORM.includes(input.platform)) {
+    const aligned = enforceTitleFromQuery(draftTitle, input.primary_query ?? topic);
+    if (aligned.replaced) {
+      console.log(
+        `[ai-draft-core] title realigned to query: "${draftTitle}" → "${aligned.title}" (missed: ${aligned.misses.join(',')})`,
+      );
+      draftTitle = aligned.title;
+    }
+  }
 
   // 2026-05-28: 自动 prettify — LLM 思考模型偶尔吐 "2026 - 04" / 单行挤死的 markdown,
   // 入库前过一道纯文本变换,客户编辑面板看到的就是排好版的;手工「美化排版」按钮作 fallback。
