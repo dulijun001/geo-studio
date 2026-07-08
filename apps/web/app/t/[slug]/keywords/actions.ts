@@ -63,7 +63,7 @@ async function filterByCompliance(
   const service = getSupabaseServiceClient();
   const { data: kwRows } = await service
     .from('compliance_keywords')
-    .select('id, term, level, category, variants, platforms');
+    .select('id, term, level, category, variants, platforms, context_exempt');
   const blacklist = (kwRows ?? []) as KeywordRow[];
 
   const accepted: string[] = [];

@@ -156,7 +156,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
   // (64% baseline in V1.9.1 audit) by feeding LLM its own violations.
   const { data: aLevelKwRows } = await client
     .from('compliance_keywords')
-    .select('id, term, level, category, variants, platforms')
+    .select('id, term, level, category, variants, platforms, context_exempt')
     .or(`tenant_id.is.null,tenant_id.eq.${tenant_id}`)
     .eq('level', 'A');
   const aLevelKeywords: KeywordRow[] = (aLevelKwRows ?? []).map((r) => ({
@@ -166,6 +166,7 @@ export async function handleVariantGenerate(data: VariantGenerateJob): Promise<v
     category: r.category as string,
     variants: (r.variants as string[] | null) ?? [],
     platforms: (r.platforms as string[] | null) ?? [],
+    context_exempt: (r.context_exempt as string[] | null) ?? [],
   }));
 
   // ADR 007 — Wizard-selected keywords. variant-generate must:

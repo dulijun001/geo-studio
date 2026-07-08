@@ -72,6 +72,42 @@ const CASES: Case[] = [
     text: '我们是行业 no.1 服务商。',
     expect: { max_level: 'A', verdict: 'reject', must_hit: ['no.1'] },
   },
+  // ── context_exempt cases (V1.13) ──
+  {
+    name: 'exempt: anatomical "第一恒磨牙"',
+    text: '第一恒磨牙(六龄齿)通常在 6-7 岁萌出,建议及时做窝沟封闭。',
+    expect: { max_level: 'none', verdict: 'pass' },
+  },
+  {
+    name: 'exempt: ordinal "第一次" + "第一颗牙"',
+    text: '孩子第一次看牙建议在第一颗牙长出后,不打针不钻牙。',
+    expect: { max_level: 'none', verdict: 'pass' },
+  },
+  {
+    name: 'NOT exempt: ranking "第一"',
+    text: '我们是昆明排名第一的口腔机构。',
+    expect: { max_level: 'A', verdict: 'reject', must_hit: ['第一'] },
+  },
+  {
+    name: 'exempt: negation "没有绝对"',
+    text: '种植手术没有绝对的年龄上限,主要看身体条件。',
+    expect: { max_level: 'none', verdict: 'pass' },
+  },
+  {
+    name: 'exempt: medical "绝对禁忌"',
+    text: '未控制的糖尿病属于种植的绝对禁忌情形之一。',
+    expect: { max_level: 'none', verdict: 'pass' },
+  },
+  {
+    name: 'NOT exempt: guarantee "绝对"',
+    text: '我们的种植体绝对不会松动。',
+    expect: { max_level: 'A', verdict: 'reject', must_hit: ['绝对'] },
+  },
+  {
+    name: 'mixed: exempt phrase + real hit in same text',
+    text: '第一恒磨牙萌出后,我们保证矫正效果。',
+    expect: { max_level: 'A', verdict: 'reject', must_hit: ['保证'] },
+  },
 ];
 
 async function main() {
@@ -80,7 +116,7 @@ async function main() {
   console.log('Loading compliance keywords from DB...');
   const { data: kwRows, error } = await admin
     .from('compliance_keywords')
-    .select('id, term, level, category, variants')
+    .select('id, term, level, category, variants, context_exempt')
     .is('tenant_id', null);
   if (error || !kwRows) throw new Error(`load keywords: ${error?.message}`);
 
@@ -90,6 +126,7 @@ async function main() {
     level: r.level as 'A' | 'B',
     category: r.category as string,
     variants: (r.variants as string[]) ?? [],
+    context_exempt: (r.context_exempt as string[] | null) ?? [],
   }));
   console.log(`  loaded ${keywords.length} keywords (${keywords.filter((k) => k.level === 'A').length} A, ${keywords.filter((k) => k.level === 'B').length} B)\n`);
 

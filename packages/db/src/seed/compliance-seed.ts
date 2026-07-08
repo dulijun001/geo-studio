@@ -8,6 +8,12 @@ export type KeywordSeed = {
   term: string;
   category: string;
   variants: string[];
+  /**
+   * V1.13 — exempt phrases: occurrences of the term inside these phrases are
+   * NOT hits (anatomical terms, negations, medical terminology). Scanner
+   * matches phrase-level, so a guarantee like "绝对不会松" is still caught.
+   */
+  context_exempt?: string[];
 };
 
 /** A-level: zero tolerance. Triggers auto-reject. */
@@ -18,7 +24,13 @@ export const A_LEVEL_KEYWORDS: KeywordSeed[] = [
   { term: '根治', category: 'guarantee', variants: ['根 治', '根治癒'] },
   { term: '治愈', category: 'guarantee', variants: ['治 愈', '治癒'] },
   { term: '痊愈', category: 'guarantee', variants: ['痊 愈', '痊癒'] },
-  { term: '绝对', category: 'guarantee', variants: ['絕對'] },
+  {
+    term: '绝对',
+    category: 'guarantee',
+    variants: ['絕對'],
+    // 否定句(否认绝对性)与医学术语豁免;"绝对不会松/绝对安全"仍会命中
+    context_exempt: ['没有绝对', '不是绝对', '并非绝对', '绝对禁忌'],
+  },
   { term: '百分百', category: 'guarantee', variants: ['100%', '100 %', '百分之百'] },
   { term: '无效退款', category: 'guarantee', variants: ['无效退费'] },
   { term: '永不复发', category: 'guarantee', variants: ['永不復發', '永不反复'] },
@@ -30,7 +42,23 @@ export const A_LEVEL_KEYWORDS: KeywordSeed[] = [
   { term: '最权威', category: 'absolute', variants: ['最權威'] },
   { term: '最先进', category: 'absolute', variants: ['最先進'] },
   { term: '最佳', category: 'absolute', variants: [] },
-  { term: '第一', category: 'absolute', variants: ['no.1', 'NO.1', 'No. 1'] },
+  {
+    term: '第一',
+    category: 'absolute',
+    variants: ['no.1', 'NO.1', 'No. 1'],
+    // 解剖学名词 + 序数用法豁免;"行业第一/昆明第一"仍会命中
+    context_exempt: [
+      '第一恒磨牙',
+      '第一前磨牙',
+      '第一磨牙',
+      '第一乳磨牙',
+      '第一次',
+      '第一颗牙',
+      '第一步',
+      '第一道关',
+      '第一天',
+    ],
+  },
   { term: '首家', category: 'absolute', variants: [] },
   { term: '独家', category: 'absolute', variants: ['獨家'] },
   { term: '唯一', category: 'absolute', variants: ['惟一'] },

@@ -11,8 +11,16 @@
  *     compliance cares about substrings anyway ("包治百病" -> hit on "包治").
  *
  * Explicitly NOT in scope here:
- *   - Context-aware exemptions (context_exempt column) — V2.
  *   - Suggested rewrites — that's stage 2's LLM job.
+ *
+ * Context exemptions (context_exempt column), V1.13:
+ *   Each keyword may carry exempt PHRASES that contain the term but are
+ *   legitimate usage — anatomical names ("第一恒磨牙"), negations
+ *   ("没有绝对"), medical terms ("绝对禁忌"). A hit is skipped only when it
+ *   falls entirely inside an occurrence of one of ITS OWN keyword's exempt
+ *   phrases. Phrases, not context classes — data-driven, extendable per
+ *   incident, and a guarantee like "绝对不会松" stays caught because it
+ *   matches no exempt phrase.
  */
 
 export type KeywordRow = {
@@ -32,6 +40,12 @@ export type KeywordRow = {
    *   头条号  夸大宣传容忍度高,但医师身份审查严
    */
   platforms?: string[];
+  /**
+   * Exempt phrases (V1.13). Occurrences of the term INSIDE any of these
+   * phrases are not hits. Must each contain the term (or a variant);
+   * entries that don't are harmless no-ops.
+   */
+  context_exempt?: string[];
 };
 
 export type KeywordHit = {
@@ -83,11 +97,34 @@ export function scanKeywords(
 
   for (const kw of applicable) {
     const needles = [kw.term, ...kw.variants].map(normalize).filter((s) => s.length > 0);
+
+    // Pre-compute exempt intervals for THIS keyword on the normalized text.
+    // A term hit fully inside any interval is legitimate usage — skip it.
+    const exemptRanges: Array<[number, number]> = [];
+    for (const raw of kw.context_exempt ?? []) {
+      const phrase = normalize(raw);
+      if (phrase.length === 0) continue;
+      let f = 0;
+      while (true) {
+        const i = normalized.indexOf(phrase, f);
+        if (i < 0) break;
+        exemptRanges.push([i, i + phrase.length]);
+        f = i + 1;
+      }
+    }
+    const isExempt = (start: number, len: number): boolean =>
+      exemptRanges.some(([s, e]) => start >= s && start + len <= e);
+
     for (const needle of needles) {
       let from = 0;
       while (from <= normalized.length - needle.length) {
         const idx = normalized.indexOf(needle, from);
         if (idx < 0) break;
+
+        if (isExempt(idx, needle.length)) {
+          from = idx + needle.length;
+          continue;
+        }
 
         const origOffset = mapOffset(text, idx);
         const dedupKey = `${kw.id}:${origOffset}`;

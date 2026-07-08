@@ -90,7 +90,7 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   // 2. Load applicable keywords: global (tenant_id IS NULL) + this tenant
   const { data: kwRows, error: kwErr } = await client
     .from('compliance_keywords')
-    .select('id, term, level, category, variants, platforms, tenant_id')
+    .select('id, term, level, category, variants, platforms, context_exempt, tenant_id')
     .or(`tenant_id.is.null,tenant_id.eq.${tenant_id}`);
   if (kwErr || !kwRows) {
     console.error(`[compliance-review] keyword load failed: ${kwErr?.message}`);
@@ -103,6 +103,7 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
     category: r.category as string,
     variants: (r.variants as string[]) ?? [],
     platforms: (r.platforms as string[] | null) ?? [],
+    context_exempt: (r.context_exempt as string[] | null) ?? [],
   }));
 
   // 3. Stage 1 — keyword scan on (title + body), filtered to this platform.
