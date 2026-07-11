@@ -154,6 +154,7 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
         raw_response: result.raw_response ?? null,
         citation_urls: result.citation_urls ?? [],
         session_url: sessionUrl,
+        meta: result.meta ?? {},
         asked_at: new Date().toISOString(),
       })
       .eq('id', snapshot_id);
@@ -171,6 +172,9 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
       raw_response: result.raw_response ?? '',
       citation_urls: result.citation_urls ?? [],
       session_url: sessionUrl,
+      // V1.13 (0045): 诊断维度落库 — 前端据 sources_expander / sources_error
+      // 区分「无引用面板(真实0)/ 已采集 N 条 / 采集失败」三态
+      meta: result.meta ?? {},
       asked_at: new Date().toISOString(),
     })
     .eq('id', snapshot_id);

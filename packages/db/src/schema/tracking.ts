@@ -5,6 +5,7 @@ import {
   doublePrecision,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   text,
@@ -122,6 +123,8 @@ export const geoSnapshots = pgTable(
     citation_urls: text('citation_urls').array().notNull().default([]),
     status: snapshotStatusEnum('status').notNull().default('pending'),
     failure_reason: text('failure_reason'),
+    /** V1.13 (0045) — adapter 诊断维度落库(D29):sources_expander / sources_error 等,前端据此区分引用 0 的语义 */
+    meta: jsonb('meta').notNull().default({}),
     ...timestamps(),
   },
   (t) => ({

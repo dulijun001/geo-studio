@@ -29,6 +29,46 @@ type LatestSnapshot = {
   mention_count: number;
   own_count: number;
   comp_count: number;
+  /** V1.13 (0045) — 引用源三态:collected(采到N条)/ no_panel(无面板,真实0)/ error(采集故障)/ unknown(旧记录无诊断) */
+  sources_state: 'collected' | 'no_panel' | 'error' | 'unknown';
+  sources_count: number;
+};
+
+/**
+ * 区分「引用源 0」的语义(V1.13,2026-07-11 教训):
+ * 真实 0(豆包没出引用面板)和采集故障 0 在 UI 上必须长得不一样,
+ * 否则测量工具坏掉时会伪装成"符合预期的数据"。
+ */
+function deriveSourcesState(
+  citationUrls: string[] | null,
+  meta: Record<string, unknown> | null,
+): { state: LatestSnapshot['sources_state']; count: number } {
+  const count = citationUrls?.length ?? 0;
+  if (count > 0) return { state: 'collected', count };
+  if (!meta || Object.keys(meta).length === 0) return { state: 'unknown', count: 0 };
+  if (meta.sources_error) return { state: 'error', count: 0 };
+  return { state: 'no_panel', count: 0 };
+}
+
+const SOURCES_CHIP: Record<
+  Exclude<LatestSnapshot['sources_state'], 'collected'>,
+  { label: string; cls: string; title: string }
+> = {
+  no_panel: {
+    label: '无引用面板',
+    cls: 'bg-white/[0.06] text-muted-foreground',
+    title: '豆包用通用知识直答,没有触发检索引用 — 0 是真实值(纯知识题的常态,见 D44)',
+  },
+  error: {
+    label: '采集故障',
+    cls: 'bg-rose-500/[0.12] text-rose-300 border border-rose-500/30',
+    title: '引用面板采集失败 — 这是测量问题不是数据,需检修 tracker',
+  },
+  unknown: {
+    label: '无诊断',
+    cls: 'bg-white/[0.04] text-muted-foreground/60',
+    title: '旧记录,未落诊断维度(0045 之前)',
+  },
 };
 
 const STATUS_BADGE: Record<string, string> = {
@@ -79,7 +119,7 @@ export default async function TrackingPage({ params }: { params: { slug: string 
   if (questions.length > 0) {
     const { data: snapsRaw } = await supabase
       .from('geo_snapshots')
-      .select('id, question_id, status, asked_at, created_at, session_url')
+      .select('id, question_id, status, asked_at, created_at, session_url, citation_urls, meta')
       .eq('tenant_id', tenant.id)
       .in('question_id', questions.map((q) => q.id))
       .order('created_at', { ascending: false })
@@ -92,6 +132,8 @@ export default async function TrackingPage({ params }: { params: { slug: string 
       asked_at: string | null;
       created_at: string;
       session_url: string | null;
+      citation_urls: string[] | null;
+      meta: Record<string, unknown> | null;
     };
     const snaps = (snapsRaw ?? []) as SnapRow[];
 
@@ -120,6 +162,7 @@ export default async function TrackingPage({ params }: { params: { slug: string 
 
     for (const [qid, s] of latestByQ.entries()) {
       const c = countsBySnap.get(s.id) ?? { total: 0, own: 0, comp: 0 };
+      const sources = deriveSourcesState(s.citation_urls, s.meta);
       latestByQuestion.set(qid, {
         question_id: qid,
         snapshot_id: s.id,
@@ -130,6 +173,8 @@ export default async function TrackingPage({ params }: { params: { slug: string 
         mention_count: c.total,
         own_count: c.own,
         comp_count: c.comp,
+        sources_state: sources.state,
+        sources_count: sources.count,
       });
     }
   }
@@ -225,7 +270,26 @@ export default async function TrackingPage({ params }: { params: { slug: string 
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">{q.city ?? '—'}</td>
                     <td className="px-4 py-2.5">
                       {latest ? (
-                        <SnapshotBadge latest={latest} />
+                        <div className="flex flex-col gap-1">
+                          <SnapshotBadge latest={latest} />
+                          {latest.status === 'done' ? (
+                            latest.sources_state === 'collected' ? (
+                              <span
+                                className="w-fit rounded px-1.5 py-0.5 text-[10px] bg-emerald-500/[0.12] text-emerald-300"
+                                title="已点开豆包「参考资料」面板并采集到来源链接"
+                              >
+                                引用源 {latest.sources_count} 条
+                              </span>
+                            ) : (
+                              <span
+                                className={`w-fit rounded px-1.5 py-0.5 text-[10px] ${SOURCES_CHIP[latest.sources_state].cls}`}
+                                title={SOURCES_CHIP[latest.sources_state].title}
+                              >
+                                {SOURCES_CHIP[latest.sources_state].label}
+                              </span>
+                            )
+                          ) : null}
+                        </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}
