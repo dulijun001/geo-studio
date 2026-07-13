@@ -28,6 +28,7 @@ import { reportError, reportEvent, VARIANT_PLATFORMS } from '@geo/shared';
 import { enqueueViaSharedBoss } from '../lib/boss-ref';
 import { getServiceClient } from '../lib/supabase';
 import { pickTopicsForToday, type ManualSlot } from '../lib/topic-picker';
+import { replenishTopicPool } from '../lib/topic-replenish';
 
 export const NIGHTLY_DRAFT_JOB = 'daily-ops.nightly-draft';
 
@@ -176,6 +177,17 @@ async function processTenant(
   const runId = runInsert.id as string;
 
   try {
+    // 1.5. V1.13 (D52) — 选题池水位检查 + 自动补货。失败不阻塞(池里可能有存货),
+    // 但 reportError 出声;真正的"无题可选"由下面的 markRunFailed 兜底。
+    try {
+      await replenishTopicPool(client, settings.tenant_id, settings.topic_count_auto);
+    } catch (err) {
+      reportError(err, {
+        scope: 'daily-ops.replenish.unhandled',
+        tenant_id: settings.tenant_id,
+      });
+    }
+
     // 2. Pick topics
     const picks = await pickTopicsForToday(client, settings);
 
