@@ -43,7 +43,7 @@ export default function StaffLoginPage({
               name="password"
               type="password"
               required
-              minLength={8}
+              // 登录框不做强度校验(minLength 属于设置密码时的规则,不该拦真实密码)
               autoComplete="current-password"
               placeholder="自己设置的密码"
               className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-foreground/10"
