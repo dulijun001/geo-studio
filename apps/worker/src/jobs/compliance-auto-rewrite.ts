@@ -330,11 +330,16 @@ export async function handleComplianceAutoRewrite(
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      model: process.env.ARK_MODEL_THINKING || process.env.ARK_MODEL_PRO,
+      // 2026-07-15: 与 web 端 compliance rewrite 对齐 — FAST 优先,避免
+      // THINKING 模型改长文冲破超时导致自动改写链路静默失败。
+      model:
+        process.env.ARK_MODEL_REWRITE ||
+        process.env.ARK_MODEL_FAST ||
+        process.env.ARK_MODEL_PRO,
       temperature: 0.5,
       max_tokens: 3000,
       response_format: 'json_object',
-      timeout_ms: 180_000,
+      timeout_ms: 240_000,
     });
     parsed = JSON.parse(result.content);
   } catch (err) {

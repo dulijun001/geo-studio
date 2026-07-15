@@ -510,14 +510,19 @@ export async function aiRewriteVariant(
         { role: 'system', content: REWRITE_SYSTEM },
         { role: 'user', content: userPrompt },
       ],
-      // Compliance rewrite needs "analyze WHY it violated → rewrite around
-      // the actual issue" — thinking model materially better at this than
-      // straight Pro. Falls back to PRO if ARK_MODEL_THINKING isn't set.
-      model: process.env.ARK_MODEL_THINKING || process.env.ARK_MODEL_PRO,
+      // 2026-07-15: 改用 FAST(非思考)模型。实测 THINKING 模型改一篇长文
+      // 常冲破 180s 硬超时(前端报"AI 超时未返回"),而合规改写本质是
+      // "违规词 → 安全表述"的明确替换任务,FAST(8s)配上强约束的
+      // REWRITE_SYSTEM 已足够,不需要深度推理。THINKING 仅在显式配置
+      // ARK_MODEL_REWRITE 时才用(留给未来疑难 case)。timeout 提到 240s 兜底。
+      model:
+        process.env.ARK_MODEL_REWRITE ||
+        process.env.ARK_MODEL_FAST ||
+        process.env.ARK_MODEL_PRO,
       temperature: 0.5,
       max_tokens: 3000,
       response_format: 'json_object',
-      timeout_ms: 180_000,
+      timeout_ms: 240_000,
     });
     parsed = JSON.parse(result.content);
   } catch (err) {
