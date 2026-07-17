@@ -10,7 +10,7 @@
  */
 
 import type { GeoTacticId, VariantPlatform } from '@geo/shared';
-import { sanitizeAbsoluteWords } from '../compliance/sanitize-absolute';
+import { sanitizeAbsoluteWords, stripDraftArtifacts } from '../compliance/sanitize-absolute';
 import { chat, isAvailable, type ChatResult } from '../llm/doubao';
 import { buildVariantPrompt, type PromptContext } from './prompt-builder';
 
@@ -127,10 +127,21 @@ export async function generateVariant(input: GenerateInput): Promise<GenerateRes
       result.usage = retried.usage;
     }
 
+    // V1.13: 先剥内部工装([源素材] 标注 / <br> 标签)——2026-07-13~16 实测
+    // FAST 模型会把这些字面留在正文,漏进待发内容。
+    const titleStripped = stripDraftArtifacts(parsed.title ?? '');
+    const bodyStripped = stripDraftArtifacts(parsed.body ?? '');
+    if (bodyStripped.stripped.marker > 0 || bodyStripped.stripped.br > 0) {
+      console.warn(
+        `[generator] draft artifacts stripped platform=${input.platform}`,
+        bodyStripped.stripped,
+      );
+    }
+
     // Anti-fabrication safety net — soften absolute/marketing words that
     // LLM may have copied verbatim from KB (国内唯一 / 8 项国际金标准 etc).
-    const titleSan = sanitizeAbsoluteWords(parsed.title ?? '');
-    const bodySan = sanitizeAbsoluteWords(parsed.body ?? '');
+    const titleSan = sanitizeAbsoluteWords(titleStripped.cleaned);
+    const bodySan = sanitizeAbsoluteWords(bodyStripped.cleaned);
     if (titleSan.hits.length > 0 || bodySan.hits.length > 0) {
       console.warn(
         `[generator] absolute-words softened platform=${input.platform} hits=`,

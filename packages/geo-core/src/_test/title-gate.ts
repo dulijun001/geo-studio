@@ -146,6 +146,21 @@ function ok(name: string, pass: boolean, detail?: string) {
   ok('达标标题不回退', !r.replaced);
 }
 
+// ── 14. strict(V1.13):保留关键词的雅化也回退(2026-07-12 实测样本) ──
+{
+  const r = enforceTitleFromQuery('昆明西山区牙齿矫正全攻略', '昆明西山区牙齿矫正去哪里好?');
+  ok('strict:雅化"全攻略"回退原句', r.replaced && r.title === '昆明西山区牙齿矫正去哪里好?');
+}
+
+// ── 15. strict:加"市"前缀也回退 ──
+{
+  const r = enforceTitleFromQuery(
+    '昆明市西山区洗牙好去处及常见问题解答',
+    '昆明西山区洗牙去哪里好?大概多少钱?',
+  );
+  ok('strict:市前缀+改写回退原句', r.replaced && r.title === '昆明西山区洗牙去哪里好?大概多少钱?');
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.pass);
 console.log(`\n${results.length - failed.length}/${results.length} passed`);

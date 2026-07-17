@@ -19,7 +19,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { chat, enforceTitleFromQuery, evaluateDod, extractSlices, isAvailable as llmAvailable, personaToDoctorFields, renderDoctorBlock, sanitizeAbsoluteWords } from '@geo/geo-core';
+import { chat, enforceTitleFromQuery, evaluateDod, extractSlices, isAvailable as llmAvailable, personaToDoctorFields, renderDoctorBlock, sanitizeAbsoluteWords, stripDraftArtifacts } from '@geo/geo-core';
 import { PLATFORM_HINT, prettifyMarkdown, reportError } from '@geo/shared';
 
 export type AiDraftPlatform =
@@ -829,6 +829,19 @@ export async function runAiDraft(
   }
 
   if (!draftBody.trim()) throw new Error('AI 生成的正文为空,请重试');
+
+  // V1.13: 剥内部工装([源素材] 标注 / <br>)——FAST 模型会把 prompt 里的
+  // 溯源标记字面留在正文(2026-07-13~16 实测 5 篇漏进待发内容)。
+  const titleStripped = stripDraftArtifacts(draftTitle);
+  const bodyStripped = stripDraftArtifacts(draftBody);
+  if (bodyStripped.stripped.marker > 0 || bodyStripped.stripped.br > 0) {
+    console.warn(
+      `[ai-draft-core] draft artifacts stripped tenant=${tenantId} topic="${topic}"`,
+      bodyStripped.stripped,
+    );
+  }
+  draftTitle = titleStripped.cleaned;
+  draftBody = bodyStripped.cleaned;
 
   // Anti-hallucination sanitizer (deterministic safety net beneath the prompt).
   const titleSan = sanitizeAbsoluteWords(draftTitle);

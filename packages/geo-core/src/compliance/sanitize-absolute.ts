@@ -63,3 +63,31 @@ export function sanitizeAbsoluteWords(input: string): {
   }
   return { cleaned, hits };
 }
+
+/**
+ * V1.13 (2026-07-17) — 起草内部标记清洗。
+ *
+ * prompt 用【源素材】约束 LLM 溯源,但 FAST 模型会把 `[源素材]`/`【源素材】`
+ * 字面留在正文里当"引用标注",还习惯输出 `<br>` 换行(2026-07-13~16 实测
+ * 5 篇漏进待发内容)。这些是内部工装,绝不能跟着发布。
+ *
+ * 纯函数,幂等。在 sanitizeAbsoluteWords 同层调用(变体产线 + 起草产线)。
+ */
+export function stripDraftArtifacts(input: string): {
+  cleaned: string;
+  stripped: { marker: number; br: number };
+} {
+  let cleaned = input;
+
+  // 1. 源素材内部标注(含可选前置空格,避免留下"句尾 空格+句号")
+  const markerRe = /\s*[[【]\s*源素材\s*[\]】]/g;
+  const markerHits = cleaned.match(markerRe)?.length ?? 0;
+  cleaned = cleaned.replace(markerRe, '');
+
+  // 2. HTML 换行标签 → markdown 换行(连续多个折叠为段落分隔)
+  const brRe = /(?:<br\s*\/?>\s*)+/gi;
+  const brHits = cleaned.match(brRe)?.length ?? 0;
+  cleaned = cleaned.replace(brRe, '\n\n');
+
+  return { cleaned, stripped: { marker: markerHits, br: brHits } };
+}
