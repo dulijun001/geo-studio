@@ -206,6 +206,21 @@ const SYSTEM_PROMPT = `你是一位严谨的医疗内容编辑。基于提供的
    - ✓ 正例:"### 昆明西山区金属托槽正畸多少钱一套" "### 昆明西山区做金属托槽正畸要戴多久" "### 昆明西山区金属托槽正畸适合哪些人" "### 在昆明西山区怎么选金属托槽正畸的医院"
    内容还是讲原理/误区/适用人群那些,但**标题用搜索词包装**。
 
+**⚠️ 反模板三条军规(2026-07-17,违反任意一条视为不合格)**:
+   a. **禁用口头禅**(以下句子及其近似变体一个都不许出现,这是全库查重的实测重复源):
+      - "拿不准……的话,带上最近的口腔检查记录来面诊聊一次"
+      - "对价格和方案有疑问,到院咨询一次就能问清楚"
+      - "为何有人问/为何会担忧……"、"……的原理是什么"作为小标题开头
+      - "总之,……"、"要点小结"作为收尾段开头
+      转化引导要写,但每篇用**不同的自然说法**,长在该段落自己的语境里。
+   b. **小标题句式多样性**:全文 ### 小标题至少使用 3 种不同问法句式
+      (多少钱/要多久/怎么办/能不能/该不该/哪里能/和X有什么区别),
+      **严禁全篇小标题共用同一句式模板**。
+   c. **硬性结构件**:正文必须包含
+      - **恰好 1 个 markdown 表格**(对比/价格档/流程步骤/年龄窗口任选,
+        数据只能来自【源素材】,源素材没有可制表数据时用流程编号列表替代并注明);
+      - **2 个配图占位**,格式 \`[配图N: 具体画面描述]\`,分别放在首段后和主体中段。
+
 **5.1 10 个必备结构块**(块=内容指引,标题按上面铁律改写成搜索长尾词;短脚本类如抖音 30s 可酌情合并):
 1. **一句话结论(direct_answer)** — 开头 120 字内必须直接回答主问题,不绕开问题先讲故事
 2. 误区 / 问题解释 — 为什么会问这个,有什么常见误解
@@ -363,11 +378,43 @@ function ngrams(s: string, n: number): string[] {
   return out;
 }
 
+/**
+ * V1.13 (2026-07-17) — 口语 → KB 术语同义词归一。
+ *
+ * 实测教训:选题说"洗牙",KB 文件叫"洁牙",n-gram 一字不合 → 项目库
+ * 没被召回 → LLM 拿不到真价格表,自己编了"100-200 元"(KB 真值 ¥128-168)。
+ * 患者口语和临床术语天然两套词,召回层必须做桥接。
+ * 维护成本极低的显式映射表,宁缺勿滥——错误映射比缺映射更危险。
+ */
+const QUERY_SYNONYMS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/洗牙/g, ' 洁牙 洗牙 '],
+  [/种牙/g, ' 种植牙 种牙 '],
+  [/整牙|矫牙/g, ' 牙齿矫正 正畸 '],
+  [/牙套/g, ' 牙套 矫正 正畸 '],
+  [/杀神经|抽神经/g, ' 根管治疗 '],
+  [/补牙洞|蛀牙|虫牙/g, ' 龋齿 补牙 '],
+  [/拔智齿/g, ' 智齿 拔牙 '],
+  [/假牙|镶牙/g, ' 义齿 修复 '],
+  [/牙龈出血|牙床出血/g, ' 牙周 牙龈 '],
+  [/地包天|龅牙/g, ' 错颌畸形 早期矫正 '],
+];
+
+function expandQuerySynonyms(query: string): string {
+  let out = query;
+  for (const [re, expansion] of QUERY_SYNONYMS) {
+    if (re.test(out)) out += expansion;
+    re.lastIndex = 0;
+  }
+  return out;
+}
+
 function scoreSource(
   query: string,
   source: { title: string | null; excerpt: string | null; source_path: string },
 ): number {
-  const grams = Array.from(new Set([...ngrams(query, 2), ...ngrams(query, 3)]));
+  const grams = Array.from(
+    new Set([...ngrams(expandQuerySynonyms(query), 2), ...ngrams(expandQuerySynonyms(query), 3)]),
+  );
   if (grams.length === 0) return 0;
   const title = source.title ?? '';
   const excerpt = source.excerpt ?? '';
@@ -387,7 +434,59 @@ function scoreSource(
       if (inExcerpt) score += 1;
     }
   }
+  // V1.13 (2026-07-17):诊疗事实层加权。品牌/受众层文件泛匹配度高(每篇都
+  // 提"昆明/口腔"),会把项目库/FAQ 的硬数据文件挤出 top-K —— 2026-07-12~16
+  // 系统批实测:正文只有品牌层套话,价格表/发生率/流程数据全部缺席。
+  if (score > 0) {
+    if (path.includes('诊疗/项目库')) score += 8;
+    else if (path.includes('患者/问答')) score += 6;
+    else if (path.includes('诊疗/')) score += 3;
+  }
   return score;
+}
+
+/**
+ * V1.13 (2026-07-17) — 按主题挑选源文件里最相关的小节,替代盲切前 1000 字。
+ *
+ * 背景:项目库 md 以「元信息表(~400字)+ 基本信息」开头,价格表/治疗流程/
+ * 风险数据都在文件中后段。`slice(0, 1000)` 只喂了表头 —— 这是系统批
+ * "信息增量归零"的直接原因(硬数据物理上没进 prompt)。
+ *
+ * 策略:按 `## ` 切小节 → 丢弃元信息节 → 小节按主题 n-gram 命中排序 →
+ * 依序装填直到预算;一个小节都没命中时退化为"跳过元信息后的开头段"。
+ */
+function pickRelevantSections(raw: string, topic: string, budget: number): string {
+  const grams = Array.from(new Set([...ngrams(topic, 2), ...ngrams(topic, 3)]));
+  const sections = raw.split(/(?=^##\s)/m).filter((s) => s.trim().length > 0);
+
+  const scored = sections
+    // 元信息表头不进 prompt;标注"内部"的小节(医生视角话术/内部口径)不对外
+    .filter((s) => !/^##\s*元信息/.test(s) && !/^##[^\n]*内部/.test(s))
+    .map((s, idx) => {
+      let hits = 0;
+      for (const g of grams) if (s.includes(g)) hits += g.length === 3 ? 2 : 1;
+      // 数字密度小奖励:含价格/比例/时长的小节通常是事实层精华
+      const numberBonus = Math.min(4, (s.match(/[¥%]|\d+\s*(?:分钟|个月|周|天|岁|mm|元)/g) ?? []).length);
+      return { s, idx, score: hits + numberBonus };
+    })
+    .sort((a, b) => b.score - a.score || a.idx - b.idx);
+
+  const picked: string[] = [];
+  let used = 0;
+  for (const { s, score } of scored) {
+    if (score === 0 && picked.length > 0) break;
+    const chunk = s.trim().slice(0, Math.max(0, budget - used));
+    if (chunk.length < 40) continue;
+    picked.push(chunk);
+    used += chunk.length;
+    if (used >= budget) break;
+  }
+  if (picked.length === 0) {
+    // 全无命中:跳过元信息后取开头
+    const noMeta = raw.replace(/^---[\s\S]*?---\s*/m, '').replace(/##\s*元信息[\s\S]*?(?=^##\s|\s*$)/m, '');
+    return noMeta.trim().slice(0, budget);
+  }
+  return picked.join('\n\n');
 }
 
 /**
@@ -473,7 +572,16 @@ export async function runAiDraft(
             sanitized.hits.map((h) => `${h.reason}×${h.count}`).join(', '),
         );
       }
-      sourceBodies.push({ path: r.source_path, body: sanitized.cleaned.slice(0, 1000) });
+      // V1.13:按主题挑相关小节(价格/流程/风险数据在文件中后段),
+      // 替代 slice(0,1000) 盲切表头;预算 1600/篇(5 篇 ≈ 8K 字,32K 窗口安全)
+      sourceBodies.push({
+        path: r.source_path,
+        body: pickRelevantSections(
+          sanitized.cleaned,
+          expandQuerySynonyms(`${topic} ${audience}`),
+          1600,
+        ),
+      });
     } catch (err) {
       console.warn(`[ai-draft-core] read source ${r.source_path} failed:`, err);
     }
