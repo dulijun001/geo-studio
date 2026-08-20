@@ -13,7 +13,7 @@ function brandRank(text: string): string {
 
 async function main() {
   for (let i = 0; i < QUESTIONS.length; i++) {
-    const q = QUESTIONS[i];
+    const q = QUESTIONS[i]!;
     console.log(`\n\n############ [${i + 1}/${QUESTIONS.length}] ${q} ############`);
     try {
       const r = await doubaoWebAdapter.query(
