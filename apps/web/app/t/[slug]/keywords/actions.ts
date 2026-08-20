@@ -15,6 +15,9 @@ export type KeywordIntent =
 
 const MAX_TEXT_LEN = 60;
 const MAX_BATCH = 200;
+// Keyword expansion is a short, structured task. Using the default PRO model
+// made it compete with long-form generation and regularly hit the UI deadline.
+const KEYWORD_DIG_TIMEOUT_MS = 45_000;
 
 function normalizeTerm(t: string): string {
   return t.trim().replace(/\s+/g, ' ');
@@ -401,15 +404,17 @@ export async function digKeywords(
           },
           { role: 'user', content: `核心词: ${seed}` },
         ],
+        model: process.env.ARK_MODEL_FAST,
         response_format: 'json_object',
         temperature: 0.7,
-        timeout_ms: 90_000,
+        max_tokens: 2_000,
+        timeout_ms: KEYWORD_DIG_TIMEOUT_MS,
       });
       content = result.content;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (/abort|timeout|timed out/i.test(msg)) {
-        throw new Error('AI 挖掘超时(>90 秒)。请重试,或换一个更具体的核心词。');
+        throw new Error('AI 挖掘响应超过 45 秒，任务已停止。请立即重试；若持续发生，请检查 ARK_MODEL_FAST 服务状态。');
       }
       throw new Error(`AI 调用失败: ${msg}`);
     }

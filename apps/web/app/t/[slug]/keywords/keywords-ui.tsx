@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import {
   addKeywordsCombine,
   addKeywordsManual,
@@ -564,6 +564,26 @@ function DigForm({
   const [seed, setSeed] = useState('');
   const [result, setResult] = useState<DigResult | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!pending) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [pending]);
+
+  const progressText =
+    elapsedSeconds < 8
+      ? '正在分析核心词与本地服务范围…'
+      : elapsedSeconds < 25
+        ? '正在生成并过滤候选关键词…'
+        : '仍在生成，最多再等待 20 秒…';
 
   const allPicked = result && result.candidates.length > 0 && result.candidates.every((c) => picked.has(c));
   const togglePick = (c: string) => {
@@ -609,6 +629,12 @@ function DigForm({
           {pending ? '挖掘中…' : '开始挖掘'}
         </button>
       </div>
+
+      {pending && (
+        <div className="rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground" role="status">
+          {progressText}（已用时 {elapsedSeconds} 秒）
+        </div>
+      )}
 
       {err && <div className="rounded-md bg-rose-500/[0.10] px-3 py-2 text-xs text-rose-300">{err}</div>}
       {info && <div className="rounded-md bg-amber-500/[0.10] px-3 py-2 text-xs text-amber-300">{info}</div>}
