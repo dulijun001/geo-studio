@@ -4,6 +4,11 @@ node_modules/
 
 # build
 .next/
+# ADR 012: dev/prod build dirs are permanently isolated so `next dev` can never
+# clobber the static assets the production `next start` is serving.
+.next-dev/
+.next-prod/
+.next.corrupt.*/
 next-env.d.ts
 dist/
 build/
@@ -17,6 +22,7 @@ out/
 .env.*.bak
 .env.bak*
 .env.production
+.env.ecs-backup-*
 !.env.example
 !ops/deploy/.env.production.example
 
@@ -83,3 +89,6 @@ docs/kb-staging/
 # 一次性调试脚本(D43 后约定:_dev 下新增脚本默认不入库,已跟踪的不受影响)
 apps/worker/src/_dev/
 packages/db/src/_dev/
+
+# other tools' local state
+.workbuddy/

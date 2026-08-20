@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Never let `next dev` overwrite the production artifacts used by the
+  // employee-facing launchd service. Both processes may run at the same time.
+  distDir: process.env.NODE_ENV === 'production' ? '.next-prod' : '.next-dev',
   // standalone copies only runtime files into .next/standalone — keeps the
   // production deploy lean (~150MB vs ~1.2GB with full node_modules).
   // Required for the ECS deploy flow in ops/deploy/.
