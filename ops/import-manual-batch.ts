@@ -117,7 +117,7 @@ async function main() {
             (${tenant.id}, ${a.title}, 'manual', ${a.markdown}, ${sql.array([batchName, 'manual-batch'])},
              'variant_generated', ${VARIANT_DOD},
              ${sql.json({ source: 'manual-batch', batch: batchName, note: '手工产线撰写,已过离线合规扫描 ops/offline-compliance-scan.ts' })},
-             ${q ? sql.array([q.id]) : sql.array([])})
+             ${q ? sql`ARRAY[${q.id}::uuid]` : sql`ARRAY[]::uuid[]`})
           RETURNING id`;
 
         await tx`
