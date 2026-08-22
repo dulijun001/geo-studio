@@ -5,8 +5,11 @@ import { InlineGuide } from '@/components/inline-guide';
 import { PageHeader } from '@/components/page-header';
 import {
   computeCitationInsights,
+  buildSourceMap,
+  capacityMismatch,
   type PublishedRowInput,
   type SnapshotRowInput,
+  type SourceBucket,
 } from '@geo/geo-core';
 
 export const dynamic = 'force-dynamic';
@@ -16,8 +19,9 @@ export const dynamic = 'force-dynamic';
  * 「发布 → 被 AI 引用 → 下一步行动」四个反馈回路一页看全:
  *   ① LLM 生产健康(欠费/限流当天可见)
  *   ② AI 答案污染(投诉/处罚源混入品牌答案)
- *   ③ 平台发布→引用回路(哪个平台在赚引用)
- *   ④ 时效刷新候选(发布 45 天未被引,安排员工更新)
+ *   ③ 引用池测绘(引擎实际取用谁 · 产能错配度)
+ *   ④ 平台发布→引用回路(哪个平台在赚引用)
+ *   ⑤ 时效刷新候选(发布 45 天未被引,安排员工更新)
  * 计算逻辑在 @geo/geo-core/tracking/citation-insights(与每日早报共用同一纯函数)。
  */
 export default async function LoopsPage({ params }: { params: { slug: string } }) {
@@ -90,6 +94,36 @@ export default async function LoopsPage({ params }: { params: { slug: string } }
   const totalPublished = insights.platform_loop.reduce((s, p) => s + p.published, 0);
   const totalCited = insights.platform_loop.reduce((s, p) => s + p.cited, 0);
   const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('zh-CN') : '—');
+
+  // ── 引用池测绘(2026-08-22 新增)──
+  // 平台回路表回答「我方发的东西被引了几篇」,但看不见分母:引用池里还有谁。
+  // 实测把全部引用源 URL 归类后发现,产能 100% 投在只占一成的池子里,而占
+  // 七成的医疗垂直门户零覆盖 —— 这个错配在只看我方平台的表里完全不可见。
+  const allCitationUrls = snapshots.flatMap((s) => s.citation_urls ?? []);
+  const ourArticleIds = published
+    .map((p) => p.published_url?.match(/(\d{9,})/)?.[1])
+    .filter((x): x is string => !!x);
+  const sourceMap = buildSourceMap({ urls: allCitationUrls, ourArticleIds });
+
+  // 我方产能按池子归集 —— 判断产能压在哪个池子上
+  const { data: capacityRows } = await supabase
+    .from('content_variants')
+    .select('platform')
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null);
+  const capacityByBucket: Partial<Record<SourceBucket, number>> = {};
+  const capacityByPlatform = new Map<string, number>();
+  for (const row of capacityRows ?? []) {
+    const platform = (row as { platform: string }).platform;
+    capacityByPlatform.set(platform, (capacityByPlatform.get(platform) ?? 0) + 1);
+    const bucket: SourceBucket = platform.startsWith('douyin') ? 'short_video' : 'self_media';
+    capacityByBucket[bucket] = (capacityByBucket[bucket] ?? 0) + 1;
+  }
+  const mismatch = capacityMismatch({ poolShares: sourceMap.buckets, capacityByBucket });
+  const capacityShare = (b: SourceBucket) =>
+    mismatch.details.find((d) => d.bucket === b)?.capacity ?? 0;
+  const unknownBucket = sourceMap.buckets.find((b) => b.bucket === 'unknown');
+  const unknownTop = unknownBucket?.top_domains[0]?.count ?? 0;
 
   return (
     <div className="space-y-6">
@@ -170,7 +204,134 @@ export default async function LoopsPage({ params }: { params: { slug: string } }
         )}
       </section>
 
-      {/* ③ 平台发布→引用回路 */}
+      {/* ③ 引用池测绘 — 平台回路的分母 */}
+      <section className="rounded-lg border border-border bg-card/40 px-5 py-4">
+        <h2 className="text-sm font-semibold text-foreground">
+          🗺️ 引用池测绘
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            引擎实际取用了谁 · 共 {sourceMap.total} 条引用源
+          </span>
+        </h2>
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          下面这张表的分母是<strong className="text-foreground">整个引用池</strong>,不是我方发布量。
+          它回答的问题是:我们的产能,投在了引擎真正取内容的地方吗?
+        </p>
+
+        {sourceMap.total === 0 ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            暂无引用源数据 — 需要先有成功的追踪快照(带引用源采集)。
+          </p>
+        ) : (
+          <>
+            <div
+              className={`mt-3 rounded-md border px-4 py-3 ${
+                mismatch.score > 0.6
+                  ? 'border-rose-500/30 bg-rose-500/5'
+                  : mismatch.score > 0.3
+                    ? 'border-amber-500/30 bg-amber-500/5'
+                    : 'border-emerald-500/20 bg-emerald-500/5'
+              }`}
+            >
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="text-xs text-muted-foreground">产能错配度</span>
+                <span
+                  className={`text-2xl font-semibold tabular-nums ${
+                    mismatch.score > 0.6
+                      ? 'text-rose-400'
+                      : mismatch.score > 0.3
+                        ? 'text-amber-400'
+                        : 'text-emerald-400'
+                  }`}
+                >
+                  {(mismatch.score * 100).toFixed(0)}%
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  0% = 产能分布与引用池完全对齐 · 100% = 完全押错地方(只计可投放的池子)
+                </span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="mt-3 w-full min-w-[38rem] text-left text-xs">
+                <thead>
+                  <tr className="border-b border-border text-muted-foreground">
+                    <th className="py-2 font-medium">渠道池</th>
+                    <th className="py-2 text-right font-medium">被引</th>
+                    <th className="py-2 text-right font-medium">占引用池</th>
+                    <th className="py-2 text-right font-medium">我方产能</th>
+                    <th className="py-2 text-right font-medium">缺口</th>
+                    <th className="py-2 pl-4 font-medium">主要站点</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sourceMap.buckets.map((b) => {
+                    const cap = capacityShare(b.bucket);
+                    const gap = b.actionable ? b.share - cap : null;
+                    // 机会 = 可投放 + 池子够大 + 我方产能明显不足
+                    const opportunity = b.actionable && b.share >= 0.05 && cap < b.share / 3;
+                    return (
+                      <tr key={b.bucket} className="border-b border-border/50">
+                        <td className="py-2">
+                          <span className="text-foreground">{b.label}</span>
+                          {opportunity && (
+                            <span className="ml-2 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+                              机会
+                            </span>
+                          )}
+                          {!b.actionable && (
+                            <span className="ml-2 text-[10px] text-muted-foreground">不可投放</span>
+                          )}
+                        </td>
+                        <td className="py-2 text-right tabular-nums text-foreground">{b.citations}</td>
+                        <td className="py-2 text-right tabular-nums text-foreground">
+                          {(b.share * 100).toFixed(1)}%
+                        </td>
+                        <td className="py-2 text-right tabular-nums text-muted-foreground">
+                          {b.actionable ? `${(cap * 100).toFixed(1)}%` : '—'}
+                        </td>
+                        <td
+                          className={`py-2 text-right tabular-nums ${
+                            gap === null
+                              ? 'text-muted-foreground'
+                              : gap > 0.05
+                                ? 'text-amber-400'
+                                : gap < -0.05
+                                  ? 'text-rose-400'
+                                  : 'text-muted-foreground'
+                          }`}
+                        >
+                          {gap === null
+                            ? '—'
+                            : `${gap > 0 ? '+' : ''}${(gap * 100).toFixed(0)}pp`}
+                        </td>
+                        <td className="py-2 pl-4 text-muted-foreground">
+                          {b.top_domains
+                            .slice(0, 3)
+                            .map((d) => `${d.domain}(${d.count})`)
+                            .join('  ')}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+              <strong className="text-amber-400">机会</strong> = 可主动投放 + 占引用池 ≥5% + 我方产能不足其三分之一。
+              <strong className="text-rose-400">负缺口</strong> = 产能超配,投入远超该池实际回报。
+              {unknownBucket && (
+                <>
+                  {' '}未归类 {unknownBucket.citations} 条(最大单站仅 {unknownTop} 次),为长尾碎片而非遗漏的大源;
+                  若某个未归类站点次数明显上升,应补进 `citation-source-map.ts` 规则表。
+                </>
+              )}
+            </p>
+          </>
+        )}
+      </section>
+
+      {/* ④ 平台发布→引用回路 */}
       <section className="rounded-lg border border-border bg-card/40 px-5 py-4">
         <h2 className="text-sm font-semibold text-foreground">
           📡 平台回路<span className="ml-2 text-xs font-normal text-muted-foreground">累计 · 文章 ID 级匹配</span>
@@ -210,7 +371,7 @@ export default async function LoopsPage({ params }: { params: { slug: string } }
         </p>
       </section>
 
-      {/* ④ 时效刷新候选 */}
+      {/* ⑤ 时效刷新候选 */}
       <section className="rounded-lg border border-border bg-card/40 px-5 py-4">
         <h2 className="text-sm font-semibold text-foreground">
           ⏳ 时效刷新候选
