@@ -63,10 +63,20 @@ PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -tAc \
                ELSE '⚠️ 0046 未生效 —— RPC 仍是旧排序,D55 城市级置顶不会起作用' END
    FROM pg_proc WHERE proname = 'daily_ops_pick_topics' LIMIT 1;" 2>&1 | head -3
 
-say "7/7 今日可派单盘点"
+say "7/8 导入今日手工批次(14 篇)"
+BATCH=~/Documents/松鼠派单/$(date +%Y-%m-%d)
+if [ -d "$BATCH" ]; then
+  apps/worker/node_modules/.bin/tsx --env-file=.env ops/import-manual-batch.ts "$BATCH" 2>&1 | tail -25
+else
+  echo "未找到今日批次目录 $BATCH,跳过(可手动指定其它日期目录)"
+fi
+
+say "8/8 今日可派单盘点"
 PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres \
   -f "$PROJECT/ops/check-dispatchable.sql" 2>&1 | head -100
 
 echo ""
-ok "恢复流程结束。若可派单数 > 0,直接去 /t/songshu/publish 点派单。"
-echo "   新内容生成仍需火山方舟充值(实测欠费中)。"
+ok "恢复流程结束。可派单数 > 0 就去后台点派单:"
+echo "   https://mac-studio.tailabfd54.ts.net:8443/t/songshu/publish"
+echo "   派完再发员工通知(~/Documents/松鼠派单/<日期>/00-员工通知-*.md)。"
+echo "   注意:新内容的自动生成仍需火山方舟充值(实测仍欠费)。"
