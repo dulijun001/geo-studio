@@ -94,15 +94,30 @@ async function main() {
         continue;
       }
 
+      // D24:按标题精确匹配题库回填 target_questions。
+      // 手工产线的标题就是问题原句(D50),所以能精确命中。不写这个字段的话,
+      // 选题 RPC 的 7 天去重靠 target_questions 反查 last_used_at 会完全失效
+      // —— cron 会反复选中已经写过的题(D24 正是为此立的)。
+      // 匹配不到时留空并出声提示:说明这篇内容没有对应的题库锚点,
+      // 追踪引擎也无法为它建快照(geo_snapshots 需要 question_id)。
+      const [q] = await sql<{ id: string }[]>`
+        SELECT id FROM questions
+        WHERE tenant_id = ${tenant.id} AND text = ${a.title} AND deleted_at IS NULL
+        LIMIT 1`;
+      if (!q) {
+        console.log(`   ⚠ 题库中找不到「${a.title}」— target_questions 留空,该篇不进 cron 去重、也不会被追踪`);
+      }
+
       await sql.begin(async (tx) => {
         const [item] = await tx<{ id: string }[]>`
           INSERT INTO content_items
             (tenant_id, title, source_type, markdown, topics, status,
-             dod_status, dod_evidence)
+             dod_status, dod_evidence, target_questions)
           VALUES
             (${tenant.id}, ${a.title}, 'manual', ${a.markdown}, ${sql.array([batchName, 'manual-batch'])},
              'variant_generated', ${VARIANT_DOD},
-             ${sql.json({ source: 'manual-batch', batch: batchName, note: '手工产线撰写,已过离线合规扫描 ops/offline-compliance-scan.ts' })})
+             ${sql.json({ source: 'manual-batch', batch: batchName, note: '手工产线撰写,已过离线合规扫描 ops/offline-compliance-scan.ts' })},
+             ${q ? sql.array([q.id]) : sql.array([])})
           RETURNING id`;
 
         await tx`
