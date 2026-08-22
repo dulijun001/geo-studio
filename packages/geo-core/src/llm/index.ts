@@ -1,1 +1,1 @@
-export * from './doubao';
+export * from './chat';
