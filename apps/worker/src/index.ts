@@ -13,6 +13,7 @@ import PgBoss from 'pg-boss';
 import { reportError } from '@geo/shared';
 import { setSharedBoss } from './lib/boss-ref';
 import { registerJobs } from './jobs/index';
+import { notifyWeCom } from './lib/wecom';
 
 process.on('unhandledRejection', (reason) => {
   reportError(reason, { scope: 'worker.unhandled_rejection' });
@@ -56,7 +57,12 @@ async function main() {
   process.on('SIGINT', () => void shutdown('SIGINT'));
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   reportError(err, { scope: 'worker.main_fatal' });
+  // C4:worker 起不来是"内容自动化全线停摆"的单点,必须触达手机。等推送发完再退出。
+  await notifyWeCom(
+    '🔴 geo-studio worker 启动失败',
+    `worker 进程无法启动，所有定时任务(凌晨起草/追踪/早报)已停摆。\n> ${String((err as Error)?.message ?? err).slice(0, 300)}`,
+  ).catch(() => {});
   process.exit(1);
 });

@@ -18,6 +18,7 @@ import {
 } from '@geo/geo-core';
 import { getServiceClient } from '../lib/supabase';
 import { sendMail } from '../lib/mailer';
+import { notifyWeCom } from '../lib/wecom';
 
 export type DailyReportJob = {
   /** Optional override for "yesterday" — useful for re-running a missed day. */
@@ -72,6 +73,28 @@ export async function handleDailyReport(data: DailyReportJob = {}): Promise<void
     }
     const html = renderHtml(t.name, t.slug, kpis);
     const text = renderText(t.name, kpis);
+
+    // C4 (2026-09-01):把"会咬人"的两类告警推企业微信 —— 邮件出口是死的(SMTP 未配),
+    // 这是唯一真正触达手机的通道。只在有事时推,不做每日刷屏。
+    const alerts: string[] = [];
+    if (kpis.llm_failures.count > 0) {
+      alerts.push(
+        `⚠️ 近 24h LLM 生成失败 ${kpis.llm_failures.count} 次` +
+          (kpis.llm_failures.latest_reason ? `\n> 最近原因: ${kpis.llm_failures.latest_reason}` : ''),
+      );
+    }
+    if (kpis.pollution_alerts.length > 0) {
+      alerts.push(
+        `🩸 AI 答案污染风险 ${kpis.pollution_alerts.length} 条\n` +
+          kpis.pollution_alerts
+            .slice(0, 3)
+            .map((p) => `> ${p.question} ← ${p.domain}`)
+            .join('\n'),
+      );
+    }
+    if (alerts.length > 0) {
+      await notifyWeCom(`${t.name} · GEO 告警 ${kpis.date}`, alerts.join('\n\n'));
+    }
 
     for (const to of recipients) {
       const r = await sendMail({

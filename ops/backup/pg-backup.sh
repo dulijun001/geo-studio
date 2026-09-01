@@ -30,7 +30,17 @@ DOW="$(date +%u)"   # 7 = 周日
 TARGET="$DAILY_DIR/geo-studio-$STAMP.sql.gz"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
-fail() { log "FAIL: $*"; exit 1; }
+
+# C4 (2026-09-01):备份失败推企业微信。DB 备份是"发布→被引"闭环证据的唯一保险,
+# 静默失败=在裸奔而不自知。webhook 从项目 .env 读,curl 直发(不依赖 node/worker)。
+notify_fail() {
+  local url
+  url=$(grep -E '^WECOM_WEBHOOK_URL=' /Users/dulijuner/projects/geo-studio/.env 2>/dev/null | head -1 | sed -E 's/^[^=]+=//' | tr -d '"'"'"' ')
+  [ -z "$url" ] && return 0
+  curl -s -m 10 "$url" -H 'Content-Type: application/json' \
+    -d "{\"msgtype\":\"markdown\",\"markdown\":{\"content\":\"**🔴 geo-studio DB 备份失败**\n$1\"}}" >/dev/null 2>&1 || true
+}
+fail() { log "FAIL: $*"; notify_fail "$*"; exit 1; }
 
 mkdir -p "$DAILY_DIR" "$WEEKLY_DIR" || fail "无法创建备份目录 $BACKUP_ROOT"
 
