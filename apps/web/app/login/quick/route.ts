@@ -15,26 +15,53 @@
  *
  * 替换后删除整个目录 apps/web/app/login/quick/ + page.tsx 里的 form.
  */
+import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { issueAdminSession, SUPER_ADMIN_USER_ID } from '@/lib/admin-session';
+import {
+  checkLoginAllowed,
+  clearLoginThrottle,
+  clientIpFromHeaders,
+  recordLoginFailure,
+} from '@/lib/login-throttle';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 
 export const dynamic = 'force-dynamic';
 
-const USER = 'songshu';
-const PASS = '123456';
+// C2 安全修复(2026-09-01):凭证移出源码,从 env 读取。
+// QUICK_LOGIN_PASS 未设时一律拒登 —— 绝不回落到历史弱口令。
+const USER = process.env.QUICK_LOGIN_USER?.trim() || 'songshu';
+const PASS = process.env.QUICK_LOGIN_PASS ?? '';
+
+/** 定长比较,避免用 !== 逐字符比较泄露时序信息。 */
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
 
 export async function POST(request: Request): Promise<NextResponse> {
   const url = new URL(request.url);
   const next = url.searchParams.get('next') || '/app';
 
+  // 入口是 Tailscale Funnel(公网),必须限流以挡暴力破解。复用员工端同一 throttle。
+  const ip = clientIpFromHeaders(request.headers);
+  const throttle = checkLoginAllowed('admin-quick', ip);
+  if (!throttle.allowed) {
+    return NextResponse.redirect(new URL('/login?err=rate_limited', request.url));
+  }
+
   const form = await request.formData();
   const u = String(form.get('username') ?? '').trim();
   const p = String(form.get('password') ?? '');
 
-  if (u !== USER || p !== PASS) {
+  // PASS 为空(env 未配)时 safeEqual 必为 false —— 关掉登录而不是放行。
+  if (!PASS || !safeEqual(u, USER) || !safeEqual(p, PASS)) {
+    recordLoginFailure('admin-quick', ip);
     return NextResponse.redirect(new URL('/login?err=bad', request.url));
   }
+  clearLoginThrottle('admin-quick', ip);
 
   const email = process.env.DEV_ADMIN_EMAIL?.trim() || 'lnian7914@gmail.com';
   let userId = process.env.DEV_ADMIN_USER_ID?.trim();

@@ -92,3 +92,7 @@ packages/db/src/_dev/
 
 # other tools' local state
 .workbuddy/
+
+# TLS certs / private keys (Tailscale serve, etc.) — never commit
+*.key
+*.crt
