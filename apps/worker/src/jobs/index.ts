@@ -20,6 +20,7 @@ import {
   type WeeklyKnowledgeReportJob,
 } from './weekly-knowledge-report';
 import { handleParseContent, type ParseContentJob } from './parse-content';
+import { handleStaffBacklogDigest, STAFF_BACKLOG_DIGEST_JOB } from './staff-backlog-digest';
 import { handleVariantGenerate, type VariantGenerateJob } from './variant-generate';
 
 export const JOBS = {
@@ -37,6 +38,7 @@ export const JOBS = {
   COMPLIANCE_AUTO_REWRITE: 'compliance.auto_rewrite', // P3 — auto LLM rewrite on reject (max 1×)
   DAILY_OPS_NIGHTLY_DRAFT: NIGHTLY_DRAFT_JOB, // V1.10 docs/09 cron #1
   DAILY_OPS_AUTO_DISPATCH_TIMEOUT: AUTO_DISPATCH_TIMEOUT_JOB, // V1.10 docs/09 cron #2
+  STAFF_BACKLOG_DIGEST: STAFF_BACKLOG_DIGEST_JOB, // G1 轻量版 — 每日待发积压推企微
 } as const;
 
 export async function registerJobs(boss: PgBoss): Promise<void> {
@@ -67,6 +69,10 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
 
   await boss.work<DailyReportJob>(JOBS.REPORTS_DAILY, async ([job]) => {
     await handleDailyReport(job?.data ?? {});
+  });
+
+  await boss.work(JOBS.STAFF_BACKLOG_DIGEST, async () => {
+    await handleStaffBacklogDigest();
   });
 
   await boss.work<KnowledgeSyncJob>(JOBS.KNOWLEDGE_SYNC, async ([job]) => {
@@ -116,6 +122,9 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
   // Schedule the daily report at 09:00 Asia/Shanghai (= 01:00 UTC).
   // pg-boss schedule uses UTC cron; 0 1 * * * = 01:00 UTC = 09:00 Asia/Shanghai.
   await boss.schedule(JOBS.REPORTS_DAILY, '0 1 * * *', {});
+
+  // G1 轻量版 — 每日 04:00 UTC = 12:00 Asia/Shanghai,午间把待发积压推管理员企微。
+  await boss.schedule(JOBS.STAFF_BACKLOG_DIGEST, '0 4 * * *', {});
 
   // Knowledge-base reconciliation every 5 minutes.
   // Cheap: ~210 md files, hash diff < 200ms; only writes when content changes.
