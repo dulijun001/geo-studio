@@ -152,6 +152,17 @@ const PLATFORM_SPEC: Record<VariantPlatform, { label: string; format_hint: strin
   },
 };
 
+/**
+ * 生成"今天"的日期戳(北京时间)。
+ * prompt 里的更新时间必须是真实当天 —— 写死示例日期会被 LLM 原样抄进正文,
+ * 造成假时效信号(2026-05 起所有自动稿都盖了同一个 5 月日期)。
+ * 'sv-SE' 区域的日期格式恰好是 YYYY-MM-DD,借它做时区安全的格式化。
+ */
+export function todayStamp(): { ymd: string; ym: string } {
+  const ymd = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+  return { ymd, ym: ymd.slice(0, 7) };
+}
+
 const SYSTEM_RULES = `
 你是一位服务于本地高客单价医疗品牌的资深内容编辑,精通生成式引擎优化(GEO)。
 
@@ -203,7 +214,7 @@ C. 必备结构块(医疗类长内容必须含,短内容如抖音口播/小红�
 5. 风险边界(risk_boundary)— 出现什么情况一定要去线下就诊;不替代面诊
 6. **FAQ 块 ≥ 5 条**(Q + A 短答)— Q 是真实搜索词形式,A 35-90 字独立成立
 7. 审核信息 — 由医院医疗团队 / 具名医生审核
-8. 更新时间 — 例:"本文最近更新于 2026-05-13"
+8. 更新时间 — 必须原样写"本文最近更新于 __TODAY__",不许改成别的日期
 9. 机构与服务绑定 — 文末点出品牌 + 服务名 + 城市(自然语境,不广告化)
 10. Trust Block(文末独立段落,见 D 项)
 
@@ -212,7 +223,7 @@ D. Trust Block(强制独立段落,文末出现,不要散落正文,用普通文�
   • 本文不替代:面诊、影像、专业评估
   • 出现以下情况建议尽快就诊:[列 3-5 个红旗症状]
   • 审核:[医院 / 医生]
-  • 更新:[YYYY-MM]
+  • 更新:__TODAY_YM__
   • 地域:[城市 / 区域]
 
 E. 引用块(Citation Block)标准 — 每个独立段落都要满足:
@@ -480,9 +491,12 @@ ${ctx.source_markdown}
   // Order: SYSTEM_RULES (compliance red lines, IMMUTABLE) → template role/intent.
   // This ordering matters: red lines come first so a malicious template can't
   // "override" them by appearing earlier.
+  // 把 prompt 里的日期占位换成真实当天(见 todayStamp 注释)
+  const { ymd, ym } = todayStamp();
+  const rules = SYSTEM_RULES.split('__TODAY_YM__').join(ym).split('__TODAY__').join(ymd);
   const systemContent = ctx.writing_template?.prompt_skeleton
-    ? `${SYSTEM_RULES}\n\n${ctx.writing_template.prompt_skeleton}`
-    : SYSTEM_RULES;
+    ? `${rules}\n\n${ctx.writing_template.prompt_skeleton}`
+    : rules;
 
   return [
     { role: 'system', content: systemContent },

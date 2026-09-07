@@ -19,7 +19,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { chat, enforceTitleFromQuery, evaluateDod, extractSlices, isAvailable as llmAvailable, personaToDoctorFields, renderDoctorBlock, sanitizeAbsoluteWords, stripDraftArtifacts } from '@geo/geo-core';
+import { chat, enforceTitleFromQuery, todayStamp, evaluateDod, extractSlices, isAvailable as llmAvailable, personaToDoctorFields, renderDoctorBlock, sanitizeAbsoluteWords, stripDraftArtifacts } from '@geo/geo-core';
 import { PLATFORM_HINT, prettifyMarkdown, reportError } from '@geo/shared';
 
 export type AiDraftPlatform =
@@ -246,7 +246,7 @@ const SYSTEM_PROMPT = `你是一位严谨的医疗内容编辑。基于提供的
      - **底线**:地域+本院建议必须真实、不夸大、不与别家比较;无真值的数字不编。
    - 缺 1 条 → DoD 闸门直接 fail,整篇不可派单
 7. 审核信息 — 由医院医疗团队 / 具名医生审核
-8. 更新时间 — 例:"本文最近更新于 2026-05"
+8. 更新时间 — 必须原样写"本文最近更新于 __TODAY__",不许改成别的日期
 9. 机构与服务绑定 — 文末点出品牌 + 服务名 + 城市(自然语境)
 10. Trust Block(见 5.2)
 
@@ -255,7 +255,7 @@ const SYSTEM_PROMPT = `你是一位严谨的医疗内容编辑。基于提供的
   • 本文不替代:面诊、影像、专业评估
   • 出现以下情况建议尽快就诊:[列 3-5 个红旗症状]
   • 审核:[医院 / 医生]
-  • 更新:[YYYY-MM]
+  • 更新:__TODAY_YM__
   • 地域:[城市 / 区域]
 
 **5.3 引用块标准** — 每个独立段落:
@@ -784,7 +784,10 @@ export async function runAiDraft(
   const doctorBlock = renderDoctorBlock(topDoctors, { mode: 'draft' });
 
   // SYSTEM_PROMPT (immutable) first; template skeleton appended.
-  const systemContent = SYSTEM_PROMPT + templateSystemAppend;
+  // 同 prompt-builder:更新时间占位换成真实当天,防 LLM 抄写死的示例日期
+  const { ymd: _ymd, ym: _ym } = todayStamp();
+  const systemContent =
+    SYSTEM_PROMPT.split('__TODAY_YM__').join(_ym).split('__TODAY__').join(_ymd) + templateSystemAppend;
 
   // D21 / ADR 009 — query intent + primary_query framing. Injected BEFORE
   // sources block so the model anchors generation around the question type
