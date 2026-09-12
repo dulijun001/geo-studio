@@ -19,6 +19,7 @@
  */
 import { bestBrandRank, scanBrandMentions, type VocabRow } from '@geo/geo-core';
 import { reportError, type Engine } from '@geo/shared';
+import { notifyWeCom } from '../lib/wecom';
 import { getServiceClient } from '../lib/supabase';
 import { getAdapter } from '../trackers/registry';
 
@@ -161,6 +162,9 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
     console.log(
       `[geo-snapshot] ${snapshot_id} → ${result.status} (${result.failure_reason ?? '—'})`,
     );
+    // D73:引擎连续失败要吼出来。豆包 9-07 起每次都写了 failure_reason,
+    // 但没有出口,静默瞎了 5 天 —— 信息一直在产生,只是没人看。
+    await maybeAlertEngineDown(engine, tenant_id, result.failure_reason ?? '');
     return;
   }
 
@@ -231,7 +235,12 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
   );
 }
 
-async function markFailed(snapshotId: string, reason: string): Promise<void> {
+async function markFailed(
+  snapshotId: string,
+  reason: string,
+  engine?: Engine,
+  tenantId?: string,
+): Promise<void> {
   const client = getServiceClient();
   reportError(new Error(reason), {
     scope: 'tracker.geo_snapshot',
@@ -241,6 +250,69 @@ async function markFailed(snapshotId: string, reason: string): Promise<void> {
     .from('geo_snapshots')
     .update({ status: 'failed', failure_reason: reason })
     .eq('id', snapshotId);
+  if (engine && tenantId) await maybeAlertEngineDown(engine, tenantId, reason);
+}
+
+/**
+ * 「这台引擎需要人去处理」的失败特征。
+ *
+ * 为什么把 circuit breaker 也算进来(2026-09-12 实测):D43 的熔断器在连续 5 次
+ * 失败后开闸,把后续快照标成 `rate_limited`,理由写「rate-limit suspected」——
+ * **它会把真因盖掉**。9-07 那次周跑实际是 5 条 welcome-page bug 失败触发熔断,
+ * 剩下 6 条全被记成「疑似限流」,看数据像被豆包风控,其实是我们自己的 bug。
+ * 熔断反复开也必须吼人。
+ */
+const ENGINE_DOWN_PATTERNS =
+  /welcome page|submit not accepted|login expired|登录|captcha|验证|circuit breaker/i;
+/** 连续几次同类失败才吼,避免单次抖动就打扰。 */
+const ENGINE_DOWN_STREAK = 3;
+
+/**
+ * 引擎失联告警(D73,2026-09-12)。
+ *
+ * 为什么需要:豆包从 9-07 起每次追踪都失败,失败原因**每次都正确写进了
+ * `failure_reason`** —— 但没有任何出口,于是静默瞎了 5 天没人发现。信息一直
+ * 在产生,只是没人看。这跟 9-01 审计里「告警只走从未配置的 SMTP」是同一种病。
+ *
+ * 设计上刻意保守:
+ *   - 只在**连续** 3 次同类失败后吼一次,单次抖动不打扰;
+ *   - 只认「需要人处理」的特征(欢迎页/未提交/登录/验证码),LLM 抖动之类不吼;
+ *   - 永不 throw —— 告警挂掉不能反过来搞垮追踪(沿用 wecom.ts 的约定)。
+ */
+async function maybeAlertEngineDown(engine: Engine, tenantId: string, reason: string): Promise<void> {
+  try {
+    if (!ENGINE_DOWN_PATTERNS.test(reason)) return;
+    const client = getServiceClient();
+    const { data } = await client
+      .from('geo_snapshots')
+      .select('status, failure_reason')
+      .eq('tenant_id', tenantId)
+      .eq('engine', engine)
+      .order('created_at', { ascending: false })
+      .limit(ENGINE_DOWN_STREAK);
+    const rows = data ?? [];
+    if (rows.length < ENGINE_DOWN_STREAK) return;
+    const allDown = rows.every(
+      (r) =>
+        (r.status === 'failed' || r.status === 'rate_limited') &&
+        ENGINE_DOWN_PATTERNS.test(String(r.failure_reason ?? '')),
+    );
+    if (!allDown) return;
+    await notifyWeCom(
+      `🔴 GEO 追踪失联:${engine}`,
+      [
+        `连续 ${ENGINE_DOWN_STREAK} 次失败,特征是「需要人处理」而不是临时抖动。`,
+        `最近原因:${reason.slice(0, 160)}`,
+        '',
+        '多半是登录态过期或页面改版。处理:',
+        `  pnpm --filter @geo/worker ${engine}:login`,
+        '登完跑一次冒烟验证:',
+        `  pnpm --filter @geo/worker exec tsx src/trackers/_dev/_try-engine.ts ${engine}`,
+      ].join('\n'),
+    );
+  } catch {
+    // 告警失败只当没发生,绝不影响追踪主流程
+  }
 }
 
 /**
