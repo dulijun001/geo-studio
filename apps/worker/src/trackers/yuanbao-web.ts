@@ -53,6 +53,11 @@ const MESSAGE_CANDIDATES = [
 // not a <button>. Generic `button:has(svg)` previously misfired onto an
 // unrelated header icon and left the message in the composer.
 const SEND_BUTTON_CANDIDATES = [
+  // 2026-09-12 实测:元宝换了新框架(class 里带 --new-framework),发送键变成
+  // CSS module 生成的 `SendButton_sendButton__<hash>`。哈希每次构建都会变,
+  // 所以只匹配稳定前缀。旧的 icon-send 已经失效,但留着不删——降级不死翘。
+  '[class*="SendButton_sendButton"]',
+  '[class*="sendButton"]',
   '[class*="icon-send"]',
   '[class*="agent-chat__input"] [class*="icon-send"]',
   'button[aria-label*="发送"]',
