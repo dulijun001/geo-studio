@@ -14,7 +14,7 @@
  * 失败哲学:补货失败**不阻塞**当晚起草(池里可能还有存货),但必须 reportError
  * 出声(D49:系统性失败零静默)。
  */
-import { expandSubtopics, isNearDuplicateQuestion, type QuestionLike } from '@geo/geo-core';
+import { expandSubtopics, isNearDuplicateQuestion, type QuestionLike, questionPriority } from '@geo/geo-core';
 import { reportError, reportEvent } from '@geo/shared';
 import type { getServiceClient } from './supabase';
 
@@ -22,17 +22,11 @@ type Client = ReturnType<typeof getServiceClient>;
 
 const GEO_ANCHOR_RE = /昆明|西山|双塔|希望路/;
 /** 区县/商圈级地域词 — 与 0043/0046 RPC 的 geo_tier 判定正则保持一致 */
-const DISTRICT_RE = /西山区|五华区|盘龙区|官渡区|呈贡区|安宁|东川|晋宁|富民|宜良|石林|嵩明|禄劝|寻甸/;
-/**
- * D55 地域分级 priority(0046 起 RPC 排序纯 priority 驱动,此处不赋值 = 分级失效)。
- * 原先硬编码 priority=9 会盖过 0046 给区县级定的 7,补货几晚就把分级冲垮
- * —— 正是 0043 注释预言的"手动调的 priority 会被新题入库覆盖"。
- */
-function geoTieredPriority(text: string): number {
-  if (DISTRICT_RE.test(text)) return 7; // A 区县/商圈级 — 长尾补充
-  if (text.includes('昆明')) return 10; // B 城市级 — 优先起草带
-  return 4; // C 无地域 — RPC 已过滤,压低仅为语义一致
-}
+// D68(2026-09-12):priority 规则移到 geo-core/tracking/topic-priority.ts 单点定义。
+// 这里原先有一份本地实现,挖题脚本里又抄了一份——正是 D56 栽过的「补货路径没同步
+// 赋值规则,几晚把分级冲垮」。现在所有写 questions.priority 的地方都调同一个函数。
+// 新规则在 D55 地域分级之上加了一层:只有「找机构型」问法进起草带(D67 实测,
+// 上过推荐榜的 8 道 100% 来自这一类,价格题和知识题 0 上榜)。
 /** 题面级红线(种子污染防线,比 D33 词库窄:只拦绝对不该出现在"问题"里的) */
 const SEED_REDLINE_RE = /最好|最佳|第一名|排名第一|根治|治愈|无痛|保证|包治/;
 /** 每晚最多展开的主题数(成本上限 ≈ 3 次 LLM 调用) */
@@ -174,7 +168,7 @@ export async function replenishTopicPool(
         text: s.text,
         intent: s.intent,
         city: '昆明',
-        priority: geoTieredPriority(s.text),
+        priority: questionPriority(s.text),
         active: true,
         parent_id: theme.id,
         subtopic_source: 'llm_expand',

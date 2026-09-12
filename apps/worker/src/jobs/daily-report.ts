@@ -41,6 +41,25 @@ type Kpis = {
   /** P1-2 (docs/11) LLM 调用失败告警:近 24h variant 生成失败次数 + 最近原因。
    *  方舟 4 个月内 4 次欠费停产,每次都数天后才发现 — 现在欠费次日早报必报。 */
   llm_failures: { count: number; latest_reason: string | null };
+  /** D66(docs/08 断点1)追踪 → 选题:把追踪结果按「我们在答案里处在什么位置」分档,
+   *  直接给出该补什么内容,而不是让老板每周肉眼看 SOV 表自己想。 */
+  weak_questions: WeakQuestions;
+};
+
+/**
+ * 追踪过的题按表现分四档。
+ * 档位是按「离成交有多远」排的:被竞品独占 > 谁都没提 > 提了没进推荐位 > 已上榜。
+ */
+export type WeakQuestions = {
+  tracked: number;
+  /** 答案里只有竞品、没有我们 —— 最该补内容,而且知道补什么 */
+  rival_only: Array<{ text: string; rivals: number }>;
+  /** 答案里谁都没提机构(多半是纯知识题,D44 说这类本来就不产生机构榜) */
+  nobody: number;
+  /** 提到我们了,但没进任何编号推荐位 —— 从「被提到」到「被推荐」是真正的瓶颈 */
+  mentioned_unranked: number;
+  /** 已经进推荐位 */
+  ranked: number;
 };
 
 type PlatformLoop = { platform: string; published: number; cited: number };
@@ -166,6 +185,7 @@ async function computeKpis(tenantId: string, dayStart: string, dayEnd: string): 
     overdue_tasks: overdueRes.count ?? 0,
     ...(await computeCitationInsightsForReport(tenantId)),
     llm_failures: await computeLlmFailures(tenantId),
+    weak_questions: await computeWeakQuestions(tenantId),
   };
 }
 
@@ -278,6 +298,68 @@ export async function fetchInsightRows(
   });
   const snapshots = (snapRes.data ?? []) as SnapshotRowInput[];
   return { published, snapshots };
+}
+
+/**
+ * docs/08 断点 1 落地:追踪 → 选题。
+ *
+ * 数据源是 `geo_snapshots.meta.brand_scan`(D66),不是 `citations` 子表 —— 后者是二次
+ * insert、失败被吞,实测 100 条 done 快照里 12 条一行都没有,拿它算「从没被提及」会
+ * 把已经排第 1 的题报成零曝光(修复前这个查询报 27 道零提及,修完真实只有 2 道)。
+ */
+export async function computeWeakQuestions(tenantId: string): Promise<WeakQuestions> {
+  const client = getServiceClient();
+  const { data } = await client
+    .from('geo_snapshots')
+    .select('question_id, meta')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'done')
+    .limit(2000);
+
+  type Agg = { mentioned: number; ranked: number; rivals: number };
+  const byQ = new Map<string, Agg>();
+  for (const row of data ?? []) {
+    const meta = (row.meta ?? {}) as Record<string, unknown>;
+    const bs = (meta.brand_scan ?? {}) as Record<string, number>;
+    const hasRank = meta.brand_rank != null;
+    const qid = row.question_id as string;
+    const cur = byQ.get(qid) ?? { mentioned: 0, ranked: 0, rivals: 0 };
+    if ((bs.brand ?? 0) > 0) cur.mentioned += 1;
+    if (hasRank) cur.ranked += 1;
+    cur.rivals = Math.max(cur.rivals, bs.competitor ?? 0);
+    byQ.set(qid, cur);
+  }
+
+  const rivalOnlyIds = [...byQ.entries()]
+    .filter(([, a]) => a.mentioned === 0 && a.rivals > 0)
+    .sort((a, b) => b[1].rivals - a[1].rivals)
+    .slice(0, 5);
+
+  let nobody = 0;
+  let unranked = 0;
+  let ranked = 0;
+  for (const [, a] of byQ) {
+    if (a.ranked > 0) ranked += 1;
+    else if (a.mentioned > 0) unranked += 1;
+    else if (a.rivals === 0) nobody += 1;
+  }
+
+  const texts = new Map<string, string>();
+  if (rivalOnlyIds.length > 0) {
+    const { data: qs } = await client
+      .from('questions')
+      .select('id, text')
+      .in('id', rivalOnlyIds.map(([id]) => id));
+    for (const q of qs ?? []) texts.set(q.id as string, q.text as string);
+  }
+
+  return {
+    tracked: byQ.size,
+    rival_only: rivalOnlyIds.map(([id, a]) => ({ text: texts.get(id) ?? id, rivals: a.rivals })),
+    nobody,
+    mentioned_unranked: unranked,
+    ranked,
+  };
 }
 
 async function findRecipients(tenantId: string): Promise<string[]> {
@@ -435,7 +517,27 @@ function renderText(tenantName: string, kpis: Kpis): string {
     kpis.llm_failures.count > 0
       ? `🔴 LLM 生成失败 ${kpis.llm_failures.count} 次(近24h),最近原因:${(kpis.llm_failures.latest_reason ?? '未知').slice(0, 80)}`
       : '',
+    renderWeakQuestions(kpis.weak_questions),
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+/** 追踪 → 选题(docs/08 断点1)。没追踪过任何题就整段不出,别在早报里留空壳。 */
+export function renderWeakQuestions(w: WeakQuestions): string {
+  if (w.tracked === 0) return '';
+  const lines = [
+    '',
+    `该写什么(追踪过 ${w.tracked} 道题):`,
+    `  🟢 已进推荐位 ${w.ranked}`,
+    `  🟡 提到了但没进推荐位 ${w.mentioned_unranked}  ← 从「被提到」到「被推荐」是瓶颈`,
+    `  ⚪ 答案里谁都没提机构 ${w.nobody}(多为纯知识题,D44 说本就不产生机构榜)`,
+  ];
+  if (w.rival_only.length > 0) {
+    lines.push(`  🔴 只有竞品没有我们 ${w.rival_only.length} 道 — 最该补内容:`);
+    for (const r of w.rival_only) lines.push(`      「${r.text}」(答案里出现 ${r.rivals} 家竞品)`);
+  } else {
+    lines.push('  🔴 只有竞品没有我们:0 道');
+  }
+  return lines.join('\n');
 }

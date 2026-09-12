@@ -35,7 +35,16 @@ V1.7 把 A → B → C 的"喂"做完了:Schema 自动生成、AI Feed/Sitemap �
 
 ## 二、5 个断点详述
 
-### 断点 1 — 追踪 → 内容选题(P0 价值最高)
+### 断点 1 — 追踪 → 内容选题(P0 价值最高)  ✅ **已闭合 2026-09-12(D66)**
+
+> **落地情况**:没走本节原设计的「tenant home 加卡片 + 一键建工单」,改为接进已有早报(企微通道 D63),理由是先把信号送到人手机上比先建 UI 实在。实现见 `daily-report.ts` 的 `computeWeakQuestions()`,自检 `_dev/_check-weak-questions.ts`。
+>
+> **⚠️ 本节下面那段 SQL 草稿不要直接用**,两处错:(1) `s.status = 'parsed'` —— 枚举里没有这个值,实际是 `'done'`;(2) 用 `c.brand_mentioned` 做判据 —— 该列是恒 `true` 的遗留字段(见 `schema/tracking.ts` 注释),照抄结果恒为空。正确判据是 `citations.term_type = 'brand'`。
+>
+> **而且不该读 citations**:那张表是主表落库后的二次 insert,失败被吞,实测 12/100 快照一行都没有,用它算「从没被提及」会把已经排第 1 的题报成零曝光(修复前 27 道 vs 真实 2 道)。现在的真源是 `geo_snapshots.meta.brand_scan`,与快照同一次 update 写入。
+>
+> **实测分档(98 道追踪过的题)**:🔴 只有竞品没有我们 2 / ⚪ 谁都没提机构 14 / 🟡 提到了但没进推荐位 74 / 🟢 已上榜 8。**结论反转**:瓶颈不是「没被提及」,是「被提到却没被推荐」。
+
 
 **该联但没联**:`geo_snapshots` + `citations` 知道哪些 question 我们一次没被引用过,但 `content_items` 端不知情,客户每周肉眼看 SOV 表自己决定写啥。
 

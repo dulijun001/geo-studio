@@ -17,7 +17,7 @@
  * (rate limit, captcha) per the TrackerAdapter contract, so we don't need
  * a try/catch around adapter.query here for those — only for unexpected bugs.
  */
-import { scanBrandMentions, type VocabRow } from '@geo/geo-core';
+import { bestBrandRank, scanBrandMentions, type VocabRow } from '@geo/geo-core';
 import { reportError, type Engine } from '@geo/shared';
 import { getServiceClient } from '../lib/supabase';
 import { getAdapter } from '../trackers/registry';
@@ -165,6 +165,21 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
   }
 
   // Done — persist response + scan mentions.
+  // D64(2026-09-11):先扫品牌词再落库,因为名次要跟 meta 一起写进同一次 update。
+  const scan = scanBrandMentions(result.raw_response ?? '', vocab);
+  const brandRank = computeBrandRank(result.raw_response ?? '', scan);
+  // D66:扫描结果同时落在快照自己的 meta 上。
+  // 为什么不只靠 citations 子表:那张表是二次 insert,失败只 console.error 就吞了,
+  // 实测 100 条 done 快照里 12 条一行 citations 都没有(正文明明有品牌词)。
+  // 下游「哪些题从没被提及」的判断读到的就是假 0 —— 会把已经排第 1 的题报成零曝光。
+  // meta 跟 status 同一次 update 写入,不存在「主表成功子表失败」的中间态。
+  const brandScan = {
+    brand: scan.count_by_type.brand,
+    competitor: scan.count_by_type.competitor,
+    doctor: scan.count_by_type.doctor,
+    distinct_terms: scan.distinct_terms,
+  };
+
   await client
     .from('geo_snapshots')
     .update({
@@ -174,12 +189,11 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
       session_url: sessionUrl,
       // V1.13 (0045): 诊断维度落库 — 前端据 sources_expander / sources_error
       // 区分「无引用面板(真实0)/ 已采集 N 条 / 采集失败」三态
-      meta: result.meta ?? {},
+      // V1.14 (D64): brand_rank = 本品牌在答案推荐榜里的名次(带板块),null = 没上榜
+      meta: { ...(result.meta ?? {}), brand_rank: brandRank, brand_scan: brandScan },
       asked_at: new Date().toISOString(),
     })
     .eq('id', snapshot_id);
-
-  const scan = scanBrandMentions(result.raw_response ?? '', vocab);
   if (scan.mentions.length > 0) {
     const rows = scan.mentions.map((m) => ({
       tenant_id,
@@ -191,7 +205,21 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
       term_type: m.term_type,
     }));
     const { error: cErr } = await client.from('citations').insert(rows);
-    if (cErr) console.error(`[geo-snapshot] citations insert: ${cErr.message}`);
+    if (cErr) {
+      // D66:原来这里只 console.error,整批 insert 失败就悄无声息(实测丢了 12% 快照的
+      // 明细)。改成:先吼给告警通道(D49「静默路径零容忍」),再逐行重试 —— 一行坏
+      // (比如 vocab 被软删导致 FK 挂)不该把同一快照其余 mentions 全带走。
+      reportError(new Error(`citations batch insert failed: ${cErr.message}`), {
+        scope: 'tracker.geo_snapshot.citations',
+        extra: { snapshot_id, rows: rows.length },
+      });
+      let ok = 0;
+      for (const row of rows) {
+        const { error: rowErr } = await client.from('citations').insert(row);
+        if (!rowErr) ok += 1;
+      }
+      console.error(`[geo-snapshot] citations 逐行重试:${ok}/${rows.length} 成功`);
+    }
   }
 
   const meta = (result.meta ?? {}) as Record<string, unknown>;
@@ -213,4 +241,28 @@ async function markFailed(snapshotId: string, reason: string): Promise<void> {
     .from('geo_snapshots')
     .update({ status: 'failed', failure_reason: reason })
     .eq('id', snapshotId);
+}
+
+/**
+ * 算本品牌在这条答案里的推荐名次(D64)。
+ *
+ * 只在「机构榜」板块里算——闸门用 brand + competitor 两类词,详见 rank.ts 里
+ * isOrgRanking 的说明。返回 null 有两种情况,都属于正常:品牌没被提到,或者
+ * 被提到了但不在任何编号推荐位上(比如只出现在避坑提示段)。
+ */
+function computeBrandRank(text: string, scan: ReturnType<typeof scanBrandMentions>) {
+  const brandOffsets = scan.mentions.filter((m) => m.term_type === 'brand').map((m) => m.offset);
+  if (brandOffsets.length === 0) return null;
+  const orgOffsets = scan.mentions
+    .filter((m) => m.term_type === 'brand' || m.term_type === 'competitor')
+    .map((m) => m.offset);
+  const best = bestBrandRank(text, brandOffsets, { orgOffsets });
+  if (!best) return null;
+  return {
+    rank: best.rank,
+    total_in_section: best.totalInSection,
+    section_index: best.sectionIndex,
+    section_title: best.sectionTitle,
+    item_label: best.itemLabel,
+  };
 }
