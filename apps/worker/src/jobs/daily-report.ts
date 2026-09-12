@@ -44,6 +44,9 @@ type Kpis = {
   /** D66(docs/08 断点1)追踪 → 选题:把追踪结果按「我们在答案里处在什么位置」分档,
    *  直接给出该补什么内容,而不是让老板每周肉眼看 SOV 表自己想。 */
   weak_questions: WeakQuestions;
+  /** D69:待审合规的**积压年龄**。光报一个「待审 36」看不出严重性——实际最老的
+   *  已经压了 7 周。合规人审是 D5 第三道门,不能也不该自动化,但至少要让它显形。 */
+  pending_age: { count: number; oldest_days: number; over_14d: number };
 };
 
 /**
@@ -186,6 +189,7 @@ async function computeKpis(tenantId: string, dayStart: string, dayEnd: string): 
     ...(await computeCitationInsightsForReport(tenantId)),
     llm_failures: await computeLlmFailures(tenantId),
     weak_questions: await computeWeakQuestions(tenantId),
+    pending_age: await computePendingAge(tenantId),
   };
 }
 
@@ -307,6 +311,27 @@ export async function fetchInsightRows(
  * insert、失败被吞,实测 100 条 done 快照里 12 条一行都没有,拿它算「从没被提及」会
  * 把已经排第 1 的题报成零曝光(修复前这个查询报 27 道零提及,修完真实只有 2 道)。
  */
+export /** 待审合规的积压年龄(D69)。只读,不改任何状态。 */
+async function computePendingAge(tenantId: string): Promise<Kpis['pending_age']> {
+  const client = getServiceClient();
+  const { data } = await client
+    .from('content_variants')
+    .select('created_at')
+    .eq('tenant_id', tenantId)
+    .eq('compliance_status', 'pending')
+    .is('deleted_at', null)
+    .limit(1000);
+  const rows = data ?? [];
+  if (rows.length === 0) return { count: 0, oldest_days: 0, over_14d: 0 };
+  const now = Date.now();
+  const ages = rows.map((r) => Math.floor((now - new Date(r.created_at as string).getTime()) / 86_400_000));
+  return {
+    count: rows.length,
+    oldest_days: Math.max(...ages),
+    over_14d: ages.filter((d) => d > 14).length,
+  };
+}
+
 export async function computeWeakQuestions(tenantId: string): Promise<WeakQuestions> {
   const client = getServiceClient();
   const { data } = await client
@@ -516,6 +541,9 @@ function renderText(tenantName: string, kpis: Kpis): string {
     kpis.stale_uncited.count > 0 ? `⏳ ${kpis.stale_uncited.count} 篇发布>45天未被引,建议更新` : '',
     kpis.llm_failures.count > 0
       ? `🔴 LLM 生成失败 ${kpis.llm_failures.count} 次(近24h),最近原因:${(kpis.llm_failures.latest_reason ?? '未知').slice(0, 80)}`
+      : '',
+    kpis.pending_age.over_14d > 0
+      ? `⏳ 待审合规 ${kpis.pending_age.count} 条,其中 ${kpis.pending_age.over_14d} 条压了 14 天以上,最老 ${kpis.pending_age.oldest_days} 天 — 合规人审只能你来`
       : '',
     renderWeakQuestions(kpis.weak_questions),
   ]
