@@ -191,10 +191,15 @@ class YuanbaoWebAdapter implements TrackerAdapter {
       }
 
       const extracted = await this.#extract(page);
+      const sources = await this.#extractSources(page).catch((e) => ({
+        urls: [] as string[],
+        meta: { sources_error: e instanceof Error ? e.message : String(e) } as Record<string, unknown>,
+      }));
+
       return {
         status: 'done',
         raw_response: extracted.raw_response,
-        citation_urls: extracted.citation_urls,
+        citation_urls: [...new Set([...extracted.citation_urls, ...sources.urls])],
         meta: {
           elapsed_ms: Date.now() - started,
           session_url: page.url(),
@@ -210,6 +215,57 @@ class YuanbaoWebAdapter implements TrackerAdapter {
     } finally {
       await context?.close().catch(() => undefined);
     }
+  }
+
+  /**
+   * 引用源采集(2026-09-12,照搬豆包 D43-B 的思路)。
+   *
+   * 元宝的来源**不在初始 DOM**:答案区一个 http 外链都没有(实测展开前后都是 0),
+   * 所以此前 citation_urls 恒为空,一度让我误判「元宝不做检索」。实际它做 ——
+   * 页面里有 `data-toolbar-type="citation" aria-label="引用17篇资料作为参考"`,
+   * 点开才渲染来源列表。
+   *
+   * ⚠️ 现状:**这个实现拿不到来源,已知不够,留着是为了记录已查清的事实**。
+   * 实测点开 citation toolbar 后页面外链数仍是 0。翻 HTML 才明白为什么:
+   * 元宝的引用是**索引不是链接** —— 正文里嵌的是
+   * `<div class="hyc-common-markdown__ref-list__trigger" data-idx-list="2,14">`,
+   * 只有序号和一个图标,URL 根本不在 DOM 里(`__NEXT_DATA__` 里也没有,
+   * 全页非腾讯外链只有 googletagmanager 和一张图片)。
+   *
+   * 要真拿到得走这两条之一(都没做):
+   *   (a) 悬停/点击每个 `[data-idx-list]` 芯片,等 tooltip 里渲染出 URL;
+   *   (b) 用 `page.on('response')` 截网络响应,从携带来源列表的接口 JSON 里取。
+   * (b) 更稳,不依赖 hover 交互,推荐走这条。
+   *
+   * 采不到不影响 done 状态 —— 引用源是加分项,答案本身才是主信号(ADR-002)。
+   */
+  async #extractSources(page: import('playwright').Page): Promise<{
+    urls: string[];
+    meta: Record<string, unknown>;
+  }> {
+    const CITATION_TOGGLE = '[data-toolbar-type="citation"]';
+    const before = new Set(
+      await page.locator('a[href^="http"]').evaluateAll((as) =>
+        (as as HTMLAnchorElement[]).map((a) => a.href),
+      ),
+    );
+    const toggle = page.locator(CITATION_TOGGLE).first();
+    if ((await toggle.count()) === 0) {
+      return { urls: [], meta: { sources_expander: null, sources_note: 'no citation toolbar' } };
+    }
+    await toggle.click({ timeout: 5_000 }).catch(() => undefined);
+    await page.waitForTimeout(2_000);
+    const after = await page.locator('a[href^="http"]').evaluateAll((as) =>
+      (as as HTMLAnchorElement[]).map((a) => a.href),
+    );
+    // 只要新增的,并剔掉元宝自家域名(favicon/官网这类不是来源)
+    const urls = [...new Set(after)].filter(
+      (u) => !before.has(u) && !/yuanbao\.tencent\.com|static\.yuanbao|qq\.com\/favicon/.test(u),
+    );
+    return {
+      urls,
+      meta: { sources_expander: CITATION_TOGGLE, sources_found: urls.length },
+    };
   }
 
   async #extract(page: import('playwright').Page): Promise<{
