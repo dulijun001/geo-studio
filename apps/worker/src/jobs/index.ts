@@ -109,9 +109,14 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
   // V1.9 — Batch AI-draft worker. pg-boss v10 dropped teamSize; concurrency
   // comes from batchSize (fetch N jobs per poll) + Promise.all in handler.
   // 5 concurrent LLM calls = safe Doubao Pro QPS water-line.
+  // 2026-09-11: 并发改 env 可配。Ark 欠费切备用通道(本机 claudeproxy)时,备用通道
+  // 是排队不是并行 —— 实测单篇长文 63s,5 并发排队后必超时,14/14 全灭。
+  // 欠费期间在 .env 设 DRAFT_CONCURRENCY=2,Ark 恢复后删掉即回到 5。
+  const draftConcurrency = Math.max(1, Number(process.env.DRAFT_CONCURRENCY) || 5);
+  console.log(`[worker] batch_draft_item concurrency=${draftConcurrency}`);
   await boss.work<BatchDraftItemJob>(
     JOBS.BATCH_DRAFT_ITEM,
-    { batchSize: 5 },
+    { batchSize: draftConcurrency },
     async (jobs) => {
       await Promise.all(
         jobs.map((job) => (job?.data ? handleBatchDraftItem(job.data) : Promise.resolve())),

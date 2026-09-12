@@ -22,6 +22,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { chat, enforceTitleFromQuery, todayStamp, evaluateDod, extractSlices, isAvailable as llmAvailable, personaToDoctorFields, renderDoctorBlock, sanitizeAbsoluteWords, stripDraftArtifacts } from '@geo/geo-core';
 import { PLATFORM_HINT, prettifyMarkdown, reportError } from '@geo/shared';
 
+const AI_DRAFT_LLM_TIMEOUT_MS = Number(process.env.AI_DRAFT_LLM_TIMEOUT_MS) || 210_000;
+
 export type AiDraftPlatform =
   | 'xiaohongshu'
   | 'douyin_script'
@@ -875,14 +877,16 @@ export async function runAiDraft(
         // surfacing as parse errors. 4000 covers ~2K-char Chinese article + struct.
         max_tokens: 4000,
         response_format: 'json_object',
-        timeout_ms: 120_000,
+        // 210s:worker 侧 INTERNAL_API_TIMEOUT_MS=240s,留 30s 余量。备用通道
+        // (claudeproxy)单篇长文实测 63s,排队 2 并发时需要这个上限。
+        timeout_ms: AI_DRAFT_LLM_TIMEOUT_MS,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/abort/i.test(msg)) {
         // Retryable — pg-boss retryLimit=3 will pick this up. Mark it as
         // retryable so the worker handler knows to throw vs return.
-        const e = new Error('AI 生成超过 90 秒未返回(可能负载抖动),将自动重试');
+        const e = new Error(`AI 生成超过 ${Math.round(AI_DRAFT_LLM_TIMEOUT_MS / 1000)} 秒未返回(可能负载抖动),将自动重试`);
         (e as Error & { retryable?: boolean }).retryable = true;
         throw e;
       }
@@ -892,7 +896,12 @@ export async function runAiDraft(
         tenant_id: tenantId,
         extra: { platform: input.platform, topic: topic.slice(0, 80) },
       });
-      throw new Error(`AI 调用失败: ${msg.slice(0, 100)}`);
+      // D69(2026-09-12):全通道失败时不能按 100 字截断。chat.ts 特意把主备两个
+      // 原因都拼进来(那边注释写了「否则会误判成备用配错而漏掉主通道欠费」),但光
+      // 主通道那句 Ark 403 的 JSON 就超过 100 字,`| 备用: xxx` 每次都被切掉 ——
+      // 2026-09-11 那次全通道失败就是这么断的线,备用为什么挂至今查不出。
+      const cap = msg.includes('全通道失败') ? 600 : 100;
+      throw new Error(`AI 调用失败: ${msg.slice(0, cap)}`);
     }
     const parsedRaw = extractJson(result.content);
     if (!parsedRaw) {

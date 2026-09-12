@@ -17,7 +17,65 @@
  *   LLM_FALLBACK_MODEL_FAST 备用通道快模型(短结构化任务用,见 D54);缺省回落到上一项
  */
 
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import type { ChatOptions, ChatResult } from './provider-ark';
+
+/** 最小响应封装,只保留下面用到的 ok / status / text() / json()。 */
+type SimpleResponse = {
+  ok: boolean;
+  status: number;
+  text: () => Promise<string>;
+  json: () => Promise<unknown>;
+};
+
+/**
+ * 用 node:http 代替全局 fetch 发 POST。
+ *
+ * 原因(2026-09-11 实测):Node 内置 fetch(undici)写死 headersTimeout=300s ——
+ * 服务端 300s 内不回响应头就抛 "fetch failed",且 fetch 参数改不了。备用通道
+ * (claudeproxy → claude CLI)一次真实起草实测 275-300s+,正好撞线。node:http 只受
+ * 我们自己传入的 AbortSignal(= opts.timeout_ms)约束。
+ */
+function postJson(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+  signal: AbortSignal,
+): Promise<SimpleResponse> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const doRequest = u.protocol === 'https:' ? httpsRequest : httpRequest;
+    const req = doRequest(
+      u,
+      {
+        method: 'POST',
+        headers: { ...headers, 'Content-Length': String(Buffer.byteLength(body)) },
+        signal,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('error', reject);
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          const status = res.statusCode ?? 0;
+          resolve({
+            ok: status >= 200 && status < 300,
+            status,
+            text: async () => text,
+            json: async () => JSON.parse(text) as unknown,
+          });
+        });
+      },
+    );
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+const FALLBACK_MIN_TIMEOUT_MS = Number(process.env.LLM_FALLBACK_MIN_TIMEOUT_MS) || 240_000;
 
 export function fallbackAvailable(): boolean {
   return !!process.env.LLM_FALLBACK_API_KEY && !!process.env.LLM_FALLBACK_BASE_URL;
@@ -57,7 +115,11 @@ export async function fallbackChat(opts: ChatOptions): Promise<ChatResult> {
 
   const model = resolveModel(opts);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), opts.timeout_ms ?? 30_000);
+  // 备用通道是 CLI 包装的慢通道(单次 45s 起步,长文 300s+),调用方按 Ark 定的 30-60s
+  // 超时在这里一律不够用 —— 给一个地板值,取调用方超时与地板的较大者。
+  // 2026-09-11 实测:不加地板时 variant-generate(60s)/合规复审(默认 30s)在备用通道全部 abort。
+  const timeoutMs = Math.max(opts.timeout_ms ?? 30_000, FALLBACK_MIN_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const wantsJson = opts.response_format === 'json_object';
@@ -70,12 +132,12 @@ export async function fallbackChat(opts: ChatOptions): Promise<ChatResult> {
     if (wantsJson) body.response_format = { type: 'json_object' };
 
     const call = (payload: Record<string, unknown>) =>
-      fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
+      postJson(
+        `${baseUrl.replace(/\/$/, '')}/chat/completions`,
+        { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        JSON.stringify(payload),
+        controller.signal,
+      );
 
     let res = await call(body);
 

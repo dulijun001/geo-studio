@@ -45,7 +45,9 @@ export type BatchDraftItemJob = {
   question_id?: string | null;
 };
 
-const INTERNAL_API_TIMEOUT_MS = 240_000; // 4 min — matches runAiDraft's 3-min LLM cap + buffer
+// 默认 4 min。2026-09-11:备用通道(claudeproxy → claude CLI)真实起草 prompt 实测 >180s,
+// 欠费期间在 .env 设 INTERNAL_API_TIMEOUT_MS=600000,并同步 AI_DRAFT_LLM_TIMEOUT_MS < 本值。
+const INTERNAL_API_TIMEOUT_MS = Number(process.env.INTERNAL_API_TIMEOUT_MS) || 240_000;
 
 function getInternalApiUrl(): string {
   // Prefer INTERNAL_API_BASE (loopback) — worker lives on the same host as
@@ -200,7 +202,7 @@ export async function handleBatchDraftItem(data: BatchDraftItemJob): Promise<voi
     // re-schedules. Don't write `failed` yet — keep status='running' so
     // the UI shows "进行中…" while retry happens.
     const isRetryable = errorMsg
-      ? /超过 90 秒|abort|timeout|HTTP 50[234]/i.test(errorMsg)
+      ? /超过 \d+ 秒|abort|timeout|HTTP 50[234]/i.test(errorMsg)
       : false;
     const attemptsSoFar = (existing.attempts ?? 0) + 1; // we just bumped above
     if (isRetryable && attemptsSoFar < 3) {
