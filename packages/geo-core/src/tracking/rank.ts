@@ -77,6 +77,17 @@ function cnToNum(s: string): number {
 
 // 板块头:行首或句末之后的「一、」「二、」…
 const SECTION_RE = /(?:^|[\n。！？])\s*([一二三四五六七八九十]{1,3})、\s*/g;
+/**
+ * 2026-09-12 豆包改版后的新板块头:行首的 ✅ / 📌 / 🔹 等标记。
+ *
+ * 改版把「一、公立医院 / 1. XX医院 2. YY医院」整个换成了
+ * 「✅ 公立 / 公立背景」+ **无编号的机构名行**。旧解析器要求阿拉伯数字编号,
+ * 对新格式一条名次都解不出来 —— 而信息其实都在(实测那条答案里松鼠就在
+ * 民营板块第 1 位,共 5 家)。
+ */
+const MARKER_SECTION_RE = /(?:^|\n)\s*([✅📌🔹🔸▶►·]|[⭐★])\s*([^\n]{2,40})/g;
+/** 机构名行的特征:短、独占一行、含机构类词。描述段落会更长且带标点。 */
+const ORG_LINE_RE = /^[^\n]{3,34}(医院|口腔|门诊部|门诊|诊所|齿科|牙科)[^\n]{0,12}$/;
 // 条目头:行首或句末/右括号之后的「1. 」「2、」…
 // (?![\d%]) 挡掉小数和百分比;后面必须跟一个实义字符(中英文/数字之外的标点不算)
 const ITEM_RE = /(?:^|[\n。！？；)）】]|\s)\s*([1-9]\d?)\s*[.、．]\s*(?![\d%])(?=[^\s.,、。%])/g;
@@ -90,8 +101,12 @@ const LABEL_MAX = 40;
 export function parseAnswerRanking(text: string): RankedSection[] {
   if (!text) return [];
 
-  // 1) 先切板块
+  // 1) 先切板块。两种板块头并存:老的「一、」和 2026-09 改版后的「✅ 」。
   const heads: { index: number; title: string; at: number; bodyFrom: number }[] = [];
+  // 板块是从哪种格式切出来的。无编号兜底**只允许用在新标记格式上** ——
+  // 2026-09-12 实测:放开给老格式会大量误报,把地址行、描述句、「长期随访与服务」
+  // 这类段落都切成排行榜条目,抽查 6 条全是假的。老格式一行都不要动。
+  let markerBased = false;
   SECTION_RE.lastIndex = 0;
   for (let m = SECTION_RE.exec(text); m; m = SECTION_RE.exec(text)) {
     const at = m.index + (m[0].length - m[0].replace(/^[\n。！？\s]+/, '').length);
@@ -102,6 +117,22 @@ export function parseAnswerRanking(text: string): RankedSection[] {
       at,
       bodyFrom,
     });
+  }
+  if (heads.length === 0) {
+    markerBased = true;
+    MARKER_SECTION_RE.lastIndex = 0;
+    let n = 0;
+    for (let m = MARKER_SECTION_RE.exec(text); m; m = MARKER_SECTION_RE.exec(text)) {
+      n += 1;
+      const at = m.index + (m[0].length - m[0].replace(/^\s+/, '').length);
+      heads.push({
+        index: n,
+        title: (m[2] ?? '').trim().slice(0, LABEL_MAX),
+        at,
+        bodyFrom: m.index + m[0].length,
+      });
+    }
+    if (heads.length === 0) markerBased = false;
   }
 
   const spans: { index: number; title: string | null; start: number; end: number }[] =
@@ -123,7 +154,10 @@ export function parseAnswerRanking(text: string): RankedSection[] {
       raw.push({ ordinal: Number(m[1] ?? 0), start: s.start + m.index + m[0].length });
     }
 
-    const kept = keepAscendingRun(raw);
+    let kept = keepAscendingRun(raw);
+    // 新格式没有编号:退回按「独占一行的机构名」切条目,名次 = 出现次序。
+    // 只在这个板块**一个编号项都没有**时启用,不影响老格式。
+    if (kept.length === 0 && markerBased) kept = orgLineItems(text, s.start, s.end);
     const items: RankedItem[] = kept.map((it, i) => {
       const end = kept[i + 1]?.start ?? s.end;
       return {
@@ -247,4 +281,30 @@ export function bestBrandRank(
   const ranks = locateRanks(text, brandOffsets, opts);
   if (ranks.length === 0) return null;
   return ranks.reduce((best, r) => (r.rank < best.rank ? r : best));
+}
+
+/**
+ * 无编号列表的条目切分(2026-09-12 豆包改版后新增)。
+ *
+ * 判据:独占一行、3-34 字、含机构类词(医院/口腔/门诊/诊所/齿科/牙科)。
+ * 描述段落通常更长且带句号,所以长度上限就能把它们挡在外面。
+ * 名次 = 这些行在板块内的出现次序。
+ *
+ * 注意:这里只负责「切出候选条目」,**要不要当成排行榜**仍由 isOrgRanking 决定
+ * (板块内至少 2 条命中 brand_vocab),所以「📌 怎么判断靠不靠谱」这类段落
+ * 即使碰巧切出几行,也不会被算成名次。
+ */
+function orgLineItems(text: string, start: number, end: number): { ordinal: number; start: number }[] {
+  const out: { ordinal: number; start: number }[] = [];
+  let cursor = start;
+  let n = 0;
+  for (const line of text.slice(start, end).split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed && ORG_LINE_RE.test(trimmed)) {
+      n += 1;
+      out.push({ ordinal: n, start: cursor + line.indexOf(trimmed) });
+    }
+    cursor += line.length + 1;
+  }
+  return out;
 }
