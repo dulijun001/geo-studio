@@ -40,6 +40,25 @@ const MESSAGE_CANDIDATES = [
 const WELCOME_HINT_SELECTOR = '[class*="welcome"], [data-testid="welcome"], [class*="banner-card"]';
 
 /**
+ * 欢迎页指纹。提到模块级,让**轮询过程**和最终判定共用同一份(2026-09-12)。
+ *
+ * 修的是这个 bug:豆包改版后只剩 `main` 能拿到内容,而欢迎页的 main 本身就有
+ * 约 140 字 —— 超过 MIN_RESPONSE_CHARS(100),而且它是静止的,于是轮询在 3 秒内
+ * 就把「欢迎页」判成了「稳定的答案」,提取后再撞指纹判失败。整个过程 16 秒结束,
+ * 而真实答案要 30-60 秒才渲染出来。表象是「提交没生效」,实际是**提交成功了、
+ * 我们没等**。修法:只要文本还长得像欢迎页,就不允许判稳定。
+ */
+const WELCOME_FINGERPRINTS = [
+  '新对话内容由豆包 AI 生成',
+  '在此处拖放文件',
+  '快速PPT 生成',
+  '图像生成',
+  '请仔细甄别',
+  '帮我写作翻译编程',
+  '最多 50 个',
+];
+
+/**
  * Persistent Chrome user-data dir. Holds the doubao login cookie so the
  * tracker doesn't ask for a captcha every run. Override via env
  * GEO_DOUBAO_USERDATA for test isolation. Run `pnpm doubao:login` once
@@ -225,19 +244,37 @@ class DoubaoWebAdapter implements TrackerAdapter {
         await page.waitForTimeout(POLL_INTERVAL_MS);
 
         const probe = await page
-          .evaluate((selectors) => {
-            for (const s of selectors) {
-              const els = Array.from(document.querySelectorAll(s));
-              if (!els.length) continue;
-              let chars = 0;
-              for (const el of els) chars += (el.textContent || '').length;
-              if (chars > 0) return { sel: s, len: chars };
-            }
-            return { sel: null as string | null, len: 0 };
-          }, MESSAGE_CANDIDATES)
-          .catch(() => ({ sel: null as string | null, len: 0 }));
+          .evaluate(
+            ({ selectors, fingerprints }) => {
+              for (const s of selectors) {
+                const els = Array.from(document.querySelectorAll(s));
+                if (!els.length) continue;
+                let chars = 0;
+                let text = '';
+                for (const el of els) {
+                  const t = el.textContent || '';
+                  chars += t.length;
+                  text += t;
+                }
+                if (chars > 0) {
+                  const hits = fingerprints.filter((kw) => text.includes(kw)).length;
+                  return { sel: s, len: chars, welcomeHits: hits };
+                }
+              }
+              return { sel: null as string | null, len: 0, welcomeHits: 0 };
+            },
+            { selectors: MESSAGE_CANDIDATES, fingerprints: WELCOME_FINGERPRINTS },
+          )
+          .catch(() => ({ sel: null as string | null, len: 0, welcomeHits: 0 }));
         const len = probe.len;
         if (probe.sel) lastWinner = probe.sel;
+
+        // 还长得像欢迎页就不算数 —— 否则会把静止的欢迎页判成「稳定答案」(2026-09-12)
+        if (probe.welcomeHits >= 3) {
+          idleCount = 0;
+          lastLen = len;
+          continue;
+        }
 
         if (len >= MIN_RESPONSE_CHARS && len === lastLen) {
           idleCount += 1;
@@ -272,15 +309,6 @@ class DoubaoWebAdapter implements TrackerAdapter {
       // 抓到的"回答"实际是豆包欢迎页 placeholder 内容(资讯卡片 / 文件上传
       // 提示 / 推荐 prompt 列表)。匹配 5+ welcome 指纹关键词时回 failed 不污染
       // 数据,SOV 战况图能区分"真 fail"vs"假 done"。
-      const WELCOME_FINGERPRINTS = [
-        '新对话内容由豆包 AI 生成',
-        '在此处拖放文件',
-        '快速PPT 生成',
-        '图像生成',
-        '请仔细甄别',
-        '帮我写作翻译编程',
-        '最多 50 个',
-      ];
       const welcomeHits = WELCOME_FINGERPRINTS.filter((kw) =>
         extracted.raw_response.includes(kw),
       ).length;
