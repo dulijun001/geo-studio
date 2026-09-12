@@ -47,7 +47,24 @@ type Kpis = {
   /** D69:待审合规的**积压年龄**。光报一个「待审 36」看不出严重性——实际最老的
    *  已经压了 7 周。合规人审是 D5 第三道门,不能也不该自动化,但至少要让它显形。 */
   pending_age: { count: number; oldest_days: number; over_14d: number };
+  /** D75:解析健康度。硬编码依赖别人家 DOM/文案的东西(名次解析、引用源抽取)
+   *  在对方改版后会**静默归零** —— 一周内已经栽了三次,全靠人肉偶然发现。 */
+  parse_health: ParseHealth;
 };
+
+/** 最近一次追踪批次的解析健康度。null 表示近期没有追踪批次可评。 */
+type ParseHealth = {
+  run_date: string;
+  done: number;
+  /** 解析出名次的条数 */
+  ranked: number;
+  /** 采到引用源的条数 */
+  with_citations: number;
+  /** 提及了品牌的条数 */
+  mentioned: number;
+  /** 归零告警:样本够却全军覆没的维度 */
+  zeroed: string[];
+} | null;
 
 /**
  * 追踪过的题按表现分四档。
@@ -112,6 +129,14 @@ export async function handleDailyReport(data: DailyReportJob = {}): Promise<void
             .slice(0, 3)
             .map((p) => `> ${p.question} ← ${p.domain}`)
             .join('\n'),
+      );
+    }
+    const ph = kpis.parse_health;
+    if (ph && ph.zeroed.length > 0) {
+      alerts.push(
+        `🔴 追踪解析可能被改版打断(${ph.run_date} 批次 ${ph.done} 条)\n` +
+          ph.zeroed.map((z) => `> ${z}`).join('\n') +
+          '\n> 样本够却全军覆没,大概率不是内容原因。查 selector/文案格式是否变了。',
       );
     }
     if (alerts.length > 0) {
@@ -190,6 +215,7 @@ async function computeKpis(tenantId: string, dayStart: string, dayEnd: string): 
     llm_failures: await computeLlmFailures(tenantId),
     weak_questions: await computeWeakQuestions(tenantId),
     pending_age: await computePendingAge(tenantId),
+    parse_health: await computeParseHealth(tenantId),
   };
 }
 
@@ -311,7 +337,54 @@ export async function fetchInsightRows(
  * insert、失败被吞,实测 100 条 done 快照里 12 条一行都没有,拿它算「从没被提及」会
  * 把已经排第 1 的题报成零曝光(修复前这个查询报 27 道零提及,修完真实只有 2 道)。
  */
-export /** 待审合规的积压年龄(D69)。只读,不改任何状态。 */
+/**
+ * 解析健康度(D75)。
+ *
+ * 只看**最近一个追踪批次**(按 asked_at 的日期分组),因为追踪是周跑,
+ * 拿「近 7 天」当窗口会在非跑批日恒为空。
+ *
+ * 判「归零」的前提是样本够(≥5 条 done):5 条答案里一条名次都没解出来、
+ * 或一条引用源都没采到,几乎不可能是内容原因,大概率是解析/抽取被改版打断了。
+ * 这正是 2026-09-12 那次的形态 —— 豆包改文案后名次全 null,而没有任何告警。
+ */
+export async function computeParseHealth(tenantId: string): Promise<ParseHealth> {
+  const client = getServiceClient();
+  const { data } = await client
+    .from('geo_snapshots')
+    .select('asked_at, meta, citation_urls')
+    .eq('tenant_id', tenantId)
+    .eq('status', 'done')
+    .not('asked_at', 'is', null)
+    .order('asked_at', { ascending: false })
+    .limit(200);
+  const rows = data ?? [];
+  if (rows.length === 0) return null;
+
+  const latestDay = String(rows[0]?.asked_at ?? '').slice(0, 10);
+  const batch = rows.filter((r) => String(r.asked_at ?? '').slice(0, 10) === latestDay);
+  if (batch.length === 0) return null;
+
+  let ranked = 0;
+  let withCitations = 0;
+  let mentioned = 0;
+  for (const r of batch) {
+    const meta = (r.meta ?? {}) as Record<string, unknown>;
+    if (meta.brand_rank != null) ranked += 1;
+    const bs = (meta.brand_scan ?? {}) as Record<string, number>;
+    if ((bs.brand ?? 0) > 0) mentioned += 1;
+    if (((r.citation_urls as string[] | null) ?? []).length > 0) withCitations += 1;
+  }
+
+  const zeroed: string[] = [];
+  if (batch.length >= 5) {
+    if (ranked === 0) zeroed.push('名次解析全 null');
+    if (withCitations === 0) zeroed.push('引用源全 0');
+    if (mentioned === 0) zeroed.push('品牌提及全 0');
+  }
+  return { run_date: latestDay, done: batch.length, ranked, with_citations: withCitations, mentioned, zeroed };
+}
+
+/** 待审合规的积压年龄(D69)。只读,不改任何状态。 */
 async function computePendingAge(tenantId: string): Promise<Kpis['pending_age']> {
   const client = getServiceClient();
   const { data } = await client
@@ -544,6 +617,10 @@ function renderText(tenantName: string, kpis: Kpis): string {
       : '',
     kpis.pending_age.over_14d > 0
       ? `⏳ 待审合规 ${kpis.pending_age.count} 条,其中 ${kpis.pending_age.over_14d} 条压了 14 天以上,最老 ${kpis.pending_age.oldest_days} 天 — 合规人审只能你来`
+      : '',
+    kpis.parse_health
+      ? `解析健康度(${kpis.parse_health.run_date} 批次 ${kpis.parse_health.done} 条):名次 ${kpis.parse_health.ranked} / 引用 ${kpis.parse_health.with_citations} / 提及 ${kpis.parse_health.mentioned}` +
+        (kpis.parse_health.zeroed.length ? `  🔴 ${kpis.parse_health.zeroed.join('、')}` : '')
       : '',
     renderWeakQuestions(kpis.weak_questions),
   ]
