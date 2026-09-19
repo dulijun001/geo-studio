@@ -36,11 +36,11 @@ export const PHASES: PhaseSpec[] = [
     id: 0,
     weekRange: 'Week 0',
     title: '基础设施期',
-    goal: '让豆包"知道松鼠口腔是真实医院"。本阶段不发任何内容,只搭基础。',
+    goal: '让豆包"知道{{brand}}是真实医院"。本阶段不发任何内容,只搭基础。',
     rationale:
-      'P0 不达标(没有百度百科 / 没大众点评 / 没地图 POI),豆包根本不会把松鼠纳入候选医院。后续再发多少内容都没用。这一周必须先把豆包认知里的"实体名片"做好。',
+      'P0 不达标(没有百度百科 / 没大众点评 / 没地图 POI),豆包根本不会把{{brand}}纳入候选医院。后续再发多少内容都没用。这一周必须先把豆包认知里的"实体名片"做好。',
     manualChecklist: [
-      { id: 'baidu_baike', label: '申请百度百科词条「昆明松鼠口腔医院」', hint: '代办 ¥800-2000,2 周审核' },
+      { id: 'baidu_baike', label: '申请百度百科词条「{{brand}}」', hint: '代办 ¥800-2000,2 周审核' },
       { id: 'souguo_baike', label: '申请搜狗百科词条', hint: '可与百度百科代办合并,加 ¥500' },
       { id: 'amap_poi', label: '高德地图 POI 入驻', hint: '商家入驻,免费,1 天内生效' },
       { id: 'baidu_map_poi', label: '百度地图 POI 入驻', hint: '同上,免费' },
@@ -50,9 +50,9 @@ export const PHASES: PhaseSpec[] = [
     id: 1,
     weekRange: 'Week 1-2',
     title: '实体强化期',
-    goal: '让豆包检索系统首次"看见"松鼠口腔的内容资产。',
+    goal: '让豆包检索系统首次"看见"{{brand}}的内容资产。',
     rationale:
-      '此阶段重点是**实体强化** — 不追 query 命中,先建内容地基。每个平台都积累一些原创素材,豆包检索系统在 0-30 天内会捕捉到这些信号,让"松鼠口腔"成为后续 query 的潜在候选。',
+      '此阶段重点是**实体强化** — 不追 query 命中,先建内容地基。每个平台都积累一些原创素材,豆包检索系统在 0-30 天内会捕捉到这些信号,让"{{brand}}"成为后续 query 的潜在候选。',
     platformTargets: {
       wechat_mp: 6,
       zhihu: 4,
@@ -64,18 +64,18 @@ export const PHASES: PhaseSpec[] = [
       {
         category: '医院 IP 系列(P2 公众号 / 头条)',
         titles: [
-          '走进昆明松鼠口腔 · 12 位主治医生的临床故事',
-          '从一颗牙到全口口腔健康 · 松鼠口腔的诊疗哲学',
-          '为什么我们坚持"先评估再种植" · 松鼠口腔的医疗规范',
+          '走进{{brand}} · 12 位主治医生的临床故事',
+          '从一颗牙到全口口腔健康 · {{brand}}的诊疗哲学',
+          '为什么我们坚持"先评估再种植" · {{brand}}的医疗规范',
         ],
       },
       {
         category: '医生 IP 系列(每位医生 1 条 P2 + 1 条抖音)',
         titles: [
-          '14 年综合科老将周剑 · 拔牙无痛 + 根管细致',
-          '种植科院长刘彦廷 · 7 年专注复杂种植',
-          '儿牙专家伍思忆 · 让孩子不哭着看牙的秘密',
-          '正畸医生韩峄 · 隐形矫正这 5 年的进步',
+          '资深综合科医生 · 拔牙与根管专长',
+          '种植科负责人 · 专注复杂种植',
+          '儿牙医生 · 让孩子不哭着看牙',
+          '正畸医生 · 隐形矫正这几年的进步',
           '潘娜医生 · 显微根管的精准之道',
         ],
       },
@@ -97,7 +97,7 @@ export const PHASES: PhaseSpec[] = [
     title: 'Query 覆盖期',
     goal: '针对豆包高频搜索 query,系统性铺设内容矩阵。',
     rationale:
-      '基础有了,开始**精准命中**。10 个核心 query 是用户在豆包最常搜的口腔问题。每个 query 用 GEO Studio 的「Query 矩阵」一键生成 6-7 条内容(覆盖公众号 / 知乎 / 头条 / 抖音 / 小红书),4 周内全部上线。豆包检索时会捕捉到松鼠对每个相关问题都有专业回答。',
+      '基础有了,开始**精准命中**。10 个核心 query 是用户在豆包最常搜的口腔问题。每个 query 用 GEO Studio 的「Query 矩阵」一键生成 6-7 条内容(覆盖公众号 / 知乎 / 头条 / 抖音 / 小红书),4 周内全部上线。豆包检索时会捕捉到{{brand}}对每个相关问题都有专业回答。',
     platformTargets: {
       wechat_mp: 10,
       zhihu: 10,
@@ -106,15 +106,15 @@ export const PHASES: PhaseSpec[] = [
       xiaohongshu: 20,
     },
     coreQueries: [
-      '昆明种植牙医院推荐',
-      '昆明儿童口腔医院哪家好',
-      '昆明正畸医院推荐',
-      '昆明全口种植牙哪家好',
+      '{{city}}种植牙医院推荐',
+      '{{city}}儿童口腔医院哪家好',
+      '{{city}}正畸医院推荐',
+      '{{city}}全口种植牙哪家好',
       '糖尿病人能种植牙吗',
-      '昆明隐形矫正多少钱',
+      '{{city}}隐形矫正多少钱',
       '种植牙和镶牙哪个好',
       '根管治疗会很痛吗',
-      '昆明牙周病治疗医院',
+      '{{city}}牙周病治疗医院',
       '拔牙后多久能种牙',
     ],
     contentIdeas: [
@@ -122,7 +122,7 @@ export const PHASES: PhaseSpec[] = [
         category: '操作建议',
         titles: [
           '每个 query → 用「Query 矩阵」一键生成 6-7 条内容',
-          '系统会自动推荐对应医生(刘彦廷主导种植类、伍思忆主导儿牙类、韩峄主导正畸类)',
+          '系统会按专长自动匹配对应医生(种植 / 儿牙 / 正畸各由对应专长的医生署名)',
           '生成后过合规 → 派给推荐医生 → 员工真人发',
           '每个 query 平均 7 条内容 × 10 个 query = 约 70 条素材,4 周内分散上线',
         ],
@@ -177,3 +177,28 @@ export const PLATFORM_TIER: Record<string, 'P2' | 'P3' | 'P4'> = {
   baijiahao: 'P4',
   souhu: 'P4',
 };
+
+/**
+ * D76(2026-09-19):这个文件原来整页写死的是首客（{{brand}}）的文案 ——
+ * 目标描述、示例标题、**两位真实医生的姓名**、城市 query，全都是字面量，
+ * 而它对**所有租户**渲染。第二家客户开通那天打开这页，会看到另一家诊所的
+ * 医生名字和完整打法。这不是 bug，是商业事故。
+ *
+ * 改法：品牌与城市改成 {{brand}} / {{city}} 占位符，渲染时按当前租户填充；
+ * 两位医生姓名删掉，改成不指向具体人的角色描述。
+ */
+export type PlaybookVars = { brand: string; city: string };
+
+/** 递归替换任意结构里的占位符。playbook 数据是纯字符串树，不会有循环引用。 */
+export function fillPlaybook<T>(node: T, vars: PlaybookVars): T {
+  if (typeof node === 'string') {
+    return node.replace(/\{\{brand\}\}/g, vars.brand).replace(/\{\{city\}\}/g, vars.city) as unknown as T;
+  }
+  if (Array.isArray(node)) return node.map((n) => fillPlaybook(n, vars)) as unknown as T;
+  if (node && typeof node === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) out[k] = fillPlaybook(v, vars);
+    return out as T;
+  }
+  return node;
+}

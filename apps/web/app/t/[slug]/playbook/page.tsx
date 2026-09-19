@@ -8,6 +8,7 @@ import {
   PHASES,
   PLATFORM_LABEL,
   PLATFORM_TIER,
+  fillPlaybook,
   type PhaseSpec,
 } from './playbook-data';
 
@@ -37,7 +38,7 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
   ] = await Promise.all([
     supabase
       .from('brands')
-      .select('location')
+      .select('name, location')
       .eq('tenant_id', tenant.id)
       .is('deleted_at', null)
       .order('created_at', { ascending: true })
@@ -108,12 +109,20 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
   //   Phase 0 done = 4 P0 items checked → unlock Phase 1
   //   Phase 1 done ≈ ≥ 50% of platform targets met → unlock Phase 2
   //   Phase 2 done ≈ ≥ 50% of platform targets met → Phase 3
+  // D76:playbook 文案原本写死首客品牌与两位真实医生姓名,却对所有租户渲染。
+  // 这里按当前租户把 {{brand}} / {{city}} 填上 —— 拿不到就退化成中性称呼,
+  // 绝不回落到任何具体诊所的名字。
+  const brandName = (brand as { name?: string } | null)?.name?.trim() || tenant.name || '本机构';
+  const brandCity =
+    ((brand as { location?: { city?: string } } | null)?.location?.city ?? '').trim() || '本地';
+  const PHASES_T = fillPlaybook(PHASES, { brand: brandName, city: brandCity });
+
   const phase0Done =
     Object.values(checklistDone).filter(Boolean).length === 4;
   const phase1Done =
-    phase0Done && computePhaseProgress(PHASES[1]!, pubByPlatform) >= 0.5;
+    phase0Done && computePhaseProgress(PHASES_T[1]!, pubByPlatform) >= 0.5;
   const phase2Done =
-    phase1Done && computePhaseProgress(PHASES[2]!, pubByPlatform) >= 0.5;
+    phase1Done && computePhaseProgress(PHASES_T[2]!, pubByPlatform) >= 0.5;
 
   let currentPhase: 0 | 1 | 2 | 3 = 0;
   if (phase0Done) currentPhase = 1;
@@ -158,7 +167,7 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
   // Build query progress map: query → { drafts, sov }
   const queryProgress = new Map<string, { drafts: number; sovPct: number | null; latestSnapId: string | null }>();
   const aiDrafts = (aiDraftsRaw ?? []) as Array<{ title: string; topics: string[] }>;
-  for (const phase of PHASES) {
+  for (const phase of PHASES_T) {
     if (!phase.coreQueries) continue;
     for (const q of phase.coreQueries) {
       // Heuristic: drafts whose title or topics contain the query string's
@@ -225,7 +234,7 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
               当前阶段
             </p>
             <p className="text-lg font-semibold">
-              {PHASES[currentPhase]!.weekRange} · {PHASES[currentPhase]!.title}
+              {PHASES_T[currentPhase]!.weekRange} · {PHASES_T[currentPhase]!.title}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -234,7 +243,7 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
             </span>
             <span className="text-muted-foreground">·</span>
             <div className="flex items-center gap-1.5">
-              {PHASES.map((p) => (
+              {PHASES_T.map((p) => (
                 <PhaseDot
                   key={p.id}
                   label={p.weekRange.replace('Week ', 'W')}
@@ -247,7 +256,7 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
           </div>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          {PHASES[currentPhase]!.rationale}
+          {PHASES_T[currentPhase]!.rationale}
         </p>
       </section>
 
@@ -294,7 +303,7 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
       ) : null}
 
       {/* Phase sections */}
-      {PHASES.map((phase) => (
+      {PHASES_T.map((phase) => (
         <PhaseSection
           key={phase.id}
           phase={phase}

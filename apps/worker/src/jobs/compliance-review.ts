@@ -27,6 +27,8 @@ import {
   type KeywordHit,
   type KeywordRow,
   type ComplianceCase,
+  checkNumericSource,
+  summarizeNumericSource,
 } from '@geo/geo-core';
 import { reportError } from '@geo/shared';
 import { enqueueViaSharedBoss } from '../lib/boss-ref';
@@ -330,6 +332,22 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
     }
     if (numericVerdict === 'reject') {
       downgradeReasons.push('numeric_fact_reject');
+    }
+    // D76(2026-09-19):数字无出处 → 转人审。
+    //
+    // 补的是一个结构性缺口:关键词那道门 pass 就直接 auto_approved,不调 LLM,
+    // 实测 691 次扫描里 422 次走的是这条零审查通道(61%)。而 LLM prompt 自己把
+    // 「没有来源的具体百分比」列为 A 档高风险 —— 最该管的恰好没人管。
+    // 实测已发布内容里漏出「咬合力接近真牙(约 80-90%)」「术后肿胀发生率超过 30%」,
+    // 以及「五年存留率约 98%（数据来源：具体研究）」这种**占位符没填**的假出处。
+    //
+    // 用确定性正则而不是再加一遍 LLM:零调用成本、结果可复现,而且方舟还在欠费、
+    // 备用通道吃的是用户自己的订阅额度,3 倍调用量不是现在该付的代价。
+    // 判 pending 不判 rejected —— 机器只能看出「附近有没有出处标记」,
+    // 那个出处是真是假得人来看。
+    const numericSource = checkNumericSource(variant.body ?? '');
+    if (numericSource.verdict === 'pending') {
+      downgradeReasons.push(`numeric_no_source(${summarizeNumericSource(numericSource)})`);
     }
     // P1-2 敏感题材人审地板(docs/11,2026-07-03):医保/集采/报销类是实测
     // 被引最多的赢家题材(被引 14 篇集中于此),同时政策数字写错的代价也
