@@ -96,6 +96,8 @@ export async function handleBatchDraftItem(data: BatchDraftItemJob): Promise<voi
   let succeeded = false;
   let contentItemId: string | undefined;
   let errorMsg: string | undefined;
+  // D76:认领窗口的起点 —— 服务端若已写库,那条记录一定晚于这个时刻
+  const requestStartedAt = new Date().toISOString();
   try {
     const ctrl = new AbortController();
     const timeout = setTimeout(() => ctrl.abort(), INTERNAL_API_TIMEOUT_MS);
@@ -146,6 +148,47 @@ export async function handleBatchDraftItem(data: BatchDraftItemJob): Promise<voi
     console.error(
       `[batch-draft-item] FETCH EXC item=${data.item_id} url=${getInternalApiUrl()} msg="${msg}"${cause}`,
     );
+  }
+
+  // 2b. D76(2026-09-19)超时认领 —— 修「孤儿稿」。
+  //
+  // 下面所有收尾动作(回填 target_questions、投 variant_generate)都挂在
+  // `succeeded && contentItemId` 上,而那个 id 只能从 HTTP 200 的响应体里拿。
+  // 于是只要客户端超时(Headers Timeout 这几天天天发生),**服务端其实已经把稿子
+  // 写进库了,我们却什么都不知道**:没有变体 → 永远不可派单;target_questions 空
+  // → 选题器以为这题没用过 → 明晚再抽一次、再花一次钱。
+  // 实测后果:132 条孤儿稿(7-20 至 9-18),704 条内容只有 270 个不同标题,
+  // 同一道题最多生成过 13 份。
+  //
+  // 修法:失败路径上回头去库里认领。判据三条同时成立才认 ——
+  // 本请求发出之后创建、平台一致、且还没被任何 draft_batch_item 认领过。
+  // 最后一条是防并发误认的关键(DRAFT_CONCURRENCY 可能 >1)。
+  if (!succeeded && !contentItemId && requestStartedAt) {
+    const { data: candidates } = await client
+      .from('content_items')
+      // 注意:content_items **没有** platform 列(平台在 variants 上),
+      // 所以判据只能是 租户 + 时间窗 + 未被认领。
+      .select('id, created_at')
+      .eq('tenant_id', data.tenant_id)
+      .gte('created_at', requestStartedAt)
+      .order('created_at', { ascending: true })
+      .limit(10);
+    for (const cand of candidates ?? []) {
+      const { count } = await client
+        .from('draft_batch_items')
+        .select('id', { count: 'exact', head: true })
+        .eq('content_item_id', cand.id as string);
+      if ((count ?? 0) === 0) {
+        contentItemId = cand.id as string;
+        succeeded = true;
+        errorMsg = undefined;
+        console.log(
+          `[batch-draft-item] 超时认领成功 item=${data.item_id} → content_item=${contentItemId}` +
+            `(服务端已写库,客户端没收到响应)`,
+        );
+        break;
+      }
+    }
   }
 
   // 3. Write item terminal state
