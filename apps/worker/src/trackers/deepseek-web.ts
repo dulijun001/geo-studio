@@ -84,6 +84,26 @@ const MESSAGE_CANDIDATES = [
 const STABLE_REQUIRED_IDLES = 3;
 const POLL_INTERVAL_MS = 1000;
 const MIN_RESPONSE_CHARS = 100;
+/**
+ * 首页/欢迎页指纹(D76,2026-09-19)。
+ *
+ * 豆包踩过这个坑并在 D72 修过:改版后只剩 `main` 能取到文本,而欢迎页的 `main`
+ * 本身就有上百字且静止不变 —— 轮询会把「欢迎页」判成「稳定的答案」。
+ * 元宝和 DeepSeek 的 MESSAGE_CANDIDATES 末位同样是 `'main'`,同样没有指纹校验,
+ * 但它们比豆包更坏:豆包起码有出口指纹兜底返回 failed,这两个会直接
+ * `status:'done'` 把首页文案当答案落库,再去扫品牌词 —— **往库里灌假数据**。
+ * 修法与 D72 一致:只要文本还像欢迎页,就不允许判稳定。
+ */
+const WELCOME_FINGERPRINTS = [
+  '我是 DeepSeek',
+  '有什么可以帮你的',
+  '深度思考',
+  '联网搜索',
+  '新对话',
+  '内容由 AI 生成',
+];
+const WELCOME_HIT_THRESHOLD = 2;
+
 
 export function getDeepseekUserDataDir(): string {
   return process.env.GEO_DEEPSEEK_USERDATA || join(homedir(), '.cache', 'geo-tracker', 'deepseek');
@@ -168,19 +188,32 @@ class DeepseekWebAdapter implements TrackerAdapter {
       while (remaining() > 0) {
         await page.waitForTimeout(POLL_INTERVAL_MS);
         const probe = await page
-          .evaluate((selectors) => {
+          .evaluate(({ selectors, fps }) => {
             for (const s of selectors) {
               const els = Array.from(document.querySelectorAll(s));
               if (!els.length) continue;
               let chars = 0;
-              for (const el of els) chars += (el.textContent || '').length;
-              if (chars > 0) return { sel: s, len: chars };
+              let text = '';
+              for (const el of els) {
+                const t = el.textContent || '';
+                chars += t.length;
+                text += t;
+              }
+              if (chars > 0) {
+                return { sel: s, len: chars, welcomeHits: fps.filter((kw) => text.includes(kw)).length };
+              }
             }
-            return { sel: null as string | null, len: 0 };
-          }, MESSAGE_CANDIDATES)
-          .catch(() => ({ sel: null as string | null, len: 0 }));
+            return { sel: null as string | null, len: 0, welcomeHits: 0 };
+          }, { selectors: MESSAGE_CANDIDATES, fps: WELCOME_FINGERPRINTS })
+          .catch(() => ({ sel: null as string | null, len: 0, welcomeHits: 0 }));
         if (probe.sel) this._lastWinner = probe.sel;
         const len = probe.len;
+        // D76:还像欢迎页就不算数,否则会把静止的首页文案判成「稳定答案」并落库
+        if (probe.welcomeHits >= WELCOME_HIT_THRESHOLD) {
+          idleCount = 0;
+          lastLen = len;
+          continue;
+        }
         if (len >= MIN_RESPONSE_CHARS && len === lastLen) {
           idleCount += 1;
           if (idleCount >= STABLE_REQUIRED_IDLES) break;

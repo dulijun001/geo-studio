@@ -57,10 +57,19 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
     await handleComplianceReview(job.data);
   });
 
-  await boss.work<VariantGenerateJob>(JOBS.VARIANT_GENERATE, async ([job]) => {
-    if (!job?.data) return;
-    await handleVariantGenerate(job.data);
-  });
+  // 变体生成并发默认 1(与原行为一致)。2026-09-14:备用通道(claudeproxy)单篇 5-8 min,
+  // 10 篇串行要 2h;欠费期间 .env 设 VARIANT_CONCURRENCY=3 并行压到 ~45 min,Ark 恢复后可删。
+  const variantConcurrency = Math.max(1, Number(process.env.VARIANT_CONCURRENCY) || 1);
+  console.log(`[worker] variant_generate concurrency=${variantConcurrency}`);
+  await boss.work<VariantGenerateJob>(
+    JOBS.VARIANT_GENERATE,
+    { batchSize: variantConcurrency },
+    async (jobs) => {
+      await Promise.all(
+        jobs.map((job) => (job?.data ? handleVariantGenerate(job.data) : Promise.resolve())),
+      );
+    },
+  );
 
   await boss.work<GeoSnapshotJob>(JOBS.GEO_SNAPSHOT, async ([job]) => {
     if (!job?.data) return;

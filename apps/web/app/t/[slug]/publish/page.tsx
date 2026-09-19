@@ -52,10 +52,15 @@ export default async function PublishPage({ params }: { params: { slug: string }
       'id, status, variant_id, staff_account_id, scheduled_at, published_url, skip_reason, created_at',
     )
     .eq('tenant_id', tenant.id)
-    .gte('created_at', startOfDay.toISOString())
+    // D76:原来是 `created_at >= startOfDay`,于是**积压任务在后台也看不见** ——
+    // 全系统唯一能看到积压的地方只剩企微那条 digest。
+    // 改成:未处理的任务不限日期恒显示,已完成/已跳过的只看今天。
+    .or(
+      `status.in.(pending,dispatched),created_at.gte.${startOfDay.toISOString()}`,
+    )
     .is('deleted_at', null)
     .order('scheduled_at', { ascending: true })
-    .limit(200);
+    .limit(300);
 
   const tasks = (tasksRaw ?? []) as TaskRow[];
 

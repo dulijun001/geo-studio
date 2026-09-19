@@ -39,22 +39,49 @@ export default async function StaffHomePage() {
   // 老员工历史 published 任务一多,ASC 排序让最老的 20 条占满结果集,**当天新派的
   // 任务排在 20 名开外被 LIMIT 截断 → 员工端永远显示 0 条新任务**(林光曦 "已完成 18
   // 条 / 今天 0 条" 就是这么来的)。修复:加下界 gte(floor),只取今天窗口的任务。
-  const horizon = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
-  const floor = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+  // D76(2026-09-19)——上面那个 6-15 的修法有个致命副作用,今天才查出来:
+  // 加了 `gte(floor)` 之后,**昨天派下来、员工还没处理的任务也被一起切掉了**。
+  // 实测:当时库里 20 条 dispatched(跨度 9-07~9-18),落在 ±12h 窗口里的是 **0 条** ——
+  // 员工打开这页看到「今日还没有派单」,而他名下压着活。
+  // 三条交叉证据:82 条已发布的 published_at 与 scheduled_at 100% 同日(没有一条隔天补发)、
+  // 323 条被回收的同样 100% 同日、员工手动 skip 0 条(不是懒得填,是任务不在页面上)。
+  // **76% 的 14 天自动回收率,根子在这个前端过滤条件。**
+  //
+  // 正确做法:未处理的任务不设时间窗(永远显示,逾期的置顶),只对「已完成」的做当日过滤。
+  // 拆成两段查询,顺带彻底绕开当初那个 LIMIT 截断的耦合 —— 两类任务各自独立取数,
+  // 已完成的再多也挤不掉未处理的。
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
 
-  const { data: rawTasks, error } = await client
-    .from('publish_tasks')
-    .select(
-      'id, status, variant_id, scheduled_at, dispatched_at, created_at, published_url, skip_reason, feedback',
-    )
-    .eq('staff_account_id', ctx.staff_id)
-    .eq('tenant_id', ctx.tenant_id)
-    .in('status', ['pending', 'dispatched', 'published', 'skipped'])
-    .gte('scheduled_at', floor)
-    .lte('scheduled_at', horizon)
-    .is('deleted_at', null)
-    .order('scheduled_at', { ascending: true })
-    .limit(20);
+  const TASK_COLS =
+    'id, status, variant_id, scheduled_at, dispatched_at, created_at, published_url, skip_reason, feedback';
+
+  const [openRes, doneRes] = await Promise.all([
+    // ① 未处理:不限时间,全部显示。最久未处理的排最前。
+    client
+      .from('publish_tasks')
+      .select(TASK_COLS)
+      .eq('staff_account_id', ctx.staff_id)
+      .eq('tenant_id', ctx.tenant_id)
+      .in('status', ['pending', 'dispatched'])
+      .is('deleted_at', null)
+      .order('scheduled_at', { ascending: true })
+      .limit(50),
+    // ② 今日已完成:给员工一个「今天干了多少」的反馈,不参与积压。
+    client
+      .from('publish_tasks')
+      .select(TASK_COLS)
+      .eq('staff_account_id', ctx.staff_id)
+      .eq('tenant_id', ctx.tenant_id)
+      .in('status', ['published', 'skipped'])
+      .gte('scheduled_at', startOfToday.toISOString())
+      .is('deleted_at', null)
+      .order('scheduled_at', { ascending: false })
+      .limit(20),
+  ]);
+
+  const error = openRes.error ?? doneRes.error;
+  const rawTasks = [...(openRes.data ?? []), ...(doneRes.data ?? [])];
 
   if (error) {
     return (

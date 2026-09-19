@@ -54,6 +54,10 @@ async function breakerIsOpen(
     .eq('engine', engine)
     .in('status', ['done', 'failed'])
     .not('asked_at', 'is', null)
+    // D76:原来不限时间窗 —— 追踪是周跑,上周的 5 条失败到下周仍在窗口内,
+    // 于是 9-14 第一题一失败就立刻开闸,当批其余 11 题全被 fast-fail。
+    // 熔断是为了防「此刻正在被风控」,不该让上一轮的历史决定这一轮。
+    .gte('asked_at', new Date(Date.now() - 24 * 3600 * 1000).toISOString())
     .order('asked_at', { ascending: false })
     .limit(BREAKER_WINDOW);
   // 查询失败时保守放行 — 熔断是优化不是闸门,不能因为它自己挂了阻塞追踪
@@ -86,6 +90,10 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
       })
       .eq('id', snapshot_id);
     console.log(`[geo-snapshot] ${snapshot_id} → rate_limited (breaker open, engine=${engine})`);
+    // D76:熔断分支原来写完库直接 return,**没调告警** —— 而 D73 的注释明写
+    // 「熔断必须纳入,否则真因被掩盖时正好不告警」。9-14 实测:1 条真失败触发熔断,
+    // 其余 11 条全被 fast-fail 成 rate_limited,四周零产出零告警。
+    await maybeAlertEngineDown(engine, tenant_id, 'circuit breaker open — fast-fail');
     return;
   }
 

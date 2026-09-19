@@ -58,7 +58,15 @@ export async function handleGeoWeeklyBaseline(
   boss: PgBoss,
   data: GeoWeeklyBaselineJob = {},
 ): Promise<void> {
-  const minPriority = data.min_priority ?? 7;
+  // D76(2026-09-19)修 D68 造成的回归:这里默认是 7,而 D68 把「非找机构型」的题
+  // 全部压到 priority=5(原意是「只当追踪题,不进起草带」)。两条规则一撞,
+  // **268/407 活跃题反而被踢出了追踪池** —— 跟 D68 的意图正好相反。
+  //
+  // 根子上的问题:D68 之后 `priority` 语义已经专指「起草优先级」,不该再兼任
+  // 追踪准入闸门。而且追踪本来就该覆盖全池 —— D67「价格题/知识题 0% 上榜」
+  // 这个结论正是靠追踪那些低优先级题才测出来的;把它们踢出样本,就再也无法复验。
+  // 选题轮转由下面的 last-tracked 排序负责,不需要 priority 把关。
+  const minPriority = data.min_priority ?? 0;
   const engineOffsetSec = (data.engine_offset_min ?? 30) * 60;
   const client = getServiceClient();
   const implementedEngines = listImplementedEngines();
@@ -105,7 +113,7 @@ export async function handleGeoWeeklyBaseline(
       .is('deleted_at', null);
 
     if (!allQuestions?.length) {
-      console.log(`[geo-weekly-baseline] tenant=${t.slug} no priority>=${minPriority} questions, skip`);
+      console.log(`[geo-weekly-baseline] tenant=${t.slug} 无可追踪题(priority>=${minPriority}),skip`);
       continue;
     }
 

@@ -106,9 +106,13 @@ export async function handleDailyReport(data: DailyReportJob = {}): Promise<void
   for (const t of tenants as Array<{ id: string; name: string; slug: string }>) {
     const kpis = await computeKpis(t.id, dayStart, dayEnd);
     const recipients = await findRecipients(t.id);
-    if (recipients.length === 0) {
-      console.log(`[daily-report] tenant=${t.slug} no owner/admin recipients, skip`);
-      continue;
+    // D76(2026-09-19):这里原来是 `continue`,而告警块在它下面 —— 于是
+    // `tenant_memberships` 空表(实测 0 行)直接让 D63/D75 的企微告警**一条都没发出过**,
+    // 日志连续 7 天 "no owner/admin recipients, skip"。
+    // 收件人为空只该跳过**邮件**,不该跳过唯一能触达手机的那条通道。
+    const emailEnabled = recipients.length > 0;
+    if (!emailEnabled) {
+      console.log(`[daily-report] tenant=${t.slug} 无邮件收件人,仅跳过邮件,告警照推`);
     }
     const html = renderHtml(t.name, t.slug, kpis);
     const text = renderText(t.name, kpis);

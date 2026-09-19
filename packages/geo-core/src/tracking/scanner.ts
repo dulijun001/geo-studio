@@ -119,13 +119,24 @@ function normalize(s: string): string {
     .replace(/[ａ-ｚ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
 }
 
+/**
+ * normalize 后的偏移映射回原文偏移。
+ *
+ * D76(2026-09-19)修差一位:原来「是否到达目标」的判断写在**跳空白之前**,
+ * 于是命中词前面只要有一个空格,返回的就是那个空格的位置而不是首字。
+ * 实测 `mapOffset('参考 16 篇资料 昆明松鼠口腔', 7)` 返回空格位,
+ * 切出来的 span 是 " 昆" —— 库里 4459 条 citations 有 476 条 mention_text 长这样。
+ * 后果不只是难看:这个偏移会喂给 rank.ts 的 locateRanks(`offset >= it.start`),
+ * 条目首字命中时会掉出条目区间,名次就解不出来。
+ * 修法:先跳空白,再比较。
+ */
 function mapOffset(original: string, normalizedOffset: number): number {
   let normIdx = 0;
   for (let i = 0; i < original.length; i++) {
-    if (normIdx === normalizedOffset) return i;
     const ch = original[i];
     if (!ch) continue;
     if (/[\s​‌‍﻿]/.test(ch)) continue;
+    if (normIdx === normalizedOffset) return i;
     normIdx++;
   }
   return original.length;
