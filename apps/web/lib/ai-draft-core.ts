@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { chat, enforceTitleFromQuery, todayStamp, evaluateDod, extractSlices, isAvailable as llmAvailable, personaToDoctorFields, renderDoctorBlock, sanitizeAbsoluteWords, stripDraftArtifacts } from '@geo/geo-core';
 import { PLATFORM_HINT, prettifyMarkdown, reportError } from '@geo/shared';
+import { resolveKbRoot } from './kb-root';
 
 const AI_DRAFT_LLM_TIMEOUT_MS = Number(process.env.AI_DRAFT_LLM_TIMEOUT_MS) || 210_000;
 
@@ -121,10 +122,6 @@ function schemaTargetsForType(
       return base;
   }
 }
-
-const KB_ROOT =
-  process.env.KNOWLEDGE_BASE_ROOT ??
-  `${process.env.HOME}/Workspace/songshu-knowledge-base`;
 
 const DRAFT_RECALL_K = 5;
 
@@ -559,7 +556,8 @@ export async function runAiDraft(
     );
   }
 
-  // 2. Read source bodies from KB mirror.
+  // 2. Read source bodies from KB mirror (per-tenant KB root).
+  const kbRoot = await resolveKbRoot(tenantId);
   // Pre-sanitize at INGESTION:把违规营销话术(国内唯一/8 项国际金标准/包治…)
   // 在送进 prompt 之前就软化掉。LLM 看到的源材料是清洁版 → 物理上写不出
   // 违规话术。比 post-LLM sanitizer 更彻底:那个是兜底,这个是断源头。
@@ -567,7 +565,7 @@ export async function runAiDraft(
   const sourceBodies: Array<{ path: string; body: string }> = [];
   for (const r of ranked) {
     try {
-      const raw = await readFile(join(KB_ROOT, r.source_path), 'utf-8');
+      const raw = await readFile(join(kbRoot, r.source_path), 'utf-8');
       const sanitized = sanitizeAbsoluteWords(raw);
       if (sanitized.hits.length > 0) {
         console.warn(
@@ -598,7 +596,7 @@ export async function runAiDraft(
   const guidePath = PLATFORM_KB_GUIDE[input.platform];
   if (guidePath) {
     try {
-      const raw = await readFile(join(KB_ROOT, guidePath), 'utf-8');
+      const raw = await readFile(join(kbRoot, guidePath), 'utf-8');
       const stripped = raw
         .replace(/^---[\s\S]*?---\s*/m, '')
         .replace(/##\s*元信息[\s\S]*?(?=##|\z)/m, '');
@@ -710,7 +708,7 @@ export async function runAiDraft(
   let institutionFacts = '';
   for (const relPath of INSTITUTION_FILES) {
     try {
-      const raw = await readFile(join(KB_ROOT, relPath), 'utf-8');
+      const raw = await readFile(join(kbRoot, relPath), 'utf-8');
       institutionFacts += `\n${sanitizeAbsoluteWords(raw).cleaned.slice(0, 1200)}`;
     } catch (err) {
       console.warn(`[ai-draft-core] institution file ${relPath} read failed:`, err);

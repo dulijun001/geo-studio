@@ -404,7 +404,7 @@ export async function handleKnowledgeSync(
 
     // After indexing, refresh derived data (compliance keywords, doctors, vocab).
     // Errors don't fail the sync — they're already logged inside deriveAllFromKb.
-    await deriveAllFromKb(tenant.id);
+    await deriveAllFromKb(tenant.id, tenantRoot);
   }
 
   return all;

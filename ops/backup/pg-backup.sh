@@ -77,5 +77,33 @@ fi
 find "$DAILY_DIR" -name 'geo-studio-*.sql.gz' -mtime +$DAILY_KEEP_DAYS -delete 2>/dev/null
 find "$WEEKLY_DIR" -name 'geo-studio-*.sql.gz' -mtime +$WEEKLY_KEEP_DAYS -delete 2>/dev/null
 
+# 写入最新备份元数据 manifest (供监控 / 演练 / 自动化校验快速提取)
+SHA256=$(shasum -a 256 "$TARGET" 2>/dev/null | cut -d' ' -f1 || echo "")
+cat <<EOF > "$BACKUP_ROOT/latest-backup.json"
+{
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "file": "$TARGET",
+  "filename": "$(basename "$TARGET")",
+  "bytes": $SIZE,
+  "sha256": "$SHA256",
+  "verified_gzip": true
+}
+EOF
+
+# 异地 / 副本同步支持 (若配置了 GEO_BACKUP_REPLICA_DIR 或 GEO_BACKUP_REMOTE_TARGET)
+REPLICA_DIR="${GEO_BACKUP_REPLICA_DIR:-}"
+if [ -n "$REPLICA_DIR" ] && [ -d "$REPLICA_DIR" ]; then
+  cp "$TARGET" "$REPLICA_DIR/" 2>/dev/null && log "已同步副本至: $REPLICA_DIR/$(basename "$TARGET")"
+fi
+REMOTE_TARGET="${GEO_BACKUP_REMOTE_TARGET:-}"
+if [ -n "$REMOTE_TARGET" ]; then
+  log "开始同步异地备份至: $REMOTE_TARGET"
+  if command -v rclone >/dev/null 2>&1; then
+    rclone copy "$TARGET" "$REMOTE_TARGET" 2>/dev/null && log "rclone 异地同步成功" || log "WARN: rclone 异地同步失败"
+  elif command -v rsync >/dev/null 2>&1; then
+    rsync -az "$TARGET" "$REMOTE_TARGET" 2>/dev/null && log "rsync 异地同步成功" || log "WARN: rsync 异地同步失败"
+  fi
+fi
+
 log "当前留存: 日备 $(ls -1 "$DAILY_DIR" | wc -l | tr -d ' ') 份 / 周备 $(ls -1 "$WEEKLY_DIR" | wc -l | tr -d ' ') 份"
 log "占用: $(du -sh "$BACKUP_ROOT" | cut -f1)"

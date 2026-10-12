@@ -10,10 +10,7 @@ import { requireRole } from '@/lib/tenant';
 import { getCurrentUser } from '@/lib/current-user';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
-
-const KB_ROOT =
-  process.env.KNOWLEDGE_BASE_ROOT ??
-  `${process.env.HOME}/Workspace/songshu-knowledge-base`;
+import { resolveKbRoot } from '@/lib/kb-root';
 
 // VAR-1 — pull from shared so 'douyin_image_text' (added in 0022) and any
 // future platforms are automatically allowed without a second-source drift.
@@ -234,7 +231,8 @@ async function derivOne(
   const guidePath = PLATFORM_KB_GUIDE[platform];
   if (guidePath) {
     try {
-      const raw = await readFile(join(KB_ROOT, guidePath), 'utf-8');
+      const kbRoot = await resolveKbRoot(tenantId);
+      const raw = await readFile(join(kbRoot, guidePath), 'utf-8');
       platformGuide = raw
         .replace(/^---[\s\S]*?---\s*/m, '')
         .replace(/##\s*元信息[\s\S]*?(?=##|\z)/m, '')

@@ -838,7 +838,7 @@ export async function aiRewriteCitations(
   }
 
   const needles = cc.unmatched.map((u) => u.needle).filter(Boolean);
-  const verdicts = await lookupNeedlesInKb(needles);
+  const verdicts = await lookupNeedlesInKb(needles, tenant.id);
 
   const inKbList = verdicts.filter((v) => v.in_kb);
   const notInKbList = verdicts.filter((v) => !v.in_kb);

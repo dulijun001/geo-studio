@@ -14,9 +14,10 @@
  */
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
+import { resolveKbRoot } from './kb-root';
 
 export type KbHit = {
-  source_path: string; // relative to KB_ROOT
+  source_path: string; // relative to tenant KB root
   line: number;
   context: string;
 };
@@ -27,19 +28,17 @@ export type NeedleVerdict = {
   hits: KbHit[]; // max 3
 };
 
-const KB_ROOT =
-  process.env.KNOWLEDGE_BASE_ROOT ??
-  `${process.env.HOME}/Workspace/songshu-knowledge-base`;
-
-// Module-level cache. Re-read every 60s to pick up KB updates without
-// burning CPU on every page render.
+// Per-KB-root cache. Re-read every 60s to pick up KB updates without
+// burning CPU on every page render while strictly isolating tenants.
 type CacheEntry = { path: string; relPath: string; lines: string[] };
-let _cache: CacheEntry[] | null = null;
-let _cacheAt = 0;
+const _cacheByRoot = new Map<string, { entries: CacheEntry[]; cachedAt: number }>();
 const CACHE_TTL_MS = 60_000;
 
-async function loadKb(): Promise<CacheEntry[]> {
-  if (_cache && Date.now() - _cacheAt < CACHE_TTL_MS) return _cache;
+async function loadKb(kbRoot: string): Promise<CacheEntry[]> {
+  const cached = _cacheByRoot.get(kbRoot);
+  if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
+    return cached.entries;
+  }
 
   const out: CacheEntry[] = [];
   async function walk(dir: string): Promise<void> {
@@ -61,7 +60,7 @@ async function loadKb(): Promise<CacheEntry[]> {
           const text = await readFile(full, 'utf-8');
           out.push({
             path: full,
-            relPath: relative(KB_ROOT, full),
+            relPath: relative(kbRoot, full),
             lines: text.split(/\r?\n/),
           });
         } catch {
@@ -70,19 +69,22 @@ async function loadKb(): Promise<CacheEntry[]> {
       }
     }
   }
-  await walk(KB_ROOT);
-  _cache = out;
-  _cacheAt = Date.now();
+  await walk(kbRoot);
+  _cacheByRoot.set(kbRoot, { entries: out, cachedAt: Date.now() });
   return out;
 }
 
 /**
- * Look up multiple needles in one pass through the KB. Returns a verdict per
+ * Look up multiple needles in one pass through the tenant's KB. Returns a verdict per
  * needle with up to 3 file:line hits.
  */
-export async function lookupNeedlesInKb(needles: string[]): Promise<NeedleVerdict[]> {
+export async function lookupNeedlesInKb(
+  needles: string[],
+  tenantId?: string | null,
+): Promise<NeedleVerdict[]> {
   if (!needles.length) return [];
-  const kb = await loadKb();
+  const kbRoot = await resolveKbRoot(tenantId);
+  const kb = await loadKb(kbRoot);
   const verdicts: NeedleVerdict[] = needles.map((n) => ({
     needle: n,
     in_kb: false,

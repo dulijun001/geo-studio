@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import fg from 'fast-glob';
 import { getServiceClient } from '../lib/supabase';
 
-const KB_ROOT =
+const DEFAULT_KB_ROOT =
   process.env.KNOWLEDGE_BASE_ROOT ??
   `${process.env.HOME}/Workspace/songshu-knowledge-base`;
 
@@ -129,11 +129,14 @@ function stripMarkdown(s: string): string {
   return s.replace(/^\d+\.\d+\s*/, '').trim();
 }
 
-export async function deriveComplianceKeywords(tenantId: string): Promise<{
+export async function deriveComplianceKeywords(
+  tenantId: string,
+  kbRoot = DEFAULT_KB_ROOT,
+): Promise<{
   inserted: number;
   source_path: string;
 }> {
-  const abs = join(KB_ROOT, COMPLIANCE_SOURCE_PATH);
+  const abs = join(kbRoot, COMPLIANCE_SOURCE_PATH);
   let md: string;
   try {
     md = await readFile(abs, 'utf-8');
@@ -310,8 +313,11 @@ function inferRole(basicInfo: Record<string, string>): 'doctor' | 'consultant' |
   return 'other';
 }
 
-export async function deriveStaffAccounts(tenantId: string): Promise<{ upserted: number; skipped: number }> {
-  const doctorsAbs = join(KB_ROOT, DOCTORS_DIR);
+export async function deriveStaffAccounts(
+  tenantId: string,
+  kbRoot = DEFAULT_KB_ROOT,
+): Promise<{ upserted: number; skipped: number }> {
+  const doctorsAbs = join(kbRoot, DOCTORS_DIR);
   let files: string[];
   try {
     files = await fg('*.md', { cwd: doctorsAbs, onlyFiles: true });
@@ -345,7 +351,7 @@ export async function deriveStaffAccounts(tenantId: string): Promise<{ upserted:
 
   for (const file of files) {
     const sourcePath = join(DOCTORS_DIR, file);
-    const abs = join(KB_ROOT, sourcePath);
+    const abs = join(kbRoot, sourcePath);
     let md: string;
     try {
       md = await readFile(abs, 'utf-8');
@@ -509,8 +515,8 @@ function extractH1(md: string): string | null {
   return m?.[1]?.trim() ?? null;
 }
 
-async function collectDoctorVocab(): Promise<VocabRecord[]> {
-  const dir = join(KB_ROOT, DOCTORS_DIR);
+async function collectDoctorVocab(kbRoot = DEFAULT_KB_ROOT): Promise<VocabRecord[]> {
+  const dir = join(kbRoot, DOCTORS_DIR);
   let files: string[];
   try {
     files = await fg('*.md', { cwd: dir, onlyFiles: true });
@@ -535,8 +541,8 @@ async function collectDoctorVocab(): Promise<VocabRecord[]> {
   return out;
 }
 
-async function collectServiceVocab(): Promise<VocabRecord[]> {
-  const dir = join(KB_ROOT, PROJECTS_DIR);
+async function collectServiceVocab(kbRoot = DEFAULT_KB_ROOT): Promise<VocabRecord[]> {
+  const dir = join(kbRoot, PROJECTS_DIR);
   let files: string[];
   try {
     files = await fg('**/*.md', { cwd: dir, onlyFiles: true });
@@ -574,9 +580,9 @@ async function collectServiceVocab(): Promise<VocabRecord[]> {
  * often in casual Doubao answers) and the full 全称 + family of common
  * abbreviations as aliases.
  */
-async function collectBrandVocab(): Promise<VocabRecord[]> {
+async function collectBrandVocab(kbRoot = DEFAULT_KB_ROOT): Promise<VocabRecord[]> {
   try {
-    const md = await readFile(join(KB_ROOT, IDENTITY_PATH), 'utf-8');
+    const md = await readFile(join(kbRoot, IDENTITY_PATH), 'utf-8');
     const sections = (function splitH2(text: string): Record<string, string> {
       const out: Record<string, string> = {};
       const lines = text.split('\n');
@@ -605,13 +611,37 @@ async function collectBrandVocab(): Promise<VocabRecord[]> {
     const term = shortName || fullName!;
     const aliases = new Set<string>();
     if (fullName && fullName !== term) aliases.add(fullName);
-    if (term === '松鼠口腔') {
-      // Casual variants the brand commonly gets called online
-      aliases.add('松鼠齿科');
-      aliases.add('西山松鼠');
-      aliases.add('松鼠');
-      if (fullName) aliases.add(fullName.replace(/^昆明/, ''));
+
+    // D2-compliant generic alias derivations (no hardcoded brand names)
+    // 1. Explicit aliases from table (别名 / 俗称)
+    const customAliases = (basic['别名'] || basic['俗称'] || '')
+      .split(/[,，/、\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const a of customAliases) aliases.add(a);
+
+    // 2. Industry synonym patterns (e.g. XX口腔 ↔ XX齿科)
+    if (/口腔$/.test(term)) {
+      aliases.add(term.replace(/口腔$/, '齿科'));
+      const core = term.replace(/口腔$/, '');
+      if (core.length >= 2) aliases.add(core);
     }
+
+    // 3. Prefix-stripped fullName (e.g. 云南松鼠口腔 / 昆明松鼠口腔 → 松鼠口腔)
+    if (fullName) {
+      const stripped = fullName.replace(/^[\u4e00-\u9fa5]{2,4}(?:省|市)/, '');
+      if (stripped && stripped !== fullName) aliases.add(stripped);
+    }
+
+    // 4. District geo-anchor alias (e.g. address has 西山区 + core term → 西山松鼠)
+    const address = basic['地址'] ?? '';
+    const districtMatch = address.match(/([\u4e00-\u9fa5]{2})区/);
+    if (districtMatch?.[1]) {
+      const districtShort = districtMatch[1];
+      const core = term.replace(/口腔|齿科|医院|门诊/, '');
+      if (core) aliases.add(`${districtShort}${core}`);
+    }
+
     return [{ term, term_type: 'brand', aliases: Array.from(aliases) }];
   } catch (err) {
     console.warn(`[vocab-brand] ${IDENTITY_PATH} unavailable:`, err);
@@ -619,8 +649,8 @@ async function collectBrandVocab(): Promise<VocabRecord[]> {
   }
 }
 
-async function collectCompetitorVocab(): Promise<VocabRecord[]> {
-  const dir = join(KB_ROOT, COMPETITORS_DIR);
+async function collectCompetitorVocab(kbRoot = DEFAULT_KB_ROOT): Promise<VocabRecord[]> {
+  const dir = join(kbRoot, COMPETITORS_DIR);
   let files: string[];
   try {
     files = await fg('**/*.md', { cwd: dir, onlyFiles: true });
@@ -645,7 +675,10 @@ async function collectCompetitorVocab(): Promise<VocabRecord[]> {
   return out;
 }
 
-export async function deriveBrandVocab(tenantId: string): Promise<{
+export async function deriveBrandVocab(
+  tenantId: string,
+  kbRoot = DEFAULT_KB_ROOT,
+): Promise<{
   brand: number;
   doctor: number;
   service: number;
@@ -667,9 +700,9 @@ export async function deriveBrandVocab(tenantId: string): Promise<{
 
   // KB-driven (always rebuilt from KB)
   const [brands, doctors, services] = await Promise.all([
-    collectBrandVocab(),
-    collectDoctorVocab(),
-    collectServiceVocab(),
+    collectBrandVocab(kbRoot),
+    collectDoctorVocab(kbRoot),
+    collectServiceVocab(kbRoot),
   ]);
 
   // Locations always seeded (admin can edit afterwards via /settings/vocab)
@@ -727,19 +760,22 @@ export async function deriveBrandVocab(tenantId: string): Promise<{
 // Aggregator (called by knowledge-sync after each scan)
 // ============================================================================
 
-export async function deriveAllFromKb(tenantId: string): Promise<void> {
+export async function deriveAllFromKb(
+  tenantId: string,
+  kbRoot = DEFAULT_KB_ROOT,
+): Promise<void> {
   try {
-    await deriveComplianceKeywords(tenantId);
+    await deriveComplianceKeywords(tenantId, kbRoot);
   } catch (err) {
     console.error(`[derive] compliance keywords failed:`, err);
   }
   try {
-    await deriveStaffAccounts(tenantId);
+    await deriveStaffAccounts(tenantId, kbRoot);
   } catch (err) {
     console.error(`[derive] staff accounts failed:`, err);
   }
   try {
-    await deriveBrandVocab(tenantId);
+    await deriveBrandVocab(tenantId, kbRoot);
   } catch (err) {
     console.error(`[derive] brand vocab failed:`, err);
   }

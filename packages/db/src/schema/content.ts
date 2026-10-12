@@ -136,6 +136,18 @@ export const contentVariants = pgTable(
     dod_score: integer('dod_score'),
     dod_evidence: jsonb('dod_evidence').notNull().default({}),
     dod_evaluated_at: timestamp('dod_evaluated_at', { withTimezone: true }),
+    /** 0009 — GEO 9-tactic score breakdown. */
+    geo_score: jsonb('geo_score'),
+    /** 0010 — verified-citations validation result. */
+    citation_check: jsonb('citation_check'),
+    /** 0012 — historical compliance case match result. */
+    case_match: jsonb('case_match'),
+    /** 0025 — ground-truth numeric claim verification result. */
+    numeric_check: jsonb('numeric_check'),
+    /** 0035 — compliance auto-rewrite counter. */
+    auto_rewrite_count: integer('auto_rewrite_count').notNull().default(0),
+    /** 0036 — link back to daily ops run. */
+    daily_run_id: uuid('daily_run_id'),
     ...timestamps(),
   },
   (t) => ({

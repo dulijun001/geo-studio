@@ -96,7 +96,7 @@ export default async function ComplianceDetailPage({
       ? cc.unmatched.map((u) => u.needle).filter(Boolean)
       : [];
   const needleVerdicts = unmatchedNeedles.length
-    ? await lookupNeedlesInKb(unmatchedNeedles)
+    ? await lookupNeedlesInKb(unmatchedNeedles, tenant.id)
     : [];
 
   return (

@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { index, jsonb, pgEnum, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+import { boolean, date, index, integer, jsonb, pgEnum, pgTable, text, uuid } from 'drizzle-orm/pg-core';
 import { pk, tenantFk, timestamps } from './_shared';
 
 export const riskLevelEnum = pgEnum('risk_level', ['low', 'medium', 'high']);
@@ -61,9 +61,32 @@ export const complianceReviews = pgTable(
   }),
 );
 
+export const complianceCases = pgTable(
+  'compliance_cases',
+  {
+    id: pk(),
+    title: text('title').notNull(),
+    violation_patterns: text('violation_patterns').array().notNull().default([]),
+    violation_category: text('violation_category').notNull(),
+    jurisdiction: text('jurisdiction'),
+    fine_yuan: integer('fine_yuan'),
+    punished_at: date('punished_at'),
+    case_url: text('case_url'),
+    notes: text('notes'),
+    active: boolean('active').notNull().default(true),
+    ...timestamps(),
+  },
+  (t) => ({
+    active_idx: index('compliance_cases_active_idx').on(t.active),
+    category_idx: index('compliance_cases_category_idx').on(t.violation_category),
+  }),
+);
+
 export const complianceReviewsRelations = relations(complianceReviews, () => ({}));
 
 export type ComplianceKeyword = typeof complianceKeywords.$inferSelect;
 export type NewComplianceKeyword = typeof complianceKeywords.$inferInsert;
 export type ComplianceReview = typeof complianceReviews.$inferSelect;
 export type NewComplianceReview = typeof complianceReviews.$inferInsert;
+export type ComplianceCase = typeof complianceCases.$inferSelect;
+export type NewComplianceCase = typeof complianceCases.$inferInsert;

@@ -66,7 +66,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
 
   const needles = cc.unmatched.map((u) => u.needle).filter(Boolean);
-  const verdicts = await lookupNeedlesInKb(needles);
+  const verdicts = await lookupNeedlesInKb(needles, tenant_id);
   const inKb = verdicts.filter((v) => v.in_kb);
   const notInKb = verdicts.filter((v) => !v.in_kb);
 
