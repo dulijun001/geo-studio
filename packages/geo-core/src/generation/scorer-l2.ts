@@ -14,6 +14,8 @@
  * UI 标灰),不污染总分。这样早期 D21 入参不完整时不会让所有内容降分。
  */
 
+import { evaluateJudgmentDensity } from './judgment-density';
+
 export type L2DimScore = {
   /** 0..100 比例分 (max 100 隐含),不返回 absolute score 让权重在 L2 总分上聚合 */
   score: number;
@@ -31,6 +33,7 @@ export type GeoL2Breakdown = {
   entity_explicitness: L2DimScore;
   trust_block_completeness: L2DimScore;
   sliceability: L2DimScore;
+  judgment_density?: L2DimScore;
 };
 
 export type GeoL2Score = {
@@ -45,7 +48,7 @@ const L2_VERSION = 1;
 
 /** Weights sum to 100. Trust block 在医疗合规里权重最高,query coverage 弱了
  *  最影响 GEO 引用率,citation worthiness 决定 slice-first 上限。 */
-const WEIGHTS: Record<keyof GeoL2Breakdown, number> = {
+const WEIGHTS: Partial<Record<keyof GeoL2Breakdown, number>> = {
   trust_block_completeness: 30,
   entity_explicitness: 25,
   citation_worthiness: 20,
@@ -74,14 +77,16 @@ export function scoreGeoL2(input: { title: string; body: string; ctx?: L2Context
     entity_explicitness: scoreEntityExplicitness(body, ctx),
     trust_block_completeness: scoreTrustBlockCompleteness(body, isMed),
     sliceability: scoreSliceability(body),
+    judgment_density: scoreJudgmentDensity(body),
   };
 
-  // Weighted average over dimensions that are not `unknown`.
+  // Weighted average over core 5 dimensions that are not `unknown`.
   let weighted = 0;
   let usedWeight = 0;
   for (const [id, dim] of Object.entries(breakdown) as Array<[keyof GeoL2Breakdown, L2DimScore]>) {
-    if (dim.unknown) continue;
-    const w = WEIGHTS[id];
+    if (!dim || dim.unknown) continue;
+    const w = WEIGHTS[id as keyof typeof WEIGHTS];
+    if (!w) continue;
     weighted += dim.score * w;
     usedWeight += w;
   }
@@ -127,12 +132,17 @@ function scoreQueryCoverage(title: string, body: string, primaryQuery?: string):
     evidence.push(`标题含主问题关键词`);
   }
 
-  // (b) 开头 120 字内是否给出答案 — 含 ≥2 个主问题关键词,并且包含一个明确结论性句式
-  const opening = body.slice(0, 120);
+  // (b) 开头 120 字内是否给出答案 — 含 ≥2 个主问题关键词,并且包含一个明确结论性句式 (融入 geo-snippet-extract 标准)
+  const opening = body.slice(0, 150);
   const openingHits = keywords.filter((kw) => opening.includes(kw)).length;
-  if (openingHits >= 2) {
+  // 识别直答定义句式 (是/指的是/意指/结论是/核心在于)
+  const hasDefinition = /(?:是|指的是|意指|属于|核心在于|结论是|主要取决于)/.test(opening);
+  if (openingHits >= 2 && hasDefinition) {
+    score += 45;
+    evidence.push(`开头 150 字含 ${openingHits} 个关键词且含标准直答定义句`);
+  } else if (openingHits >= 2) {
     score += 40;
-    evidence.push(`开头 120 字含 ${openingHits} 个主问题关键词`);
+    evidence.push(`开头 150 字含 ${openingHits} 个主问题关键词`);
   } else if (openingHits >= 1) {
     score += 20;
   }
@@ -347,5 +357,42 @@ function scoreSliceability(body: string): L2DimScore {
   }
   score += sliceHits * 9; // 5 类全中 +45
 
+  // (d) GEO 黄金切片增强 (移植自 geo-snippet-extract):
+  // 1. H2 问句比例: AI 搜索引擎偏好把疑问句当做 Query 锚点
+  const h2Matches = body.match(/^##\s+(.+)$/gm) ?? [];
+  let questionH2s = 0;
+  for (const h2 of h2Matches) {
+    const clean = h2.replace(/^##\s+/, '').trim();
+    if (/[?？]$|^(如何|为什么|怎么|哪些|多少钱|好不好|哪家好|能不能|可不可以|多久)/.test(clean)) {
+      questionH2s++;
+    }
+  }
+  if (h2Matches.length >= 2 && questionH2s >= 1) {
+    evidence.push(`${questionH2s}/${h2Matches.length} 个 H2 采用搜索问句格式`);
+  }
+
+  // 2. 表格紧凑度 (≤4 列黄金切片, 防止超宽截断)
+  const tableRows = body.match(/^\|.+?\|$/gm) ?? [];
+  if (tableRows.length >= 2) {
+    const firstRowCols = ((tableRows[0] ?? '').match(/\|/g) ?? []).length - 1;
+    if (firstRowCols > 0 && firstRowCols <= 4) {
+      evidence.push(`含 ${firstRowCols} 列紧凑型对比表 (符合 RAG 最佳切片)`);
+    }
+  }
+
   return { score: Math.min(score, 100), max: 100, evidence };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Dimension 6: Judgment Density (2026 GEO 规范)
+// ─────────────────────────────────────────────────────────────────────────
+
+function scoreJudgmentDensity(body: string): L2DimScore {
+  const jd = evaluateJudgmentDensity(body);
+  return {
+    score: jd.score,
+    max: 100,
+    evidence: jd.evidence,
+    note: `${jd.rating}星判断密度 (立场=${jd.layer_counts.layer1_stance}, 量化=${jd.layer_counts.layer2_measurable}, 避坑=${jd.layer_counts.layer3_pitfall})`,
+  };
 }

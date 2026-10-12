@@ -1,3 +1,4 @@
+export * from './judgment-density';
 export * from './prompt-builder';
 export * from './generator';
 export * from './scorer';
@@ -11,3 +12,4 @@ export * from './uniqueness';
 export * from './eeat-mapping';
 export * from './numeric-fact-check';
 export * from './doctor-prompt';
+export * from './judgment-density';

@@ -302,6 +302,7 @@ function D21ScoreCard({
     citation_worthiness: { label: '引用块可抽取性', weight: 20 },
     query_coverage: { label: '主问题覆盖', weight: 15 },
     sliceability: { label: '可切片度', weight: 10 },
+    judgment_density: { label: '判断密度 (GEO)', weight: 0 },
   };
 
   const totalColor =
@@ -359,13 +360,13 @@ function D21ScoreCard({
         </div>
       )}
 
-      <div className="grid gap-2 md:grid-cols-5">
+      <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-6">
         {(Object.entries(score.breakdown) as Array<[
           keyof typeof score.breakdown,
           (typeof score.breakdown)[keyof typeof score.breakdown],
         ]>).map(([id, dim]) => {
           const meta = DIM_LABELS[id];
-          if (!meta) return null;
+          if (!meta || !dim) return null;
           const ratio = dim.score / 100;
           const barColor = dim.unknown
             ? 'bg-muted'

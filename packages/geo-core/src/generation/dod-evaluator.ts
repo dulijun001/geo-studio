@@ -12,6 +12,7 @@
  * 不调 LLM,毫秒级.
  */
 
+import { evaluateJudgmentDensity, type JudgmentDensityResult } from './judgment-density';
 import { checkLocalGeo } from './local-geo-check';
 import { scoreGeoL2, type GeoL2Score, type L2Context } from './scorer-l2';
 import type { ExtractedSlices } from './slice-extractor';
@@ -42,6 +43,13 @@ export type DodEvidence = {
    * 触发)异步补强。Trust Block / 总分阈值 仍是硬门槛留在 reasons。
    */
   warnings: string[];
+  /** 判断密度分析 (2026 GEO 核心信号). */
+  judgment_density?: {
+    score: number;
+    rating: number;
+    layer_counts: JudgmentDensityResult['layer_counts'];
+    anti_patterns: string[];
+  };
   /** Threshold used. */
   threshold: number;
   evaluated_at: string;
@@ -166,6 +174,15 @@ export function evaluateDod(input: DodInput): DodResult {
     }
   }
 
+  // (5) 判断密度检测 (2026 GEO 规范 § ⑤)
+  // 分析立场/量化/避坑三层信号与假判断。缺层进 warnings, 不硬性阻断放行。
+  const jd = evaluateJudgmentDensity(input.body);
+  if (jd.recommendations.length > 0 && input.is_long_form !== false) {
+    for (const rec of jd.recommendations) {
+      warnings.push(`判断密度优化建议: ${rec}`);
+    }
+  }
+
   const status: 'passed' | 'failed' = reasons.length === 0 ? 'passed' : 'failed';
 
   return {
@@ -179,6 +196,12 @@ export function evaluateDod(input: DodInput): DodResult {
       reasons,
       title_gate_misses: titleGateMisses,
       warnings,
+      judgment_density: {
+        score: jd.score,
+        rating: jd.rating,
+        layer_counts: jd.layer_counts,
+        anti_patterns: jd.anti_patterns_found,
+      },
       threshold,
       evaluated_at: new Date().toISOString(),
     },
