@@ -14,7 +14,14 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { chat, isAvailable as llmAvailable, expandSubtopics } from '@geo/geo-core';
+import {
+  chat,
+  isAvailable as llmAvailable,
+  expandSubtopics,
+  evaluateFanoutCoverage,
+  generateFanoutQueries,
+  type FanoutDimensionId,
+} from '@geo/geo-core';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 import { requireRole } from '@/lib/tenant';
 import {
@@ -22,6 +29,8 @@ import {
   type DiscoveredQuestion,
   type QuestionInput,
   type QuestionIntent,
+  type FanoutAnalysisResponse,
+  type FanoutCandidate,
 } from './types';
 
 const MAX_TEXT = 200;
@@ -466,4 +475,187 @@ export async function expandQuestionToSubtopics(
     skipped,
     subtopics_raw: result.subtopics.map((s) => ({ text: s.text, intent: s.intent })),
   };
+}
+
+// ============================================================================
+// 2026 GEO 核心能力：Query Fan-out 10 维查询扇出矩阵诊断与拓词入库
+// ============================================================================
+
+const INTENT_MAPPING: Record<string, QuestionIntent> = {
+  price_inquiry: 'price_inquiry',
+  local_recommendation: 'local_recommendation',
+  doctor_review: 'doctor_review',
+  procedure_info: 'procedure_info',
+  risk_concern: 'risk_concern',
+  comparison: 'comparison',
+  aftercare: 'procedure_info',
+  other: 'other',
+};
+
+export async function analyzeAndFanoutKeyword(
+  tenantSlug: string,
+  input: { keyword: string; city?: string; category?: string },
+): Promise<FanoutAnalysisResponse> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+  const kw = input.keyword.trim();
+  if (!kw) throw new Error('关键词不能为空');
+
+  const service = getSupabaseServiceClient();
+
+  // 1. 获取现有题库
+  const { data: existingRows } = await service
+    .from('questions')
+    .select('id, text, intent, active')
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null);
+
+  const existingQuestions = ((existingRows ?? []) as Array<{ text: string; intent?: string | null; active?: boolean }>);
+
+  // 2. 获取城市与品牌上下文
+  const { data: brandRow } = await service
+    .from('brands')
+    .select('name, location')
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  const brandLoc = (brandRow?.location as Record<string, unknown> | null) ?? {};
+  const city = input.city?.trim() || (brandLoc.city as string | undefined) || '昆明';
+
+  // 3. 计算 10 维扇出覆盖率
+  const coverage = evaluateFanoutCoverage(kw, existingQuestions, city);
+
+  // 4. 调用混合生成器生成扇出候选
+  const missingIds = coverage.missingDimensions.map((d) => d.id as FanoutDimensionId);
+  const targetIds = missingIds.length > 0 ? missingIds : coverage.dimensions.map((d) => d.spec.id as FanoutDimensionId);
+
+  const generated = await generateFanoutQueries({
+    seedKeyword: kw,
+    city,
+    brandName: brandRow?.name as string | undefined,
+    targetDimensionIds: targetIds,
+    existingTexts: existingQuestions.map((q) => q.text),
+  });
+
+  // 5. 医疗合规竞品词拦截
+  const { data: competitorRows } = await service
+    .from('brand_vocab')
+    .select('term, aliases')
+    .eq('tenant_id', tenant.id)
+    .eq('term_type', 'competitor')
+    .is('deleted_at', null);
+
+  const competitorNames: string[] = [];
+  for (const r of (competitorRows ?? []) as Array<{ term: string; aliases: string[] | null }>) {
+    competitorNames.push(r.term);
+    if (Array.isArray(r.aliases)) competitorNames.push(...r.aliases);
+  }
+  const competitorNeedles = competitorNames
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length >= 2);
+
+  const existingTextSet = new Set(existingQuestions.map((q) => q.text.toLowerCase().trim()));
+
+  const candidates: FanoutCandidate[] = [];
+  for (const item of generated) {
+    const textLower = item.text.toLowerCase().trim();
+    if (competitorNeedles.some((c) => textLower.includes(c))) {
+      continue; // 过滤含竞品名的违规词
+    }
+    const isDuplicate = existingTextSet.has(textLower);
+    candidates.push({
+      dimensionId: item.dimensionId,
+      dimensionLabel: item.dimensionLabel,
+      text: item.text,
+      intent: INTENT_MAPPING[item.intent] ?? 'other',
+      priority: item.priority,
+      rationale: item.rationale,
+      selected: !isDuplicate,
+    });
+  }
+
+  return {
+    coverage: {
+      seedKeyword: coverage.seedKeyword,
+      city: coverage.city,
+      totalDimensions: coverage.totalDimensions,
+      coveredCount: coverage.coveredCount,
+      coverageScore: coverage.coverageScore,
+      dimensions: coverage.dimensions.map((d) => ({
+        spec: {
+          id: d.spec.id,
+          label: d.spec.label,
+          description: d.spec.description,
+        },
+        covered: d.covered,
+        matchedQuestions: d.matchedQuestions,
+        suggestedQuery: d.suggestedQuery,
+      })),
+      missingDimensions: coverage.missingDimensions.map((m) => ({
+        id: m.id,
+        label: m.label,
+        description: m.description,
+      })),
+    },
+    candidates,
+  };
+}
+
+export async function bulkInsertFanoutQuestions(
+  tenantSlug: string,
+  input: {
+    seedKeyword: string;
+    city?: string;
+    category?: string;
+    questions: Array<{ text: string; intent: QuestionIntent; priority: number }>;
+  },
+): Promise<{ inserted: number; skipped: string[] }> {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+  if (!input.questions.length) throw new Error('请至少选择 1 条扇出子问题');
+
+  const service = getSupabaseServiceClient();
+
+  const { data: existing } = await service
+    .from('questions')
+    .select('text')
+    .eq('tenant_id', tenant.id)
+    .is('deleted_at', null);
+
+  const existingSet = new Set(
+    ((existing ?? []) as Array<{ text: string }>).map((r) => r.text.toLowerCase().trim()),
+  );
+
+  const skipped: string[] = [];
+  const toInsert: Array<Record<string, unknown>> = [];
+
+  for (const q of input.questions) {
+    const text = q.text.trim();
+    if (!text || text.length > MAX_TEXT) continue;
+    if (existingSet.has(text.toLowerCase())) {
+      skipped.push(text);
+      continue;
+    }
+    toInsert.push({
+      tenant_id: tenant.id,
+      text,
+      intent: q.intent,
+      city: input.city?.trim() || null,
+      category: input.category?.trim() || null,
+      priority: Math.max(0, Math.min(10, q.priority ?? 8)),
+      active: true,
+      subtopic_source: 'fanout_expand',
+      expansion_seed_topic: input.seedKeyword.trim(),
+    });
+  }
+
+  let inserted = 0;
+  if (toInsert.length > 0) {
+    const { error } = await service.from('questions').insert(toInsert);
+    if (error) throw new Error(`扇出问题入库失败: ${error.message}`);
+    inserted = toInsert.length;
+  }
+  revalidatePath(`/t/${tenantSlug}/questions`);
+  return { inserted, skipped };
 }

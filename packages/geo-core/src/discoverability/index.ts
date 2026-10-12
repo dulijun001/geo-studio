@@ -17,3 +17,11 @@ export {
   type AuditReport,
   type AuditContext,
 } from './audit';
+export {
+  pushUrlsToBaidu,
+  pushUrlsToShenma,
+  dispatchSearchEnginePush,
+  type BaiduPushResult,
+  type ShenmaPushResult,
+  type UnifiedPushSummary,
+} from './search-push';

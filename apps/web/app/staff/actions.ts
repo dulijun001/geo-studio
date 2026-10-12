@@ -6,6 +6,7 @@ import { clearStaffSession } from '@/lib/staff-session';
 import { requireStaff } from '@/lib/staff';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 import { enqueueRegenerate } from '@/lib/discoverability/enqueue';
+import { pushUrlsForTenant } from '@/lib/discoverability/push';
 
 /**
  * STF-3 — per-platform domain whitelist. published_url's hostname must end
@@ -152,6 +153,12 @@ export async function markTaskPublished(taskId: string, urlRaw: string): Promise
       } catch (e) {
         console.error('[markTaskPublished] enqueueRegenerate failed:', e);
       }
+      // 2026 GEO 闭环：一旦文章转入 published，自动将公开站文章链接与回填链接推送到百度/神马站长接口
+      const publicBase = process.env.NEXT_PUBLIC_APP_URL ?? 'https://geo.studio';
+      const publicArticleUrl = `${publicBase}/c/${ctx.tenant_slug}/articles/${itemRow.id}`;
+      void pushUrlsForTenant(ctx.tenant_id, [publicArticleUrl, url]).catch((e) => {
+        console.warn('[markTaskPublished] search engine push failed:', e);
+      });
     }
   }
 

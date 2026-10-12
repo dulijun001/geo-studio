@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import {
   batchPasteQuestions,
   bulkInsertDiscoveredQuestions,
+  bulkInsertFanoutQuestions,
+  analyzeAndFanoutKeyword,
   createQuestion,
   deleteQuestion,
   discoverQuestions,
@@ -12,7 +14,13 @@ import {
   toggleQuestionActive,
   updateQuestion,
 } from './actions';
-import { QUESTION_INTENTS, type DiscoveredQuestion, type QuestionIntent } from './types';
+import {
+  QUESTION_INTENTS,
+  type DiscoveredQuestion,
+  type QuestionIntent,
+  type FanoutAnalysisResponse,
+  type FanoutCandidate,
+} from './types';
 
 export type QuestionRow = {
   id: string;
@@ -50,7 +58,7 @@ export function QuestionsUI({
   const [search, setSearch] = useState('');
   const [intentFilter, setIntentFilter] = useState<QuestionIntent | ''>('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all');
-  const [modal, setModal] = useState<'add' | 'edit' | 'paste' | 'dig' | null>(null);
+  const [modal, setModal] = useState<'add' | 'edit' | 'paste' | 'dig' | 'fanout' | null>(null);
   const [editing, setEditing] = useState<QuestionRow | null>(null);
 
   const filtered = useMemo(() => {
@@ -108,6 +116,13 @@ export function QuestionsUI({
           className="rounded border border-border px-3 py-1.5 text-xs font-medium hover:bg-accent"
         >
           📋 批量粘贴
+        </button>
+        <button
+          type="button"
+          onClick={() => setModal('fanout')}
+          className="rounded border border-sky-500/40 bg-sky-500/[0.12] px-3 py-1.5 text-xs font-medium text-sky-300 hover:bg-sky-500/[0.20]"
+        >
+          ⚡ AI 扇出拓词 (Fan-out)
         </button>
         <button
           type="button"
@@ -242,6 +257,9 @@ export function QuestionsUI({
       ) : null}
       {modal === 'dig' ? (
         <DigModal tenantSlug={tenantSlug} onClose={() => setModal(null)} />
+      ) : null}
+      {modal === 'fanout' ? (
+        <FanoutModal tenantSlug={tenantSlug} onClose={() => setModal(null)} />
       ) : null}
     </div>
   );
@@ -763,3 +781,293 @@ function ExpandSubtopicsBtn({
     </button>
   );
 }
+
+// =====================================================================
+// 2026 GEO: AI Query Fan-out 10 维扇出拓词 Modal
+// =====================================================================
+
+function FanoutModal({ tenantSlug, onClose }: { tenantSlug: string; onClose: () => void }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [keyword, setKeyword] = useState('种植牙');
+  const [city, setCity] = useState('昆明');
+  const [category, setCategory] = useState('种植');
+  const [data, setData] = useState<FanoutAnalysisResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  const PRESETS = [
+    { label: '种植牙', cat: '种植' },
+    { label: '牙齿矫正', cat: '正畸' },
+    { label: '儿童早期矫治', cat: '儿牙' },
+    { label: '全瓷牙', cat: '修复' },
+    { label: '牙周刮治', cat: '牙周' },
+    { label: '拔智齿', cat: '综合' },
+  ];
+
+  function onAnalyze() {
+    if (!keyword.trim()) return;
+    setError(null);
+    setDone(null);
+    startTransition(async () => {
+      try {
+        const res = await analyzeAndFanoutKeyword(tenantSlug, {
+          keyword: keyword.trim(),
+          city: city.trim() || undefined,
+          category: category.trim() || undefined,
+        });
+        setData(res);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    });
+  }
+
+  function toggleCandidate(idx: number) {
+    if (!data) return;
+    setData({
+      ...data,
+      candidates: data.candidates.map((c, i) => (i === idx ? { ...c, selected: !c.selected } : c)),
+    });
+  }
+
+  function onSubmit() {
+    if (!data) return;
+    setError(null);
+    setDone(null);
+    const selected = data.candidates.filter((c) => c.selected);
+    if (selected.length === 0) {
+      setError('请至少勾选 1 条扇出子问题');
+      return;
+    }
+    startTransition(async () => {
+      try {
+        const res = await bulkInsertFanoutQuestions(tenantSlug, {
+          seedKeyword: keyword.trim(),
+          city: city.trim(),
+          category: category.trim() || undefined,
+          questions: selected.map((c) => ({
+            text: c.text,
+            intent: c.intent,
+            priority: c.priority,
+          })),
+        });
+        setDone(`扇出拓词成功入库 ${res.inserted} 条${res.skipped.length ? `，跳过 ${res.skipped.length} 条已存在` : ''}`);
+        router.refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    });
+  }
+
+  const selectedCount = data?.candidates.filter((c) => c.selected).length ?? 0;
+
+  return (
+    <Modal title="⚡ AI 扇出拓词 (Query Fan-out 10 维矩阵)" onClose={onClose} wide>
+      <div className="space-y-4">
+        {/* 输入面板与预设 */}
+        <div className="space-y-2">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+            <div className="md:col-span-2">
+              <label className="block text-xs font-medium text-muted-foreground mb-1">核心业务词 (Seed Keyword)</label>
+              <input
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                placeholder="如: 种植牙 / 隐形矫正"
+                className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">城市</label>
+              <input
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder="昆明"
+                className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">业务品类</label>
+              <input
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                placeholder="种植"
+                className="w-full rounded border border-border bg-background px-3 py-1.5 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-muted-foreground">推荐品类：</span>
+            {PRESETS.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => {
+                  setKeyword(p.label);
+                  setCategory(p.cat);
+                }}
+                className={`rounded border px-2 py-0.5 transition ${
+                  keyword === p.label
+                    ? 'border-sky-500/50 bg-sky-500/[0.15] text-sky-300'
+                    : 'border-border bg-muted/20 text-muted-foreground hover:bg-muted/40'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+            <div className="flex-1" />
+            <button
+              type="button"
+              onClick={onAnalyze}
+              disabled={pending || !keyword.trim()}
+              className="rounded bg-sky-500 px-4 py-1.5 text-xs font-medium text-white hover:bg-sky-400 disabled:opacity-50"
+            >
+              {pending && !data ? '正在分析扇出覆盖度…' : '⚡ 诊断覆盖度并生成'}
+            </button>
+          </div>
+        </div>
+
+        {error ? (
+          <div className="rounded bg-rose-500/[0.10] border border-rose-500/30 px-3 py-2 text-xs text-rose-300">
+            {error}
+          </div>
+        ) : null}
+        {done ? (
+          <div className="rounded bg-emerald-500/[0.10] border border-emerald-500/30 px-3 py-2 text-xs text-emerald-400">
+            {done}
+          </div>
+        ) : null}
+
+        {/* 覆盖度雷达与候选列表 */}
+        {data ? (
+          <div className="space-y-4">
+            {/* 覆盖度卡片 */}
+            <div className="rounded-md border border-border bg-muted/20 p-3 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-foreground">
+                  「{data.coverage.seedKeyword}」10 维 GEO 扇出覆盖率
+                </span>
+                <span className="font-semibold text-sky-400">
+                  {data.coverage.coverageScore}% ({data.coverage.coveredCount}/{data.coverage.totalDimensions} 维度已覆盖)
+                </span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full bg-sky-500 transition-all duration-300"
+                  style={{ width: `${data.coverage.coverageScore}%` }}
+                />
+              </div>
+
+              {/* 10 维徽章矩阵 */}
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5 text-[11px] pt-1">
+                {data.coverage.dimensions.map((d) => (
+                  <div
+                    key={d.spec.id}
+                    title={d.covered ? `已有: ${d.matchedQuestions[0]}` : `缺口: ${d.spec.description}`}
+                    className={`rounded border px-2 py-1 text-center truncate ${
+                      d.covered
+                        ? 'border-emerald-500/40 bg-emerald-500/[0.08] text-emerald-300'
+                        : 'border-amber-500/40 bg-amber-500/[0.08] text-amber-300 font-medium'
+                    }`}
+                  >
+                    {d.covered ? '✓ ' : '○ 缺 '}
+                    {d.spec.label}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 扇出建议候选列表 */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">
+                  已选 <strong className="text-foreground">{selectedCount}</strong> / {data.candidates.length} 条扇出题目
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setData({
+                        ...data,
+                        candidates: data.candidates.map((c) => ({ ...c, selected: true })),
+                      })
+                    }
+                    className="text-sky-400 hover:underline"
+                  >
+                    全选
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setData({
+                        ...data,
+                        candidates: data.candidates.map((c) => ({ ...c, selected: false })),
+                      })
+                    }
+                    className="text-muted-foreground hover:underline"
+                  >
+                    取消全选
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-72 overflow-y-auto divide-y divide-border rounded-md border border-border">
+                {data.candidates.map((cand, idx) => (
+                  <label
+                    key={idx}
+                    className="flex cursor-pointer items-start gap-2.5 p-2.5 hover:bg-accent/40 text-xs"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={cand.selected}
+                      onChange={() => toggleCandidate(idx)}
+                      className="mt-0.5 rounded border-border"
+                    />
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded bg-sky-500/[0.12] border border-sky-500/30 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
+                          {cand.dimensionLabel}
+                        </span>
+                        <span className="rounded bg-white/[0.06] px-1 py-0.5 text-[10px] text-muted-foreground">
+                          {INTENT_LABEL[cand.intent] ?? cand.intent}
+                        </span>
+                        <span className="text-[10px] text-amber-400">
+                          {'★'.repeat(Math.min(5, Math.ceil(cand.priority / 2)))}
+                        </span>
+                      </div>
+                      <div className="font-medium text-foreground">{cand.text}</div>
+                      <div className="text-[11px] text-muted-foreground">{cand.rationale}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={onSubmit}
+                  disabled={pending || selectedCount === 0}
+                  className="rounded bg-emerald-500 px-4 py-2 text-xs font-medium text-white hover:bg-emerald-400 disabled:opacity-50"
+                >
+                  {pending ? '正在入库…' : `一键入库选中的 ${selectedCount} 条扇出题目`}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <ModalFooter>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded border border-border px-3 py-1.5 text-xs hover:bg-accent"
+        >
+          关闭
+        </button>
+      </ModalFooter>
+    </Modal>
+  );
+}
+

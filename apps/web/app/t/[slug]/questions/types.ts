@@ -37,3 +37,39 @@ export type DiscoveredQuestion = {
   priority: number;
   rationale: string;
 };
+
+export type FanoutCandidate = {
+  dimensionId: string;
+  dimensionLabel: string;
+  text: string;
+  intent: QuestionIntent;
+  priority: number;
+  rationale: string;
+  selected: boolean;
+};
+
+export type FanoutAnalysisResponse = {
+  coverage: {
+    seedKeyword: string;
+    city: string;
+    totalDimensions: number;
+    coveredCount: number;
+    coverageScore: number;
+    dimensions: Array<{
+      spec: {
+        id: string;
+        label: string;
+        description: string;
+      };
+      covered: boolean;
+      matchedQuestions: string[];
+      suggestedQuery: string;
+    }>;
+    missingDimensions: Array<{
+      id: string;
+      label: string;
+      description: string;
+    }>;
+  };
+  candidates: FanoutCandidate[];
+};

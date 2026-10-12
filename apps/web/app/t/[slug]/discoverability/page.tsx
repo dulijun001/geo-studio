@@ -15,7 +15,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { PageHeader } from '@/components/page-header';
 import { InlineGuide } from '@/components/inline-guide';
 import { fmtDateTime } from '@/lib/format';
-import { PublicToggle, RegenerateButton } from './hub-controls';
+import { PublicToggle, RegenerateButton, SearchPushPanel } from './hub-controls';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,6 +38,16 @@ export default async function DiscoverabilityHubPage({
   const settings = (tenantRow?.settings ?? {}) as Record<string, unknown>;
   const disco = (settings.discoverability ?? {}) as Record<string, unknown>;
   const publicEnabled = disco.public_enabled === true;
+  const rawPush = (disco.search_push ?? {}) as Record<string, string | undefined>;
+  const maskSecret = (v?: string) =>
+    v && v.length > 4 ? `${v.slice(0, 2)}***${v.slice(-2)}` : v ? '***' : undefined;
+  const searchPushConfig = {
+    baidu_site: rawPush.baidu_site || process.env.BAIDU_PUSH_SITE,
+    baidu_token_masked: maskSecret(rawPush.baidu_token || process.env.BAIDU_PUSH_TOKEN),
+    shenma_site: rawPush.shenma_site || process.env.SHENMA_PUSH_SITE,
+    shenma_username: rawPush.shenma_username || process.env.SHENMA_PUSH_USERNAME,
+    shenma_key_masked: maskSecret(rawPush.shenma_access_key || process.env.SHENMA_PUSH_ACCESS_KEY),
+  };
 
   // ── 2. Brand (single) ───────────────────────────────────────────────
   const { data: brandRow } = await supabase
@@ -188,6 +198,12 @@ export default async function DiscoverabilityHubPage({
         tenantSlug={tenant.slug}
         enabled={publicEnabled}
         publicUrls={publicUrls}
+      />
+
+      {/* 2026 GEO: 百度 / 神马主动收录推送 */}
+      <SearchPushPanel
+        tenantSlug={tenant.slug}
+        initialConfig={searchPushConfig}
       />
 
       {/* Audit summary */}

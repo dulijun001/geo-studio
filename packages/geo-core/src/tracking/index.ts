@@ -6,3 +6,4 @@ export * from './citation-source-map';
 export * from './rank';
 export * from './related-questions';
 export * from './topic-priority';
+export * from './fanout-matrix';
