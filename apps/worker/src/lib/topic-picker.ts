@@ -63,50 +63,118 @@ type SettingsRow = {
  * For V1.10 only questions_priority is wired; others fall back to it with
  * a reportEvent so we can see when tenants flip the flag prematurely.
  */
+async function pickCompetitorLostQuestions(
+  client: SupabaseClient,
+  tenantId: string,
+  limit: number,
+  excludeDays = 7,
+): Promise<PickedQuestion[]> {
+  try {
+    const { data: rawSnapshots, error: snapErr } = await client
+      .from('geo_snapshots')
+      .select('question_id, raw_response')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'done');
+
+    if (snapErr || !rawSnapshots) return [];
+
+    const compRegex = /柏德|团圆|德韩|拜博|美奥|蓝橙|韩美|长鹏/;
+    const lostQIds = new Set<string>();
+    for (const s of rawSnapshots) {
+      const text = (s.raw_response as string) || '';
+      if (compRegex.test(text) && !text.includes('松鼠')) {
+        lostQIds.add(s.question_id as string);
+      }
+    }
+
+    if (lostQIds.size === 0) return [];
+
+    const cutoff = new Date(Date.now() - excludeDays * 86400 * 1000).toISOString();
+    const { data: recentItems } = await client
+      .from('content_items')
+      .select('target_questions, created_at')
+      .eq('tenant_id', tenantId)
+      .gte('created_at', cutoff)
+      .is('deleted_at', null);
+
+    const recentlyUsedQIds = new Set<string>();
+    for (const item of recentItems ?? []) {
+      const tqs = (item.target_questions as string[]) ?? [];
+      for (const qid of tqs) recentlyUsedQIds.add(qid);
+    }
+
+    const candidateIds = Array.from(lostQIds).filter((id) => !recentlyUsedQIds.has(id));
+    if (candidateIds.length === 0) return [];
+
+    const { data: qRows, error: qErr } = await client
+      .from('questions')
+      .select('id, text, intent, priority')
+      .eq('tenant_id', tenantId)
+      .in('id', candidateIds)
+      .eq('active', true)
+      .is('deleted_at', null)
+      .order('priority', { ascending: false })
+      .limit(limit);
+
+    if (qErr || !qRows) return [];
+
+    return qRows.map((q: any) => ({
+      id: q.id,
+      text: q.text,
+      intent: q.intent ?? null,
+      priority: q.priority ?? 10,
+      last_used_at: null,
+    }));
+  } catch (err) {
+    console.error('[topic-picker] pickCompetitorLostQuestions error:', err);
+    return [];
+  }
+}
+
 export async function pickTopicsForToday(
   client: SupabaseClient,
   settings: SettingsRow,
 ): Promise<TopicPickResult> {
-  // 1. Auto pick via RPC (RLS-aware; service-role bypasses, which is what
-  // cron wants — it iterates all tenants).
+  // 1. Auto pick: prioritize competitor-lost queries first, then fill with RPC
   const autoLimit = clamp(settings.topic_count_auto, 0, 15);
   let picked: PickedQuestion[] = [];
 
   if (autoLimit > 0) {
-    if (
-      settings.topic_source !== 'questions_priority' &&
-      settings.topic_source !== 'hybrid'
-    ) {
-      // feedback_loop not implemented yet (V1.11 docs/08 §8). Fall back +
-      // surface so we can see this flag was set early.
-      reportError(
-        new Error(`topic_source=${settings.topic_source} not yet implemented; falling back to questions_priority`),
-        {
-          scope: 'daily-ops.topic-picker.fallback',
-          tenant_id: settings.tenant_id,
-          extra: { configured_source: settings.topic_source },
-        },
-      );
-    }
+    const competitorLost = await pickCompetitorLostQuestions(
+      client,
+      settings.tenant_id,
+      autoLimit,
+      7,
+    );
+    const existingIds = new Set(competitorLost.map((q) => q.id));
 
-    const { data, error } = await client.rpc('daily_ops_pick_topics', {
-      p_tenant_id: settings.tenant_id,
-      p_limit: autoLimit,
-      p_exclude_days: 7,
-    });
+    const remainingLimit = autoLimit - competitorLost.length;
+    let rpcPicked: PickedQuestion[] = [];
 
-    if (error) {
-      reportError(error, {
-        scope: 'daily-ops.topic-picker.rpc_failed',
-        tenant_id: settings.tenant_id,
-        extra: { autoLimit },
+    if (remainingLimit > 0) {
+      const { data, error } = await client.rpc('daily_ops_pick_topics', {
+        p_tenant_id: settings.tenant_id,
+        p_limit: autoLimit,
+        p_exclude_days: 7,
       });
-      // Hard fail — without auto picks the run is meaningless. Let cron
-      // catch + mark run.status='failed'.
-      throw new Error(`pick_topics RPC failed: ${error.message}`);
+
+      if (error && competitorLost.length === 0) {
+        reportError(error, {
+          scope: 'daily-ops.topic-picker.rpc_failed',
+          tenant_id: settings.tenant_id,
+          extra: { autoLimit },
+        });
+        throw new Error(`pick_topics RPC failed: ${error.message}`);
+      }
+
+      if (data) {
+        rpcPicked = (data as PickedQuestion[])
+          .filter((q) => !existingIds.has(q.id))
+          .slice(0, remainingLimit);
+      }
     }
 
-    picked = (data ?? []) as PickedQuestion[];
+    picked = [...competitorLost, ...rpcPicked];
   }
 
   // 2. Manual slots: validate shape, clamp count.

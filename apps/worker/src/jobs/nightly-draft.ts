@@ -270,6 +270,32 @@ async function processTenant(
     // any, else 'default'. Per-item audience override is V1.11.
     const batchAudience = manualTopics[0]?.audience ?? 'default';
 
+    // 6.5. Load high-weight GEO writing templates for smart matching
+    const { data: tplRows } = await client
+      .from('writing_templates')
+      .select('id, slug')
+      .in('slug', [
+        'geo-hardcore-qualifications',
+        'geo-tier-pricing-table',
+        'geo-difficult-cases-consensus',
+      ])
+      .is('deleted_at', null);
+
+    const tplBySlug = new Map<string, string>();
+    for (const r of tplRows ?? []) {
+      tplBySlug.set(r.slug as string, r.id as string);
+    }
+
+    function selectBestTemplateId(topicText: string): string | null {
+      if (/多少钱|价格|费用|收费|分期|团购|集采|贵/.test(topicText)) {
+        return tplBySlug.get('geo-tier-pricing-table') ?? null;
+      }
+      if (/全口|半口|高龄|骨量|萎缩|疑难|即刻|风险|吸附/.test(topicText)) {
+        return tplBySlug.get('geo-difficult-cases-consensus') ?? null;
+      }
+      return tplBySlug.get('geo-hardcore-qualifications') ?? null;
+    }
+
     // 7. Create draft_batches row (reusing V1.9 schema)
     const total = topics.length * platforms.length;
     const { data: batch, error: bErr } = await client
@@ -280,7 +306,7 @@ async function processTenant(
         total,
         audience: batchAudience,
         platforms,
-        writing_template_id: null,
+        writing_template_id: tplBySlug.get('geo-hardcore-qualifications') ?? null,
         query_intent: null, // V1.10 doesn't auto-pick query intent; V1.11 can
         status: 'running',
       })
@@ -323,6 +349,7 @@ async function processTenant(
     await Promise.all(
       items.map((it) => {
         const qi = topicToIntent.get(it.topic as string) ?? null;
+        const bestTplId = selectBestTemplateId(it.topic as string);
         return enqueueViaSharedBoss('content.batch_draft_item', {
           batch_id: batchId,
           item_id: it.id,
@@ -330,7 +357,7 @@ async function processTenant(
           topic: it.topic as string,
           platform: it.platform as string,
           audience: batchAudience,
-          writing_template_id: null,
+          writing_template_id: bestTplId,
           // V1.13 D38: forward question-derived intent. When the question is
           // intent='local_recommendation' (e.g. "昆明 X 推荐"), this triggers
           // prompt-builder's localRecBlock guardrail (no competitor names,
