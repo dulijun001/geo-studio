@@ -30,7 +30,7 @@ export { fallbackDescribe };
  * 主备互换时语义不变。
  */
 const SWITCHABLE_RE =
-  /(Ark|Fallback) (401|403|429|5\d\d)|[Oo]verdue|timed? ?out|ECONN|ENOTFOUND|EAI_AGAIN|fetch failed|aborted|The operation was aborted/i;
+  /(Ark|Fallback) (400|401|403|429|5\d\d)|InvalidEndpoint|ClosedEndpoint|[Oo]verdue|timed? ?out|ECONN|ENOTFOUND|EAI_AGAIN|fetch failed|aborted|The operation was aborted/i;
 
 export function isSwitchableFailure(message: string): boolean {
   return SWITCHABLE_RE.test(message);

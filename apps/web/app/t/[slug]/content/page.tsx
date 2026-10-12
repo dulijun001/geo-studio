@@ -1,11 +1,13 @@
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { getSupabaseServiceClient } from '@/lib/supabase/service';
 import { requireTenantMember } from '@/lib/tenant';
 import { PageHeader } from '@/components/page-header';
 import { InlineGuide } from '@/components/inline-guide';
 import { fmtDateTime } from '@/lib/format';
 import { UploadForm } from './upload-form';
-import { AiDraftForm } from './ai-draft-form';
+import { AiDraftForm, type TemplateOption } from './ai-draft-form';
 import { QueryMatrixForm } from './query-matrix-form';
 
 export const dynamic = 'force-dynamic'; // Always fresh status after uploads
@@ -17,13 +19,30 @@ export default async function ContentPage({ params }: { params: { slug: string }
   );
 
   const supabase = createSupabaseServerClient();
-  const { data: items } = await supabase
-    .from('content_items')
-    .select('id, title, source_type, status, topics, created_at, markdown')
-    .eq('tenant_id', tenant.id)
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false })
-    .limit(50);
+  const service = getSupabaseServiceClient();
+  const [{ data: items }, { data: tplRows }] = await Promise.all([
+    supabase
+      .from('content_items')
+      .select('id, title, source_type, status, topics, created_at, markdown')
+      .eq('tenant_id', tenant.id)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(50),
+    service
+      .from('writing_templates')
+      .select('id, name, slug, description')
+      .or(`tenant_id.eq.${tenant.id},tenant_id.is.null`)
+      .eq('visible', true)
+      .is('deleted_at', null)
+      .order('name', { ascending: true }),
+  ]);
+
+  const templates = ((tplRows ?? []) as TemplateOption[]).sort((a, b) => {
+    const aStar = a.name.startsWith('★') ? 0 : 1;
+    const bStar = b.name.startsWith('★') ? 0 : 1;
+    if (aStar !== bStar) return aStar - bStar;
+    return a.name.localeCompare(b.name, 'zh-CN');
+  });
 
   return (
     <div className="space-y-6">
@@ -46,7 +65,9 @@ export default async function ContentPage({ params }: { params: { slug: string }
                 ✦ 创作向导
               </Link>
               <QueryMatrixForm tenantSlug={tenant.slug} />
-              <AiDraftForm tenantSlug={tenant.slug} />
+              <Suspense fallback={null}>
+                <AiDraftForm tenantSlug={tenant.slug} templates={templates} />
+              </Suspense>
               <UploadForm tenantSlug={tenant.slug} />
             </div>
           ) : undefined

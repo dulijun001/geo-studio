@@ -42,7 +42,7 @@ import { getServiceClient } from '../lib/supabase';
  * 系统性失败是**暂时态**,必须抛错走 pg-boss 重试,充值/恢复后自动续跑。
  * 内容级失败(JSON 解析不动/拒答)保持跳过 + audit,重跑白烧 token。
  */
-const SYSTEMIC_LLM_FAILURE_RE = /Ark (401|403|429|5\d\d)|[Oo]verdue|timed? ?out|ECONN|ENOTFOUND|fetch failed/;
+const SYSTEMIC_LLM_FAILURE_RE = /(Ark|Fallback) (400|401|403|429|5\d\d)|InvalidEndpoint|ClosedEndpoint|[Oo]verdue|timed? ?out|ECONN|ENOTFOUND|fetch failed/i;
 
 export type VariantGenerateJob = {
   content_item_id: string;

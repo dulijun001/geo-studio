@@ -7,6 +7,7 @@ import { fmtDateTime } from '@/lib/format';
 import { GenerateVariantsForm } from './generate-variants-form';
 import { DeriveForm } from './derive-form';
 import { ManualPassButton } from './manual-pass-button';
+import { MultiPlatformExport } from './multi-platform-export';
 
 export const dynamic = 'force-dynamic';
 
@@ -143,6 +144,14 @@ export default async function ContentDetailPage({
           )}
         />
       )}
+
+      {item.markdown ? (
+        <MultiPlatformExport
+          title={item.title}
+          markdown={item.markdown}
+          slices={slices}
+        />
+      ) : null}
 
       <section className="space-y-2">
         <h2 className="text-lg font-medium">正文(解析后)</h2>

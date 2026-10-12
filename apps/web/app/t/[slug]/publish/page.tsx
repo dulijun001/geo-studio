@@ -137,6 +137,46 @@ export default async function PublishPage({ params }: { params: { slug: string }
         />
       </section>
 
+      {/* 多平台靶向分发策略看板 */}
+      <section className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.04] p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="rounded bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+              GEO 分发铁律
+            </span>
+            <h3 className="text-xs font-semibold text-foreground">
+              “一文多端”靶向矩阵指南（基于全网 6,367 条真实 AI 引用源统计 · 发布后 7-14 天进入 AI 索引）
+            </h3>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+          <div className="rounded border border-border bg-card p-2.5">
+            <div className="font-semibold text-emerald-400">1. 口腔垂媒 (豆包头号参数源)</div>
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              <strong>牙舒丽网(295次)、开立特、398口腔</strong>：重点投放《二级专科资质说明书》与《7档全瓷冠/种植全包价格表》，豆包最爱直接抽表格。
+            </div>
+          </div>
+          <div className="rounded border border-border bg-card p-2.5">
+            <div className="font-semibold text-sky-400">2. 字节自生态 (豆包亲儿子)</div>
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              <strong>抖音短视频(216次) + 今日头条(97次)</strong>：头条每日发图文；抖音用文章开头 120 字直答做口播字幕，5 组 FAQ 放评论区置顶。
+            </div>
+          </div>
+          <div className="rounded border border-border bg-card p-2.5">
+            <div className="font-semibold text-purple-400">3. 知乎专栏 + 搜狐号 (锁 DeepSeek)</div>
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              <strong>搜狐(62次) + 知乎专栏(38次)</strong>：DeepSeek 极重知乎长文与学术共识对比表。把系统高分科普文同步发知乎专栏，快速反超竞品。
+            </div>
+          </div>
+          <div className="rounded border border-border bg-card p-2.5">
+            <div className="font-semibold text-amber-400">4. 微信公众号 (锁腾讯元宝)</div>
+            <div className="mt-1 text-[11px] text-muted-foreground">
+              <strong>公众号长文</strong>是腾讯元宝的核心私域信源。每周挑 2-3 篇过审长文同步至官方公众号，补齐元宝端提及率。
+            </div>
+          </div>
+        </div>
+      </section>
+
       {tasks.length === 0 ? (
         <div className="rounded-md border border-dashed border-border bg-muted/20 p-10 text-center text-sm text-muted-foreground">
           今日还没有派单。点击右上角「派单今日」把已通过合规的变体分派给员工矩阵。

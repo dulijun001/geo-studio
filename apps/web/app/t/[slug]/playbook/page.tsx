@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { InlineGuide } from '@/components/inline-guide';
 import { PageHeader } from '@/components/page-header';
 import { fmtDateTime } from '@/lib/format';
+import { CompetitorBenchmarkSection } from './competitor-benchmark';
 import {
   PHASES,
   PLATFORM_LABEL,
@@ -259,6 +260,9 @@ export default async function PlaybookPage({ params }: { params: { slug: string 
           {PHASES_T[currentPhase]!.rationale}
         </p>
       </section>
+
+      {/* Competitor Benchmark & Reference Blueprint (柏德对标与引源中枢) */}
+      <CompetitorBenchmarkSection tenantSlug={tenant.slug} />
 
       {/* This week's 5 things — top action list */}
       {actions.length > 0 ? (
