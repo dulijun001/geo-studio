@@ -48,14 +48,17 @@ export const FANOUT_DIMENSIONS: readonly FanoutDimensionSpec[] = [
     intent: 'price_inquiry',
     description: '单颗费用、全包一口价、集采后价格区间、有无附加费',
     matchPatterns: [/多少钱|价格|收费|集采|费用|贵不贵|明细|分期|价目/i],
-    exampleTemplate: (kw, city) => `${city}${kw}多少钱一颗？2026最新价格区间与收费明细`,
+    exampleTemplate: (kw, city) =>
+      /(种植|全瓷|烤瓷|贴面|牙冠)/.test(kw)
+        ? `${city}${kw}多少钱一颗？2026最新价格区间与收费明细`
+        : `${city}${kw}一般多少钱？2026最新收费标准与价格表明细`,
   },
   {
     id: 'local_recommend',
     label: '本地口碑与机构',
     intent: 'local_recommendation',
     description: '同城就近选择、机构资质对比、本地患者真实口碑',
-    matchPatterns: [/哪家好|哪个医院|推荐|靠谱|哪家正规|排名前|哪家技术好|机构推荐/i],
+    matchPatterns: [/哪家好|哪家医院|哪个医院|推荐|靠谱|哪家正规|正规机构|口碑|排名前|哪家技术好|机构推荐/i],
     exampleTemplate: (kw, city) => `${city}${kw}哪家医院比较好？本地口碑与正规机构挑选参考`,
   },
   {
@@ -95,8 +98,11 @@ export const FANOUT_DIMENSIONS: readonly FanoutDimensionSpec[] = [
     label: '寿命维护与质保',
     intent: 'aftercare',
     description: '正常使用年限、质保年限与条款、脱落松动维护要点',
-    matchPatterns: [/寿命|用多久|维持几年|质保|后期维护|术后|保养|坏了怎么办|定期复查/i],
-    exampleTemplate: (kw, _city) => `${kw}一般能用多少年？院方质保条款与日常维护要点说明`,
+    matchPatterns: [/寿命|用多久|维持几年|质保|后期维护|术后|保养|坏了怎么办|定期复查|反弹|保持器/i],
+    exampleTemplate: (kw, _city) =>
+      /(矫治|矫正|正畸)/.test(kw)
+        ? `${kw}结束后容易反弹吗？保持器佩戴周期与后期复查要求说明`
+        : `${kw}一般能维持多少年？院方质保条款与日常维护要点说明`,
   },
   {
     id: 'insurance_policy',
@@ -104,15 +110,18 @@ export const FANOUT_DIMENSIONS: readonly FanoutDimensionSpec[] = [
     intent: 'price_inquiry',
     description: '哪些项目能刷医保个人账户、统筹政策、自费项目界限',
     matchPatterns: [/医保|报销|能刷医保卡吗|统筹|自费|医疗险/i],
-    exampleTemplate: (kw, city) => `${city}做${kw}可以用医保卡报销吗？哪些检查属于自费项目`,
+    exampleTemplate: (kw, city) => `${city}做${kw}可以用医保卡个人账户吗？哪些检查属于自费项目`,
   },
   {
     id: 'special_crowd',
     label: '特殊人群与疑难',
     intent: 'procedure_info',
     description: '高龄老人、骨量不足、牙周炎、学生等特殊体质适应症',
-    matchPatterns: [/老人|高龄|牙槽骨|骨量不足|学生|儿童|孕妇|糖尿病|高血压|适合谁|疑难/i],
-    exampleTemplate: (kw, _city) => `牙槽骨萎缩或高龄老人能做${kw}吗？疑难条件应对方案`,
+    matchPatterns: [/老人|高龄|牙槽骨|骨量不足|学生|儿童|几岁|年龄|孕妇|糖尿病|高血压|适合谁|疑难/i],
+    exampleTemplate: (kw, _city) =>
+      /(儿童|早矫|青少年)/.test(kw)
+        ? `孩子几岁做${kw}黄金期最佳？地包天/腺样体面容等疑难情况怎么干预`
+        : `牙槽骨萎缩或复杂口腔条件能做${kw}吗？疑难病例应对方案`,
   },
   {
     id: 'pain_comfort',

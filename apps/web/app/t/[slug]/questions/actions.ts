@@ -645,7 +645,7 @@ export async function bulkInsertFanoutQuestions(
       category: input.category?.trim() || null,
       priority: Math.max(0, Math.min(10, q.priority ?? 8)),
       active: true,
-      subtopic_source: 'fanout_expand',
+      subtopic_source: 'llm_expand',
       expansion_seed_topic: input.seedKeyword.trim(),
     });
   }
