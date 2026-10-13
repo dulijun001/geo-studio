@@ -5,6 +5,7 @@ import { InlineGuide } from '@/components/inline-guide';
 import { fmtDateTime } from '@/lib/format';
 import { DispatchButton } from './dispatch-button';
 import { CancelButton } from './cancel-button';
+import { WeComDigestButton } from './wecom-digest-button';
 
 const CANCEL_GRACE_MS = 2 * 3600 * 1000;
 
@@ -111,7 +112,12 @@ export default async function PublishPage({ params }: { params: { slug: string }
       <PageHeader
         title="派单"
         subtitle="今日员工矩阵的发布计划 · 派单算法自动匹配平台 / 人设 / 节奏"
-        actions={<DispatchButton tenantSlug={tenant.slug} />}
+        actions={
+          <div className="flex items-center gap-2">
+            <WeComDigestButton tenantSlug={tenant.slug} />
+            <DispatchButton tenantSlug={tenant.slug} />
+          </div>
+        }
       />
 
       <InlineGuide

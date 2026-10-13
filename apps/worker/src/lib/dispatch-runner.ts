@@ -24,6 +24,7 @@
 import { dispatchDaily, type DispatchInput } from '@geo/geo-core';
 import { reportError, reportEvent } from '@geo/shared';
 import { getServiceClient } from './supabase';
+import { notifyNewDispatchedTasks } from './wecom-notifier';
 
 type DispatchSettings = {
   daily_cap_per_staff: number;
@@ -253,10 +254,19 @@ export async function runAutoDispatch(tenantId: string): Promise<AutoDispatchRes
     dispatched_at: nowIso,
   }));
 
-  const { error: insErr } = await service
+  const { data: insData, error: insErr } = await service
     .from('publish_tasks')
-    .insert(rows);
+    .insert(rows)
+    .select('id');
   if (insErr) throw new Error(`publish_tasks insert failed: ${insErr.message}`);
+
+  // 当有新派单生成时，立即推送到企业微信群
+  if (insData?.length) {
+    const taskIds = insData.map((t) => t.id as string);
+    notifyNewDispatchedTasks(tenantId, taskIds).catch((err) => {
+      console.error('[dispatch-runner] notifyNewDispatchedTasks error:', err);
+    });
+  }
 
   // Audit log — actor_user_id intentionally null for cron-originated dispatch
   // (the row's mere existence identifies the source; downstream UIs read

@@ -20,7 +20,12 @@ import {
   type WeeklyKnowledgeReportJob,
 } from './weekly-knowledge-report';
 import { handleParseContent, type ParseContentJob } from './parse-content';
-import { handleStaffBacklogDigest, STAFF_BACKLOG_DIGEST_JOB } from './staff-backlog-digest';
+import {
+  handleStaffBacklogDigest,
+  handleDailyMorningPublishPlan,
+  STAFF_BACKLOG_DIGEST_JOB,
+  DAILY_PUBLISH_PLAN_JOB,
+} from './staff-backlog-digest';
 import { handleVariantGenerate, type VariantGenerateJob } from './variant-generate';
 
 export const JOBS = {
@@ -38,7 +43,8 @@ export const JOBS = {
   COMPLIANCE_AUTO_REWRITE: 'compliance.auto_rewrite', // P3 — auto LLM rewrite on reject (max 1×)
   DAILY_OPS_NIGHTLY_DRAFT: NIGHTLY_DRAFT_JOB, // V1.10 docs/09 cron #1
   DAILY_OPS_AUTO_DISPATCH_TIMEOUT: AUTO_DISPATCH_TIMEOUT_JOB, // V1.10 docs/09 cron #2
-  STAFF_BACKLOG_DIGEST: STAFF_BACKLOG_DIGEST_JOB, // G1 轻量版 — 每日待发积压推企微
+  STAFF_BACKLOG_DIGEST: STAFF_BACKLOG_DIGEST_JOB, // 每日派单打卡进度(谁发了、谁没发)
+  DAILY_PUBLISH_PLAN: DAILY_PUBLISH_PLAN_JOB, // 每天 09:30 把今日要发的推送到企微群
 } as const;
 
 export async function registerJobs(boss: PgBoss): Promise<void> {
@@ -80,8 +86,12 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
     await handleDailyReport(job?.data ?? {});
   });
 
-  await boss.work(JOBS.STAFF_BACKLOG_DIGEST, async () => {
-    await handleStaffBacklogDigest();
+  await boss.work<{ titlePrefix?: string }>(JOBS.STAFF_BACKLOG_DIGEST, async ([job]) => {
+    await handleStaffBacklogDigest(job?.data ?? {});
+  });
+
+  await boss.work(JOBS.DAILY_PUBLISH_PLAN, async () => {
+    await handleDailyMorningPublishPlan();
   });
 
   await boss.work<KnowledgeSyncJob>(JOBS.KNOWLEDGE_SYNC, async ([job]) => {
@@ -137,8 +147,14 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
   // pg-boss schedule uses UTC cron; 0 1 * * * = 01:00 UTC = 09:00 Asia/Shanghai.
   await boss.schedule(JOBS.REPORTS_DAILY, '0 1 * * *', {});
 
-  // G1 轻量版 — 每日 04:00 UTC = 12:00 Asia/Shanghai,午间把待发积压推管理员企微。
-  await boss.schedule(JOBS.STAFF_BACKLOG_DIGEST, '0 4 * * *', {});
+  // 1. 每日 09:30 Asia/Shanghai (= 01:30 UTC): 每天把今日要发的任务清单推到企微群
+  await boss.schedule(JOBS.DAILY_PUBLISH_PLAN, '30 1 * * *', {});
+
+  // 2. 每日 12:00 Asia/Shanghai (= 04:00 UTC): 午间把谁发了、谁没发打卡进度推企微
+  await boss.schedule(JOBS.STAFF_BACKLOG_DIGEST, '0 4 * * *', { titlePrefix: '☀️ 午间进度' });
+
+  // 3. 每日 17:30 Asia/Shanghai (= 09:30 UTC): 傍晚下班前清点催办(谁发了、谁没发)
+  await boss.schedule(JOBS.STAFF_BACKLOG_DIGEST, '30 9 * * *', { titlePrefix: '🔔 晚间催办' });
 
   // Knowledge-base reconciliation every 5 minutes.
   // Cheap: ~210 md files, hash diff < 200ms; only writes when content changes.

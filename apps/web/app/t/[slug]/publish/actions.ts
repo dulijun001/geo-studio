@@ -6,6 +6,10 @@ import { requireRole } from '@/lib/tenant';
 import { getCurrentUser } from '@/lib/current-user';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
+import {
+  notifyNewDispatchedTasksFromWeb,
+  notifyPublishProgressDigestFromWeb,
+} from '@/lib/wecom-notifier';
 
 /**
  * DSP-1 — dispatch tunables, all read from tenants.settings.dispatch.
@@ -550,6 +554,15 @@ export async function dispatchToday(
     ]);
     if (insRes.error) throw new Error(`派单写入失败: ${insRes.error.message}`);
 
+    // 有新派单时，实时推送到企业微信群
+    const inserted = (insRes.data ?? []) as Array<{ id: string }>;
+    if (inserted.length > 0) {
+      const taskIds = inserted.map((t) => t.id);
+      notifyNewDispatchedTasksFromWeb(tenant.id, taskIds).catch((err) => {
+        console.error('[publish/actions] notifyNewDispatchedTasksFromWeb error:', err);
+      });
+    }
+
     // W7 hooks: per-task doctor_name + activity_code.
     // Both close in 30 days — rough match for the typical conversion window
     // for high-ticket dental services. Configurable later via tenant settings.
@@ -605,4 +618,12 @@ export async function dispatchToday(
     eligible_staff: eligibleStaff,
     committed: true,
   };
+}
+
+/**
+ * 手动一键推送派单与打卡进度到企业微信群
+ */
+export async function pushWeComProgressDigestAction(tenantSlug: string) {
+  const tenant = await requireRole(tenantSlug, ['owner', 'admin', 'operator']);
+  return await notifyPublishProgressDigestFromWeb(tenant.id);
 }
