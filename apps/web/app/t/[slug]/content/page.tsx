@@ -47,8 +47,8 @@ export default async function ContentPage({ params }: { params: { slug: string }
   return (
     <div className="space-y-6">
       <PageHeader
-        title="内容"
-        subtitle="上传素材或 AI 基于知识库生成,系统自动解析为 markdown 供下游 GEO 改写"
+        title="内容素材"
+        subtitle="上传素材或 AI 基于知识库生成，系统自动解析为 markdown 供下游 GEO 改写"
         actions={
           canEdit ? (
             <div className="flex items-center gap-2">
@@ -73,6 +73,33 @@ export default async function ContentPage({ params }: { params: { slug: string }
           ) : undefined
         }
       />
+
+      <div className="flex items-center gap-2 border-b border-border pb-3 text-xs">
+        <span className="font-semibold text-foreground">
+          素材库
+        </span>
+        <span className="text-muted-foreground">·</span>
+        <Link
+          href={`/t/${tenant.slug}/content/rescue`}
+          className="text-muted-foreground transition hover:text-foreground"
+        >
+          老内容救援
+        </Link>
+        <span className="text-muted-foreground">·</span>
+        <Link
+          href={`/t/${tenant.slug}/templates`}
+          className="text-muted-foreground transition hover:text-foreground"
+        >
+          写作要求模板
+        </Link>
+        <span className="text-muted-foreground">·</span>
+        <Link
+          href={`/t/${tenant.slug}/keywords`}
+          className="text-muted-foreground transition hover:text-foreground"
+        >
+          关键词词库
+        </Link>
+      </div>
 
       <InlineGuide
         storageKey={`guide:content:${tenant.slug}`}

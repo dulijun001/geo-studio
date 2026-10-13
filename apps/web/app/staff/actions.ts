@@ -33,6 +33,84 @@ function hostnameMatches(hostname: string, allow: string[]): boolean {
 }
 
 /**
+ * Clean, normalize, and validate staff-submitted published URLs:
+ * 1. Extract http(s) URL if staff pasted "标题 https://..." share text.
+ * 2. Convert Toutiao creator preview URLs (?pgc_id=xxx) or /item/xxx into canonical
+ *    public https://www.toutiao.com/article/xxx/ URLs.
+ * 3. Reject creator backend list/editor URLs that contain no article ID
+ *    (e.g. mp.toutiao.com/profile_v4/graphic/articles or /publish).
+ */
+function normalizePublishedUrl(
+  rawInput: string,
+  platform: string,
+): { ok: true; url: string } | { ok: false; error: string } {
+  const trimmed = rawInput.trim();
+  const urlMatch = trimmed.match(/https?:\/\/[^\s"'<>]+/i);
+  if (!urlMatch) {
+    return {
+      ok: false,
+      error: '请粘贴完整链接（以 http:// 或 https:// 开头）。',
+    };
+  }
+  let url = urlMatch[0];
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { ok: false, error: '链接格式异常 — 请检查是否粘贴了完整的网页地址' };
+  }
+
+  const allow = PLATFORM_DOMAINS[platform];
+  if (allow && allow.length > 0 && !hostnameMatches(parsed.hostname, allow)) {
+    return {
+      ok: false,
+      error:
+        `链接域名不属于「${platform}」平台（应包含 ${allow.join(' / ')}）。` +
+        `请确认粘贴的是对应平台发布的链接。`,
+    };
+  }
+
+  // Toutiao canonicalization & anti-mistake check
+  if (platform === 'toutiao_article' || parsed.hostname.endsWith('toutiao.com')) {
+    const pgcId = parsed.searchParams.get('pgc_id') || parsed.searchParams.get('id');
+    const itemMatch = parsed.pathname.match(/\/(?:item|article|a|group)\/(\d{9,20})/);
+    const wMatch = parsed.pathname.match(/\/w\/(\d{9,20})/);
+    const articleId = pgcId && /^\d{9,20}$/.test(pgcId) ? pgcId : itemMatch?.[1];
+    if (articleId) {
+      url = `https://www.toutiao.com/article/${articleId}/`;
+    } else if (wMatch?.[1]) {
+      url = `https://www.toutiao.com/w/${wMatch[1]}/`;
+    } else if (
+      parsed.hostname === 'mp.toutiao.com' ||
+      /^\/profile_v4\/graphic\/(articles|publish)/i.test(parsed.pathname)
+    ) {
+      return {
+        ok: false,
+        error:
+          '你粘贴的是头条后台「作品列表/发文编辑页」地址，里面没有具体文章编号！请点开已发布的那篇文章，复制浏览器地址栏里的具体文章链接。',
+      };
+    }
+  }
+
+  // Zhihu anti-mistake check
+  if (platform === 'zhihu' && parsed.hostname.endsWith('zhihu.com')) {
+    if (
+      parsed.pathname === '/' ||
+      parsed.pathname.startsWith('/creator') ||
+      parsed.pathname.startsWith('/settings')
+    ) {
+      return {
+        ok: false,
+        error:
+          '你粘贴的是知乎创作者后台或首页，不是具体文章链接！请点开已发布的文章或回答（形如 zhuanlan.zhihu.com/p/...），再复制链接。',
+      };
+    }
+  }
+
+  return { ok: true, url };
+}
+
+/**
  * Result envelope for user-visible errors. Next 14 production builds REDACT
  * any `throw new Error('中文')` from a server action — the staff only sees
  * "An error occurred in the Server Components render…". Returning a
@@ -57,14 +135,6 @@ export async function logoutStaff(): Promise<void> {
  */
 export async function markTaskPublished(taskId: string, urlRaw: string): Promise<ActionResult> {
   const ctx = await requireStaff();
-  const url = urlRaw.trim();
-
-  if (!/^https?:\/\//i.test(url)) {
-    return {
-      ok: false,
-      error: '请只粘贴完整链接(以 http:// 或 https:// 开头),不要把标题和链接一起粘进来。',
-    };
-  }
 
   const client = getSupabaseServiceClient();
 
@@ -79,32 +149,19 @@ export async function markTaskPublished(taskId: string, urlRaw: string): Promise
   if (task.tenant_id !== ctx.tenant_id) return { ok: false, error: '租户不匹配' };
   if (task.status === 'published') return { ok: true }; // idempotent
 
-  // STF-3 — verify hostname matches the variant's target platform. Prevents
-  // staff from pasting arbitrary URLs (their personal blog, mistyped, etc.)
-  // that would silently feed false data into attribution.
+  // STF-3 — verify hostname matches the variant's target platform & normalize URL.
   const { data: variantRow } = await client
     .from('content_variants')
     .select('platform, content_item_id')
     .eq('id', task.variant_id as string)
     .single<{ platform: string; content_item_id: string }>();
   if (!variantRow) return { ok: false, error: '变体不存在,请联系管理员' };
-  const allow = PLATFORM_DOMAINS[variantRow.platform];
-  if (allow && allow.length > 0) {
-    let hostname: string;
-    try {
-      hostname = new URL(url).hostname;
-    } catch {
-      return { ok: false, error: '链接格式异常 — 检查只粘了 URL,前后没多余文字' };
-    }
-    if (!hostnameMatches(hostname, allow)) {
-      return {
-        ok: false,
-        error:
-          `链接域名不属于「${variantRow.platform}」平台(应包含 ${allow.join(' / ')})。` +
-          `如果你确实发到了对应平台,请贴完整 URL;如果发错了平台,请改用「跳过」并备注原因。`,
-      };
-    }
+
+  const normalized = normalizePublishedUrl(urlRaw, variantRow.platform);
+  if (!normalized.ok) {
+    return normalized;
   }
+  const url = normalized.url;
 
   const { error: upErr } = await client
     .from('publish_tasks')

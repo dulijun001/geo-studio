@@ -34,6 +34,7 @@ export const contentItemStatusEnum = pgEnum('content_item_status', [
   'ai_drafted',
   'parsed',
   'variant_generated',
+  'published',
   'archived',
 ]);
 

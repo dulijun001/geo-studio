@@ -140,11 +140,12 @@ export async function handleGeoSnapshot(data: GeoSnapshotJob): Promise<void> {
     {
       account_id: 'guest',
       // V1 default: headful. Bundled-Chromium headless gets hard-blocked by
-      // both doubao + yuanbao (ERR_CONNECTION_CLOSED / silent reject). Each
-      // adapter uses system Chrome + persistent userDataDir so the login
-      // cookie survives. Set PLAYWRIGHT_HEADLESS=true on the eventual
-      // Xvfb-equipped Linux worker.
-      headless: process.env.PLAYWRIGHT_HEADLESS === 'true',
+      // Doubao (silent submit reject -> "response did not stabilize before timeout").
+      // On macOS, Doubao MUST run headful (headless: false).
+      headless:
+        engine === 'doubao'
+          ? process.env.DOUBAO_HEADLESS === 'true'
+          : process.env.PLAYWRIGHT_HEADLESS === 'true',
       timeout_ms: 120_000,
     },
   );

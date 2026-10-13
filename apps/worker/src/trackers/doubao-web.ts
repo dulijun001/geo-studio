@@ -155,30 +155,22 @@ class DoubaoWebAdapter implements TrackerAdapter {
       // V1.11.4c: 不让 input.click 用默认 30s actionTimeout。RAG 模式下输入框
       // 可能被遮挡或 transient,等 stable 等不来。force:true + 3s 上限。失败
       // fallback fill 直接打字。
+      await input.focus().catch(() => undefined);
       await input
         .click({ timeout: 3000, force: true })
         .catch(() => undefined);
-      await input.fill(q.question, { timeout: 5000 }).catch(async () => {
-        // fill failed → type 字符级 fallback
-        await input.type(q.question, { delay: 20 }).catch(() => undefined);
-      });
+      await page.waitForTimeout(500);
 
-      // Try to submit. Strategy:
-      //   1. send-button click with short per-attempt timeout — V2 fix.
-      //      原 V1 单 click 没 timeout option,默认 actionTimeout=30s。
-      //      RAG/local 题模式下豆包 DOM 在 transient state,Playwright 等
-      //      element scroll-into-view 等不到稳定就 30s 超时(已观察)。
-      //      新版每个 selector 限 3s,force=true 跳过 stability 检查 — 豆豆
-      //      新 UI 切换快,等 stable 反而比直接 click 慢且容易 stale。
-      //   2. 全失败 → keyboard Enter + Meta+Enter 兜底
-      // 单条总 wall-clock 上限 = 3 selectors × 3s + 300ms = ~9.3s,远低于
-      // 旧 30s 行为,留余地给后续 waitForURL.
+      // 必须用真实按键模拟输入，触发 React/Slate synthetic input 事件，避免 send button 停留在 disabled 状态
+      await page.keyboard.type(q.question, { delay: 15 });
+      await page.waitForTimeout(600);
+
+      // Try to submit.
+      // 严格排除 div 等外层容器（div 从不带 disabled，会假命中导致跳过 Enter）
       const sendBtnSelectors = [
         '[class*="send-btn-wrapper"] button:not([disabled])',
         'button[class*="send-msg-btn"]:not([disabled])',
-        '[class*="send-btn-wrapper"]:not([disabled])',
-        // V2 新增:RAG/搜索模式下豆包改用 svg-icon 按钮
-        '[class*="search-submit"]:not([disabled])',
+        'button[class*="search-submit"]:not([disabled])',
         'button[aria-label*="发送"]:not([disabled])',
       ];
       let submitted = false;
@@ -199,10 +191,22 @@ class DoubaoWebAdapter implements TrackerAdapter {
         }
       }
       if (!submitted) {
+        await input.focus().catch(() => undefined);
         await page.keyboard.press('Enter').catch(() => undefined);
         await page.waitForTimeout(300);
         await page.keyboard.press('Meta+Enter').catch(() => undefined);
         submittedVia = 'keyboard';
+      }
+
+      console.log(`[doubao-web] submitted_via=${submittedVia}, checking submit acceptance...`);
+      await page.waitForTimeout(2000);
+      if (page.url().endsWith('/chat/') || page.url().endsWith('/chat')) {
+        const currentInputVal = await input.inputValue().catch(() => '');
+        if (currentInputVal.trim().length > 0) {
+          console.log('[doubao-web] text still in input, re-pressing Enter...');
+          await input.focus().catch(() => undefined);
+          await page.keyboard.press('Enter').catch(() => undefined);
+        }
       }
 
       // The URL flips to /chat/<session-id> once the message is accepted.
