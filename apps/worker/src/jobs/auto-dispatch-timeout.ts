@@ -77,6 +77,35 @@ async function sweepExpiredDispatch(
   }
 }
 
+async function sweepAutoDispatchTenants(
+  client: ReturnType<typeof getServiceClient>,
+): Promise<void> {
+  const { data: settingsRows, error } = await client
+    .from('daily_ops_settings')
+    .select('tenant_id')
+    .eq('enabled', true)
+    .eq('auto_dispatch_enabled', true);
+  if (error || !settingsRows || settingsRows.length === 0) return;
+
+  const { runAutoDispatch } = await import('../lib/dispatch-runner');
+  for (const row of settingsRows) {
+    const tenantId = row.tenant_id as string;
+    try {
+      const r = await runAutoDispatch(tenantId);
+      if (r.dispatched > 0) {
+        console.log(
+          `[auto-dispatch-timeout] sweepAutoDispatchTenants tenant=${tenantId} dispatched=${r.dispatched}`,
+        );
+      }
+    } catch (err) {
+      reportError(err, {
+        scope: 'daily-ops.auto-dispatch-timeout.sweep_dispatch',
+        tenant_id: tenantId,
+      });
+    }
+  }
+}
+
 export async function handleAutoDispatchTimeout(): Promise<void> {
   const client = getServiceClient();
 
@@ -94,6 +123,7 @@ export async function handleAutoDispatchTimeout(): Promise<void> {
   }
 
   if (!runs || runs.length === 0) {
+    await sweepAutoDispatchTenants(client);
     console.log('[auto-dispatch-timeout] no runs to advance');
     return;
   }
@@ -117,6 +147,8 @@ export async function handleAutoDispatchTimeout(): Promise<void> {
     }
   }
 
+  await sweepAutoDispatchTenants(client);
+
   reportEvent('daily-ops.auto-dispatch-timeout.completed', {
     scope: 'daily-ops.auto-dispatch-timeout',
     extra: { advanced, unchanged, failed, total: runs.length },
@@ -131,7 +163,18 @@ async function advanceRun(
   run: RunRow,
 ): Promise<boolean> {
   if (run.status === 'drafting') {
-    return await advanceDraftingToAwaiting(client, run);
+    const moved = await advanceDraftingToAwaiting(client, run);
+    if (moved) {
+      const { data: refreshed } = await client
+        .from('daily_ops_runs')
+        .select('id, tenant_id, run_date, status, batch_draft_id, notified_at')
+        .eq('id', run.id)
+        .maybeSingle();
+      if (refreshed && refreshed.status === 'awaiting_review') {
+        await advanceAwaitingToDispatch(client, refreshed as RunRow);
+      }
+    }
+    return moved;
   }
   if (run.status === 'awaiting_review') {
     return await advanceAwaitingToDispatch(client, run);
@@ -427,7 +470,7 @@ async function advanceAwaitingToDispatch(
   const notifiedAt = new Date(run.notified_at).getTime();
   const elapsedMs = Date.now() - notifiedAt;
   const elapsedHours = elapsedMs / 3_600_000;
-  if (elapsedHours < timeoutHours) return false; // still within review window
+  if (!autoDispatchEnabled && elapsedHours < timeoutHours) return false; // still within review window
 
   // Recount green variants (current state, in case operator already approved some)
   const { data: variants } = await client

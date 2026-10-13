@@ -68,9 +68,18 @@ export type CitationCheckResult = {
 function extractCitationCandidates(body: string): Array<{ needle: string; offset: number }> {
   const out: Array<{ needle: string; offset: number }> = [];
   const seen = new Set<string>();
+  // In-clinic forms, questionnaires, and administrative documents are not academic citations
+  const NON_CITATION_BRACKET_RE =
+    /(问卷|同意书|告知书|登记表|记录表|评估表|检查表|调查表|申请表|手册|健康档案|病历|排班表|价目表|收费标准|价格表|许可证|执业证)$/;
+  // Generic noun phrases that end in 指南/共识/白皮书 but are not specific named publications
+  const GENERIC_GUIDELINE_PHRASE_RE =
+    /^(?:(?:中的|的|之|相关|上述|该|本|国内外|国际|国内|行业|业内|临床|口腔|诊疗|治疗|医学|专家|学术|普遍|基本|核心|重要)+)(?:临床|诊疗|治疗|医学|专家|行业|国际)?(?:指南|共识|白皮书)$/;
+
   // pattern 1: 《...》
   for (const m of body.matchAll(/《([^》]{3,40})》/g)) {
-    const needle = `《${m[1]}》`;
+    const inner = (m[1] ?? '').trim();
+    if (NON_CITATION_BRACKET_RE.test(inner)) continue;
+    const needle = `《${inner}》`;
     if (!seen.has(needle)) {
       seen.add(needle);
       out.push({ needle, offset: m.index ?? 0 });
@@ -86,13 +95,17 @@ function extractCitationCandidates(body: string): Array<{ needle: string; offset
     /((?:[一-龥A-Za-z0-9]{2,14})(?:指南|共识|白皮书))/g,
   )) {
     const needle = m[1] ?? '';
+    const matchIdx = m.index ?? 0;
     // Skip if already captured inside 《》
     if (!needle || seen.has(needle)) continue;
+    // Skip generic phrases like "中的临床共识", "相关临床指南", or immediately following 》
+    if (GENERIC_GUIDELINE_PHRASE_RE.test(needle)) continue;
+    if (matchIdx > 0 && body.slice(Math.max(0, matchIdx - 4), matchIdx).includes('》')) continue;
     // Don't double-count if this exact phrase is inside a 《》 we already captured
     const insideBrackets = out.some((x) => x.needle.includes(needle));
     if (insideBrackets) continue;
     seen.add(needle);
-    out.push({ needle, offset: m.index ?? 0 });
+    out.push({ needle, offset: matchIdx });
   }
   // pattern 3: authority orgs.
   // D34 fix: org names almost always appear as ATTRIBUTION ("中华口腔医学会

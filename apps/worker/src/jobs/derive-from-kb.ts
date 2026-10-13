@@ -164,6 +164,76 @@ export async function deriveComplianceKeywords(
     throw delErr;
   }
 
+  // Default medical / linguistic contextual exemptions by keyword term
+  const DEFAULT_EXEMPTIONS: Record<string, string[]> = {
+    第一: [
+      '第一恒磨牙',
+      '第一前磨牙',
+      '第一磨牙',
+      '第一乳磨牙',
+      '第一切牙',
+      '第一双尖牙',
+      '第一次',
+      '第一颗',
+      '第一步',
+      '第一阶段',
+      '第一期',
+      '第一疗程',
+      '第一天',
+      '第一周',
+      '第一个月',
+      '第一年',
+      '第一时间',
+      '第一批',
+      '第一道',
+      '第一轮',
+      '第一线',
+      '第一，',
+      '第一、',
+    ],
+    永久: [
+      '永久修复体',
+      '永久修复',
+      '永久冠',
+      '永久牙冠',
+      '永久义齿',
+      '永久固定义齿',
+      '永久牙',
+      '永久牙列',
+      '永久充填',
+      '永久粘接',
+      '永久黏固',
+    ],
+    绝对: [
+      '没有绝对',
+      '不是绝对',
+      '并非绝对',
+      '并无绝对',
+      '无绝对',
+      '绝对禁忌',
+      '绝对适应',
+      '绝对障碍',
+      '绝对优势',
+      '绝对上限',
+    ],
+    保证: ['难以保证', '无法保证', '不能保证', '并非保证'],
+    确保: [
+      '确保牙面',
+      '确保干燥',
+      '确保隔湿',
+      '确保无菌',
+      '确保视野',
+      '确保手术方案',
+      '确保含氟',
+      '确保附着',
+      '确保贴合',
+      '确保密合',
+    ],
+    真实病例: ['真实病例记录', '参考院内真实病例', '真实病例数据'],
+    药到病除: ['并非一劳永逸', '不是一劳永逸', '不存在一劳永逸'],
+    零风险: ['并非零风险', '不存在零风险', '不代表零风险', '并非无风险', '不存在无风险'],
+  };
+
   // Bulk insert
   const rows = records.map((r) => ({
     tenant_id: tenantId,
@@ -171,7 +241,7 @@ export async function deriveComplianceKeywords(
     level: r.level,
     category: r.category,
     variants: r.variants,
-    context_exempt: [],
+    context_exempt: DEFAULT_EXEMPTIONS[r.term] ?? [],
     source_path: COMPLIANCE_SOURCE_PATH,
   }));
 

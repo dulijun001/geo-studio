@@ -73,6 +73,211 @@ export type ScanResult = {
 };
 
 /**
+ * Built-in dental & Chinese linguistic exemptions by normalized needle.
+ * Prevents false-positive rejections on standard clinical terminology,
+ * ordinal sequences, and scientific documentation references.
+ */
+const BUILTIN_CONTEXT_EXEMPTIONS: Record<string, string[]> = {
+  第一: [
+    '第一恒磨牙',
+    '第一前磨牙',
+    '第一磨牙',
+    '第一乳磨牙',
+    '第一切牙',
+    '第一双尖牙',
+    '第一次',
+    '第一颗',
+    '第一步',
+    '第一阶段',
+    '第一期',
+    '第一疗程',
+    '第一天',
+    '第一周',
+    '第一个月',
+    '第一年',
+    '第一时间',
+    '第一批',
+    '第一道',
+    '第一轮',
+    '第一线',
+    '第一反应',
+    '第一印象',
+    '第一手',
+    '第一，',
+    '第一、',
+    '第一:',
+    '第一：',
+    '第一点',
+    '第一项',
+    '第一条',
+    '第一类',
+    '第一层',
+    '第一组',
+  ],
+  永久: [
+    '永久修复体',
+    '永久修复',
+    '永久冠',
+    '永久牙冠',
+    '永久义齿',
+    '永久固定义齿',
+    '永久牙',
+    '永久牙列',
+    '永久充填',
+    '永久粘接',
+    '永久黏固',
+    '永久封闭',
+  ],
+  绝对: [
+    '没有绝对',
+    '不是绝对',
+    '并非绝对',
+    '并无绝对',
+    '无绝对',
+    '非绝对',
+    '不具有绝对',
+    '不代表绝对',
+    '绝对禁忌',
+    '绝对适应',
+    '绝对值',
+    '绝对湿度',
+    '绝对酒精',
+    '绝对障碍',
+    '绝对优势',
+    '绝对上限',
+    '绝对年龄',
+    '绝对不可以',
+    '绝对不要',
+    '绝对禁止',
+    '绝对不可',
+  ],
+  保证: [
+    '难以保证',
+    '无法保证',
+    '不能保证',
+    '不保证',
+    '并非保证',
+    '很难保证',
+    '质量保证',
+  ],
+  确保: [
+    '确保牙面',
+    '确保干燥',
+    '确保隔湿',
+    '确保无菌',
+    '确保视野',
+    '确保手术方案',
+    '确保含氟',
+    '确保附着',
+    '确保贴合',
+    '确保密合',
+    '确保安全距离',
+    '确保咬合',
+    '确保清洁',
+    '确保基台',
+    '确保取模',
+    '确保导板',
+    '确保口腔',
+    '确保精确',
+    '确保精准',
+    '确保种植位置',
+    '确保位置',
+  ],
+  真实病例: [
+    '真实病例记录',
+    '参考院内真实病例',
+    '真实病例数据',
+    '真实病例及',
+    '真实病例回顾',
+  ],
+  案例: [
+    '接诊案例中',
+    '诊疗案例中',
+    '临床案例中',
+    '文献案例',
+    '典型案例分析',
+  ],
+  接诊过: [
+    '接诊过6',
+    '接诊过7',
+    '接诊过8',
+    '接诊过多位',
+    '接诊过老年',
+    '接诊过复杂',
+  ],
+  曾接诊: [
+    '曾接诊6',
+    '曾接诊7',
+    '曾接诊8',
+    '曾接诊多位',
+    '曾接诊老年',
+    '曾接诊复杂',
+  ],
+};
+
+/**
+ * Needles eligible for reverse-disclaimer negation exemption
+ * (e.g. "临床上不存在无风险或一劳永逸的情况", "家长误以为涂布封闭材料后便能永久无损").
+ */
+const NEGATABLE_DISCLAIMER_NEEDLES = new Set([
+  '无风险',
+  '零风险',
+  '一劳永逸',
+  '永久',
+  '终身',
+  '管用一辈子',
+  '100%',
+  '百分百',
+  '百分之百',
+  '包治',
+  '根治',
+  '治愈',
+  '痊愈',
+  '永不复发',
+  '永不反复',
+  '绝对安全',
+  '完全无痛',
+  '零疼痛',
+  '无痛',
+  '无副作用',
+  '无并发症',
+  '立竿见影',
+  '一次搞定',
+  '一次解决',
+  '药到病除',
+  '零失败',
+  '无失败案例',
+  '保证',
+  '确保',
+]);
+
+const NEGATION_CLAUSE_RE =
+  /(不存在|并非|并不是|不是|不代表|不等于|不意味着|没有|并无|绝非|不能|无法|难以|不可能|切勿|不要|莫要|避免|警惕|误以为|以为|切忌|幻想|盲信|迷信|轻信|所谓|夸大)/;
+
+/**
+ * Checks whether a matched guarantee/efficacy term at `idx` in `normalized`
+ * is governed by a negation / anti-myth warning within the same clause.
+ */
+function isNegatedDisclaimer(normalized: string, idx: number, needle: string): boolean {
+  if (!NEGATABLE_DISCLAIMER_NEEDLES.has(needle)) return false;
+  const lookbackStart = Math.max(0, idx - 18);
+  const preceding = normalized.slice(lookbackStart, idx);
+  // Stop at sentence-ending punctuation so negation from a previous sentence doesn't leak
+  const lastSentenceBreak = Math.max(
+    preceding.lastIndexOf('。'),
+    preceding.lastIndexOf('！'),
+    preceding.lastIndexOf('？'),
+    preceding.lastIndexOf('；'),
+    preceding.lastIndexOf('!'),
+    preceding.lastIndexOf('?'),
+    preceding.lastIndexOf(';'),
+  );
+  const sameClausePrefix =
+    lastSentenceBreak >= 0 ? preceding.slice(lastSentenceBreak + 1) : preceding;
+  return NEGATION_CLAUSE_RE.test(sameClausePrefix);
+}
+
+/**
  * Scan text against a keyword dictionary.
  * Pass the keywords pre-loaded from `compliance_keywords`.
  *
@@ -95,13 +300,37 @@ export function scanKeywords(
       )
     : keywords;
 
+  // Merge context_exempt across all keywords that share a needle so tenant-specific
+  // duplicate rows (with empty context_exempt) still respect global exemptions.
+  const sharedExemptByNeedle = new Map<string, Set<string>>();
+  for (const kw of applicable) {
+    const needles = [kw.term, ...kw.variants].map(normalize).filter((s) => s.length > 0);
+    for (const needle of needles) {
+      let set = sharedExemptByNeedle.get(needle);
+      if (!set) {
+        set = new Set<string>(BUILTIN_CONTEXT_EXEMPTIONS[needle] ?? []);
+        sharedExemptByNeedle.set(needle, set);
+      }
+      for (const ex of kw.context_exempt ?? []) {
+        if (ex) set.add(ex);
+      }
+    }
+  }
+
   for (const kw of applicable) {
     const needles = [kw.term, ...kw.variants].map(normalize).filter((s) => s.length > 0);
 
     // Pre-compute exempt intervals for THIS keyword on the normalized text.
     // A term hit fully inside any interval is legitimate usage — skip it.
+    const exemptPhrases = new Set<string>(kw.context_exempt ?? []);
+    for (const needle of needles) {
+      for (const ex of sharedExemptByNeedle.get(needle) ?? []) {
+        exemptPhrases.add(ex);
+      }
+    }
+
     const exemptRanges: Array<[number, number]> = [];
-    for (const raw of kw.context_exempt ?? []) {
+    for (const raw of exemptPhrases) {
       const phrase = normalize(raw);
       if (phrase.length === 0) continue;
       let f = 0;
@@ -121,7 +350,7 @@ export function scanKeywords(
         const idx = normalized.indexOf(needle, from);
         if (idx < 0) break;
 
-        if (isExempt(idx, needle.length)) {
+        if (isExempt(idx, needle.length) || isNegatedDisclaimer(normalized, idx, needle)) {
           from = idx + needle.length;
           continue;
         }

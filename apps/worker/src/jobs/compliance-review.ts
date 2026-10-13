@@ -308,88 +308,7 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
     }
   }
 
-  // 4b. Quality-gate downgrade — even if 4-道-门 says auto_approved, refuse to
-  // bypass human review when:
-  //   - GEO score < 70 (could not reach minimum after rewrite — 档位 A1); OR
-  //   - citation_check flagged hallucinated 《...》 references (档位 A2); OR
-  //   - numeric_check verdict='reject' (档位 C1, data-level hallucination).
-  //
-  // Numeric_check verdict='suspect' does NOT downgrade — that's the LLM's
-  // way of saying "I can't tell" (no key_claims, ambiguous match). 'reject'
-  // is reserved for either heuristic hard-hit (100% 治愈 + citation) or LLM
-  // judging a clear contradiction with operator-curated key_claims.
-  if (finalStatus === 'auto_approved') {
-    const geoTotal =
-      typeof variant.geo_score?.total === 'number' ? variant.geo_score.total : null;
-    const citationVerdict = variant.citation_check?.verdict ?? null;
-    const numericVerdict = variant.numeric_check?.verdict ?? null;
-    const downgradeReasons: string[] = [];
-    if (geoTotal !== null && geoTotal < GEO_AUTO_APPROVE_MIN) {
-      downgradeReasons.push(`geo_score=${geoTotal}<${GEO_AUTO_APPROVE_MIN}`);
-    }
-    if (citationVerdict === 'suspected_hallucination') {
-      downgradeReasons.push('citation_hallucination');
-    }
-    if (numericVerdict === 'reject') {
-      downgradeReasons.push('numeric_fact_reject');
-    }
-    // D76(2026-09-19):数字无出处 → 转人审。
-    //
-    // 补的是一个结构性缺口:关键词那道门 pass 就直接 auto_approved,不调 LLM,
-    // 实测 691 次扫描里 422 次走的是这条零审查通道(61%)。而 LLM prompt 自己把
-    // 「没有来源的具体百分比」列为 A 档高风险 —— 最该管的恰好没人管。
-    // 实测已发布内容里漏出「咬合力接近真牙(约 80-90%)」「术后肿胀发生率超过 30%」,
-    // 以及「五年存留率约 98%（数据来源：具体研究）」这种**占位符没填**的假出处。
-    //
-    // 用确定性正则而不是再加一遍 LLM:零调用成本、结果可复现,而且方舟还在欠费、
-    // 备用通道吃的是用户自己的订阅额度,3 倍调用量不是现在该付的代价。
-    // 判 pending 不判 rejected —— 机器只能看出「附近有没有出处标记」,
-    // 那个出处是真是假得人来看。
-    const numericSource = checkNumericSource(variant.body ?? '');
-    if (numericSource.verdict === 'pending') {
-      downgradeReasons.push(`numeric_no_source(${summarizeNumericSource(numericSource)})`);
-    }
-    // P1-2 敏感题材人审地板(docs/11,2026-07-03):医保/集采/报销类是实测
-    // 被引最多的赢家题材(被引 14 篇集中于此),同时政策数字写错的代价也
-    // 最高(医保政策误导 >> 一般广告违规)。安全产线原则:这类题**永不
-    // 自动放行**,一律过人眼 — 只加审,不减审,不拦截生成。
-    if (/(医保|集采|报销)/.test(variant.title ?? '')) {
-      downgradeReasons.push('sensitive_policy_topic');
-    }
-    if (downgradeReasons.length > 0) {
-      finalStatus = 'pending';
-      await writeAudit(tenant_id, triggered_by, 'compliance.quality_gate_downgrade', variant_id, {
-        review_id: latestReviewId,
-        reasons: downgradeReasons,
-        geo_total: geoTotal,
-        citation_verdict: citationVerdict,
-        numeric_verdict: numericVerdict,
-      });
-      console.log(
-        `[compliance-review] variant=${variant_id} downgraded auto→pending (${downgradeReasons.join(', ')})`,
-      );
-    }
-  }
-
-  // 5. Update variant
-  const variantStatus =
-    finalStatus === 'rejected'
-      ? 'rejected'
-      : finalStatus === 'auto_approved'
-        ? 'auto_approved'
-        : 'pending_review';
-  const complianceStatus =
-    finalStatus === 'rejected'
-      ? 'rejected'
-      : finalStatus === 'auto_approved'
-        ? 'auto_approved'
-        : 'pending';
-
-  // T0a 2026-05-19: 同步算 DoD 写回 dod_status,免 cron #2 永远 stillEvaluating.
-  // V1.10 nightly-draft 漏调 evaluateDod,生产真跑后 30 个 variants 全 unknown
-  // → cron #2 永远跳过 advance run. 这里 hook 进 compliance.review 完成路径,
-  // 简化版只跑 L2 总分(skip_required_slices),完整 DoD with slices 留 V1.11.
-  // V1.13 — 本地化 GEO 结构检查需要品牌锚点(城市 / 服务区 / 品牌名)。轻量取一次。
+  // Compute DoD first so 4b quality-gate knows whether L2 DoD already passed.
   let brandCtx: { name?: string; city?: string; service_areas?: string[] } = {};
   try {
     const { data: brandRow } = await client
@@ -416,9 +335,6 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   const LONG_FORM_PLATFORMS = ['toutiao_article', 'wechat_mp', 'zhihu', 'baijiahao', 'souhu'];
   const isLongForm = LONG_FORM_PLATFORMS.includes(variant.platform);
 
-  // docs/11 P0-1 — 取目标查询原句,激活 L2 query_coverage + 标题硬闸门。
-  // contract.primary_query 优先(D21 wizard 路径),target_questions[0] 兜底
-  // (nightly-draft 路径)。best-effort:取不到就跳过闸门,不阻断评估。
   let primaryQuery: string | undefined;
   if (variant.content_item_id) {
     try {
@@ -458,7 +374,6 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
   let dodStatus: 'passed' | 'failed' | 'legacy_passed' | 'unknown' = 'passed';
   let dodScore: number | null = null;
   let localGeoFailures: string[] = [];
-  // 2026-06-06: 之前没写 dod_evidence → 失败原因不可见(库里恒 {}),无法排查为何 failed。
   let dodEvidence: unknown = null;
   try {
     const dod = evaluateDod({
@@ -485,11 +400,76 @@ export async function handleComplianceReview(data: ComplianceReviewJob): Promise
       tenant_id,
       extra: { variant_id },
     });
-    // V1.12.1 fail-safe 方向修正:评估器崩溃时兜底 'unknown'(走人审),
-    // 不是 'passed'(自动放行)。崩溃 ≠ 通过 — 原兜底让 daily-ops 自动放行
-    // 从未被 DoD 检查过的内容。reportError 已上报,人审入口在 UI 可见。
     dodStatus = 'unknown';
   }
+
+  // 4b. Quality-gate downgrade
+  if (finalStatus === 'auto_approved') {
+    const geoTotal =
+      typeof variant.geo_score?.total === 'number' ? variant.geo_score.total : null;
+    const rawCitationCheck = variant.citation_check as {
+      verdict?: string;
+      unmatched?: Array<{ needle?: string }>;
+      detail_issues?: unknown[];
+    } | null;
+    let citationVerdict = rawCitationCheck?.verdict ?? null;
+    if (citationVerdict === 'suspected_hallucination') {
+      const benignCitationRe =
+        /(问卷|同意书|告知书|登记表|记录表|评估表|检查表|调查表|申请表|手册|健康档案|病历|排班表|价目表|收费标准|价格表|许可证|执业证)》?$|^(?:中的|的|之|相关|上述|该|本|国内外|国际|国内|行业|业内|临床|口腔|诊疗|治疗|医学|专家|学术|普遍|基本|核心|重要)+(?:临床|诊疗|治疗|医学|专家|行业|国际)?(?:指南|共识|白皮书)$/;
+      const realUnmatched = (rawCitationCheck?.unmatched ?? []).filter(
+        (u) => u.needle && !benignCitationRe.test(u.needle.replace(/^《|》$/g, '')),
+      );
+      const hasDetailIssues = (rawCitationCheck?.detail_issues ?? []).length > 0;
+      if (realUnmatched.length === 0 && !hasDetailIssues) {
+        citationVerdict = 'ok';
+      }
+    }
+    const numericVerdict = variant.numeric_check?.verdict ?? null;
+    const downgradeReasons: string[] = [];
+    if (dodStatus !== 'passed' && geoTotal !== null && geoTotal < GEO_AUTO_APPROVE_MIN) {
+      downgradeReasons.push(`geo_score=${geoTotal}<${GEO_AUTO_APPROVE_MIN}`);
+    }
+    if (citationVerdict === 'suspected_hallucination') {
+      downgradeReasons.push('citation_hallucination');
+    }
+    if (numericVerdict === 'reject') {
+      downgradeReasons.push('numeric_fact_reject');
+    }
+    const numericSource = checkNumericSource(variant.body ?? '');
+    if (numericSource.verdict === 'pending') {
+      downgradeReasons.push(`numeric_no_source(${summarizeNumericSource(numericSource)})`);
+    }
+    if (/(医保|集采|报销)/.test(variant.title ?? '')) {
+      downgradeReasons.push('sensitive_policy_topic');
+    }
+    if (downgradeReasons.length > 0) {
+      finalStatus = 'pending';
+      await writeAudit(tenant_id, triggered_by, 'compliance.quality_gate_downgrade', variant_id, {
+        review_id: latestReviewId,
+        reasons: downgradeReasons,
+        geo_total: geoTotal,
+        citation_verdict: citationVerdict,
+        numeric_verdict: numericVerdict,
+      });
+      console.log(
+        `[compliance-review] variant=${variant_id} downgraded auto→pending (${downgradeReasons.join(', ')})`,
+      );
+    }
+  }
+
+  // 5. Update variant
+  const variantStatus =
+    finalStatus === 'rejected'
+      ? 'rejected'
+      : finalStatus === 'auto_approved'
+        ? 'auto_approved'
+        : 'pending_review';
+  const complianceStatus =
+    finalStatus === 'rejected'
+      ? 'rejected'
+      : finalStatus === 'auto_approved'
+        ? 'auto_approved'
+        : 'pending';
 
   const { error: upErr } = await client
     .from('content_variants')
