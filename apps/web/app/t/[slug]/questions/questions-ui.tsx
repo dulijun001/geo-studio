@@ -56,21 +56,33 @@ export function QuestionsUI({
 }) {
   const router = useRouter();
   const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [intentFilter, setIntentFilter] = useState<QuestionIntent | ''>('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [modal, setModal] = useState<'add' | 'edit' | 'paste' | 'dig' | 'fanout' | null>(null);
   const [editing, setEditing] = useState<QuestionRow | null>(null);
+
+  const categories = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      if (r.category && r.category !== 'theme' && (activeFilter !== 'active' || r.active)) {
+        counts.set(r.category, (counts.get(r.category) ?? 0) + 1);
+      }
+    }
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  }, [rows, activeFilter]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (term && !r.text.toLowerCase().includes(term)) return false;
+      if (categoryFilter && r.category !== categoryFilter) return false;
       if (intentFilter && r.intent !== intentFilter) return false;
       if (activeFilter === 'active' && !r.active) return false;
       if (activeFilter === 'inactive' && r.active) return false;
       return true;
     });
-  }, [rows, search, intentFilter, activeFilter]);
+  }, [rows, search, categoryFilter, intentFilter, activeFilter]);
 
   return (
     <div className="space-y-4">
@@ -83,6 +95,18 @@ export function QuestionsUI({
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 min-w-[12rem] rounded border border-border bg-background px-3 py-1.5 text-sm"
         />
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          className="rounded border border-border bg-background px-2 py-1.5 text-sm"
+        >
+          <option value="">全部科室</option>
+          {categories.map(([cat, count]) => (
+            <option key={cat} value={cat}>
+              {cat} ({count})
+            </option>
+          ))}
+        </select>
         <select
           value={intentFilter}
           onChange={(e) => setIntentFilter(e.target.value as QuestionIntent | '')}
