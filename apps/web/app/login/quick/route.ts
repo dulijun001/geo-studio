@@ -25,6 +25,7 @@ import {
   recordLoginFailure,
 } from '@/lib/login-throttle';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
+import { getRequestOrigin } from '@/lib/url';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,14 +43,15 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const url = new URL(request.url);
+  const origin = getRequestOrigin(request);
+  const url = new URL(request.url, origin);
   const next = url.searchParams.get('next') || '/app';
 
   // 入口是 Tailscale Funnel(公网),必须限流以挡暴力破解。复用员工端同一 throttle。
   const ip = clientIpFromHeaders(request.headers);
   const throttle = checkLoginAllowed('admin-quick', ip);
   if (!throttle.allowed) {
-    return NextResponse.redirect(new URL('/login?err=rate_limited', request.url));
+    return NextResponse.redirect(new URL('/login?err=rate_limited', origin));
   }
 
   const form = await request.formData();
@@ -59,7 +61,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   // PASS 为空(env 未配)时 safeEqual 必为 false —— 关掉登录而不是放行。
   if (!PASS || !safeEqual(u, USER) || !safeEqual(p, PASS)) {
     recordLoginFailure('admin-quick', ip);
-    return NextResponse.redirect(new URL('/login?err=bad', request.url));
+    return NextResponse.redirect(new URL('/login?err=bad', origin));
   }
   clearLoginThrottle('admin-quick', ip);
 
@@ -91,5 +93,5 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!userId) userId = SUPER_ADMIN_USER_ID;
 
   issueAdminSession({ user_id: userId, email });
-  return NextResponse.redirect(new URL(next, request.url));
+  return NextResponse.redirect(new URL(next, origin));
 }

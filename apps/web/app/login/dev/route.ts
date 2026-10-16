@@ -16,6 +16,7 @@
 import { NextResponse } from 'next/server';
 import { issueAdminSession, SUPER_ADMIN_USER_ID } from '@/lib/admin-session';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
+import { getRequestOrigin } from '@/lib/url';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,7 +75,8 @@ export async function GET(request: Request) {
 
   issueAdminSession({ user_id: userId, email });
 
-  const url = new URL(request.url);
+  const origin = getRequestOrigin(request);
+  const url = new URL(request.url, origin);
   const next = url.searchParams.get('next') || '/app';
-  return NextResponse.redirect(new URL(next, request.url));
+  return NextResponse.redirect(new URL(next, origin));
 }
