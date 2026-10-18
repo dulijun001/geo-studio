@@ -151,6 +151,7 @@ async function loadBadges(tenantId: string, role: string): Promise<Badges> {
 function buildCommandItems(menu: NavItem[], badges: Badges): CommandItem[] {
   const HINTS: Record<string, { hint: string; keywords: string }> = {
     '': { hint: '工作台首页 · 总览 KPI', keywords: 'overview home dashboard 仪表盘' },
+    '/battle': { hint: '全城竞品对抗 · 三引擎深度研报', keywords: 'battle competitor 战情 竞品 研报 对抗 柏德 德韩' },
     '/playbook': { hint: 'GEO 12 周执行计划', keywords: 'playbook plan 计划 执行 路线图' },
     '/content': { hint: '内容素材库', keywords: 'content material 内容 素材' },
     '/content/rescue': { hint: '老内容救援', keywords: 'rescue old 老内容 救援' },
@@ -196,6 +197,7 @@ function buildMenu(role: string, badges: Badges): NavItem[] {
       badge: badges.compliance,
     },
     { href: '/tracking', label: 'GEO 追踪', iconKey: 'tracking' },
+    { href: '/battle', label: '⚔️ 战情研报', iconKey: 'tracking' },
     { href: '/sov', label: 'SOV 战况图', iconKey: 'tracking' },
     { href: '/loops', label: '回路看板', iconKey: 'tracking', allowed: ['owner', 'admin', 'operator'] },
     { href: '/discoverability', label: '可发现层', iconKey: 'compliance', allowed: ['owner', 'admin', 'operator'] },
