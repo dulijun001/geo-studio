@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { requireTenantMember } from '@/lib/tenant';
+import { getLiveBattleReport } from '@/lib/battle-data';
 import { BattleReportView } from './battle-report-view';
 
 export const metadata = {
@@ -7,12 +8,15 @@ export const metadata = {
   description: '全城口腔品牌提及率对抗、三大引擎采信源穿透与业务隐患雷达',
 };
 
+export const dynamic = 'force-dynamic';
+
 export default async function BattlePage({
   params,
 }: {
   params: { slug: string };
 }) {
   const tenant = await requireTenantMember(params.slug);
+  const liveData = await getLiveBattleReport(tenant.id);
 
   return (
     <div className="space-y-6 p-6">
@@ -23,7 +27,7 @@ export default async function BattlePage({
               ⚔️ 竞品战情中枢
             </span>
             <span className="text-xs text-muted-foreground">
-              监测周期：2026-W41（10.05 - 10.12）· 199 轮快照 · 1,100+ 引源穿透
+              监测周期：2026-W41 最新全盘实测 · {liveData.sampleCount} 轮多引擎真实快照 · {liveData.totalCitations.toLocaleString()}+ 外部引源穿透
             </span>
           </div>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">
@@ -50,7 +54,7 @@ export default async function BattlePage({
         </div>
       </div>
 
-      <BattleReportView tenantSlug={tenant.slug} />
+      <BattleReportView tenantSlug={tenant.slug} initialData={liveData} />
     </div>
   );
 }
