@@ -14,6 +14,7 @@ import {
 } from './discoverability-regenerate';
 import { handleGeoSnapshot, type GeoSnapshotJob } from './geo-snapshot';
 import { handleGeoWeeklyBaseline, type GeoWeeklyBaselineJob } from './geo-weekly-baseline';
+import { handleGeoLightRadar, type GeoLightRadarJob } from './geo-light-radar';
 import { handleKnowledgeSync, type KnowledgeSyncJob } from './knowledge-sync';
 import {
   handleWeeklyKnowledgeReport,
@@ -38,6 +39,7 @@ export const JOBS = {
   KNOWLEDGE_SYNC: 'knowledge.sync', // V1.5
   KNOWLEDGE_WEEKLY: 'knowledge.weekly_report', // V1.5-10
   GEO_WEEKLY_BASELINE: 'geo.weekly_baseline', // V1.6-2
+  GEO_LIGHT_RADAR: 'geo.light_radar', // Milestone 3: 全网轻量搜索雷达
   DISCOVERABILITY_REGENERATE: 'discoverability.regenerate', // V1.7
   BATCH_DRAFT_ITEM: 'content.batch_draft_item', // V1.9
   COMPLIANCE_AUTO_REWRITE: 'compliance.auto_rewrite', // P3 — auto LLM rewrite on reject (max 1×)
@@ -104,6 +106,10 @@ export async function registerJobs(boss: PgBoss): Promise<void> {
 
   await boss.work<GeoWeeklyBaselineJob>(JOBS.GEO_WEEKLY_BASELINE, async ([job]) => {
     await handleGeoWeeklyBaseline(boss, job?.data ?? {});
+  });
+
+  await boss.work<GeoLightRadarJob>(JOBS.GEO_LIGHT_RADAR, async ([job]) => {
+    await handleGeoLightRadar(boss, job?.data ?? {});
   });
 
   await boss.work<DiscoverabilityRegenerateJob>(
