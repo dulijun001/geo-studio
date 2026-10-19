@@ -8,6 +8,7 @@ export * from './dod-evaluator';
 export * from './title-gate';
 export * from './local-geo-check';
 export * from './citation-check';
+export * from './ground-truth-verifier';
 export * from './uniqueness';
 export * from './eeat-mapping';
 export * from './numeric-fact-check';
