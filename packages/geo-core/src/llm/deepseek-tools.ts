@@ -88,7 +88,7 @@ export class DeepSeekToolClient {
         throw new Error(`DeepSeek Search API error (${resp.status}): ${errText.slice(0, 300)}`);
       }
 
-      const data = await resp.json();
+      const data = (await resp.json()) as any;
       // 标准化解析结构
       const results: DeepSeekSearchItem[] = (data.results || data.data || []).map((item: any) => ({
         title: item.title || '',
@@ -144,7 +144,7 @@ export class DeepSeekToolClient {
         throw new Error(`DeepSeek Fetch API error (${resp.status}): ${errText.slice(0, 300)}`);
       }
 
-      const data = await resp.json();
+      const data = (await resp.json()) as any;
       return {
         url,
         title: data.title || '',

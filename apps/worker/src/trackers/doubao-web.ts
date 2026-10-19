@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { launchPersistentContext } from 'cloakbrowser';
 import type { BrowserContext } from 'playwright';
 import type { TrackerAdapter, TrackerContext, TrackerQuery, TrackerResult } from '@geo/geo-core';
+import { locateComposerInput, submitChatQuery } from './helpers/accessibility';
 
 const CHAT_URL = 'https://www.doubao.com/chat/';
 const INPUT_SELECTOR = 'textarea[placeholder*="发消息"]';
@@ -139,11 +140,11 @@ class DoubaoWebAdapter implements TrackerAdapter {
       // accepts input while it's open but the overlay can steal clicks.
       await page.keyboard.press('Escape').catch(() => undefined);
 
-      // Wait for the composer. If we never see it, treat as failure (likely
-      // hard captcha or layout change).
-      const input = await page
-        .waitForSelector(INPUT_SELECTOR, { timeout: Math.min(remaining(), 10_000) })
-        .catch(() => null);
+      // Wait for the composer. 采用无障碍树优先 (getByRole 'textbox') + CSS 候选降级
+      const input = await locateComposerInput(page, {
+        candidates: [INPUT_SELECTOR, 'textarea', '[contenteditable="true"]'],
+        timeoutMs: Math.min(remaining(), 10_000),
+      });
       if (!input) {
         return {
           status: 'failed',
@@ -166,37 +167,17 @@ class DoubaoWebAdapter implements TrackerAdapter {
       await page.waitForTimeout(600);
 
       // Try to submit.
-      // 严格排除 div 等外层容器（div 从不带 disabled，会假命中导致跳过 Enter）
+      // 优先无障碍语义按钮 (button "发送") -> CSS 候选列表降级 -> 键盘 Enter
       const sendBtnSelectors = [
         '[class*="send-btn-wrapper"] button:not([disabled])',
         'button[class*="send-msg-btn"]:not([disabled])',
         'button[class*="search-submit"]:not([disabled])',
         'button[aria-label*="发送"]:not([disabled])',
       ];
-      let submitted = false;
-      let submittedVia: string | null = null;
-      for (const sel of sendBtnSelectors) {
-        const btn = await page.$(sel).catch(() => null);
-        if (!btn) continue;
-        const enabled = await btn.isEnabled().catch(() => false);
-        if (!enabled) continue;
-        const ok = await btn
-          .click({ timeout: 3000, force: true })
-          .then(() => true)
-          .catch(() => false);
-        if (ok) {
-          submitted = true;
-          submittedVia = sel;
-          break;
-        }
-      }
-      if (!submitted) {
-        await input.focus().catch(() => undefined);
-        await page.keyboard.press('Enter').catch(() => undefined);
-        await page.waitForTimeout(300);
-        await page.keyboard.press('Meta+Enter').catch(() => undefined);
-        submittedVia = 'keyboard';
-      }
+      const { submittedVia } = await submitChatQuery(page, input, {
+        candidates: sendBtnSelectors,
+        timeoutMs: 3000,
+      });
 
       console.log(`[doubao-web] submitted_via=${submittedVia}, checking submit acceptance...`);
       await page.waitForTimeout(2000);

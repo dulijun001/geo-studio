@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { launchPersistentContext } from 'cloakbrowser';
 import type { BrowserContext } from 'playwright';
 import type { TrackerAdapter, TrackerContext, TrackerQuery, TrackerResult } from '@geo/geo-core';
+import { locateComposerInput, submitChatQuery } from './helpers/accessibility';
 
 const CHAT_URL = 'https://yuanbao.tencent.com/chat';
 // Probed 2026-04-30: Yuanbao uses a Quill rich-text editor (ql-editor)
@@ -127,15 +128,18 @@ class YuanbaoWebAdapter implements TrackerAdapter {
         timeout: Math.min(remaining(), 30_000),
       });
       await page.keyboard.press('Escape').catch(() => undefined);
+      // 处理元宝居中弹窗拦截 (t-dialog / 协议 / 公告)
+      try {
+        const dialogClose = await page.$('.t-dialog__close, [class*="dialog"] button, [aria-label*="close"]');
+        if (dialogClose) await dialogClose.click().catch(() => undefined);
+        await page.keyboard.press('Escape').catch(() => undefined);
+      } catch {}
 
-      // Find input (multiple candidate selectors)
-      let input = null;
-      for (const sel of INPUT_SELECTOR_CANDIDATES) {
-        input = await page
-          .waitForSelector(sel, { timeout: Math.min(remaining(), 5_000) })
-          .catch(() => null);
-        if (input) break;
-      }
+      // Find input (无障碍语义 tree 优先 -> 候选选择器降级)
+      const input = await locateComposerInput(page, {
+        candidates: INPUT_SELECTOR_CANDIDATES,
+        timeoutMs: Math.min(remaining(), 5_000),
+      });
       if (!input) {
         return {
           status: 'failed',
@@ -145,22 +149,17 @@ class YuanbaoWebAdapter implements TrackerAdapter {
         };
       }
 
-      await input.click();
-      await input.fill(q.question);
+      await input.click().catch(() => undefined);
+      // 元宝富文本编辑器优先用 fill，若失败用 type
+      await input.fill(q.question).catch(async () => {
+        await page.keyboard.type(q.question, { delay: 15 });
+      });
 
-      // Try send button, fall back to Enter
-      let submitted = false;
-      for (const sel of SEND_BUTTON_CANDIDATES) {
-        const btn = await page.$(sel).catch(() => null);
-        if (btn && (await btn.isEnabled().catch(() => false))) {
-          await btn.click().catch(() => undefined);
-          submitted = true;
-          break;
-        }
-      }
-      if (!submitted) {
-        await page.keyboard.press('Enter').catch(() => undefined);
-      }
+      // Try send button (无障碍语义优先 -> CSS 候选降级 -> 键盘 Enter)
+      await submitChatQuery(page, input, {
+        candidates: SEND_BUTTON_CANDIDATES,
+        timeoutMs: 3000,
+      });
 
       // Yuanbao usually puts the chat in a `/chat/<id>` URL after submit;
       // fall back to looking for any answer text on the page within timeout.
