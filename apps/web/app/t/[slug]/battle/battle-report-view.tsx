@@ -10,46 +10,63 @@ export function BattleReportView({
   tenantSlug: string;
   initialData: BattleReportData;
 }) {
-  const [activeTab, setActiveTab] = useState<'sov' | 'engines' | 'domains' | 'threats'>('sov');
+  const [activeTab, setActiveTab] = useState<'sov' | 'engines' | 'scenes' | 'domains' | 'threats'>('sov');
 
-  const { competitors, topDomains, sampleCount, byEngine, totalCitations } = initialData;
+  const { competitors, topDomains, sampleCount, byEngine, totalCitations, scenes } = initialData;
   const self = competitors.find((c) => c.isSelf) ?? competitors[0] ?? {
-    sov: '54.0%',
-    total: 108,
+    sov: '55.0%',
+    total: 115,
     doubao: '83.7%',
     doubaoCount: 87,
     yuanbao: '20.8%',
   };
   const topRival = competitors.find((c) => !c.isSelf) ?? competitors[1] ?? {
-    sov: '28.0%',
-    yuanbao: '31.3%',
+    sov: '29.2%',
+    yuanbao: '36.5%',
   };
 
   return (
     <div className="space-y-6">
+      {/* 真实战况预警横幅：戳破自嗨 */}
+      <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+        <div className="flex items-start gap-3">
+          <span className="text-xl">⚠️</span>
+          <div className="text-xs space-y-1">
+            <div className="font-bold text-amber-300 text-sm">
+              战情严正诊断：西山区根据地极度稳固（94.9%），但全城真实大词面临严重断档（仅 31.3%）！
+            </div>
+            <div className="text-muted-foreground leading-relaxed">
+              穿透真实数据发现：患者只要在搜索中加上“西山区”，松鼠垄断率高达 94.9%；但只要患者搜索“昆明种植牙/牙齿正畸/洗牙”（全城泛词），豆包与元宝 68.7% 的概率只推公立与柏德/德韩。这就是你平时在手机上搜感觉搜不到松鼠的底层真相！
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* 核心指标卡 */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-xl border border-border/80 bg-card p-5 shadow-sm">
-          <div className="text-xs font-medium text-muted-foreground">全网品牌提及率 (SOV)</div>
+          <div className="text-xs font-medium text-muted-foreground">全城真实泛词提及率</div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold tracking-tight text-emerald-400">{self.sov}</span>
-            <span className="text-xs font-semibold text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-              全城 TOP 1
+            <span className="text-3xl font-extrabold tracking-tight text-amber-400">{scenes.cityWide.sov}</span>
+            <span className="text-xs font-semibold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
+              被动防御
             </span>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            松鼠本院命中 {self.total} / {sampleCount} 轮多引擎真实测试快照
+            131 道全城词仅命中 {scenes.cityWide.songshuHits} 题（公立/柏德垄断）
           </p>
         </div>
 
         <div className="rounded-xl border border-border/80 bg-card p-5 shadow-sm">
-          <div className="text-xs font-medium text-muted-foreground">豆包端统治率</div>
+          <div className="text-xs font-medium text-muted-foreground">西山区根据地统治率</div>
           <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold tracking-tight text-foreground">{self.doubao}</span>
-            <span className="text-xs text-muted-foreground">{self.doubaoCount} / {byEngine.doubao} 题</span>
+            <span className="text-3xl font-extrabold tracking-tight text-emerald-400">{scenes.territory.sov}</span>
+            <span className="text-xs font-semibold text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+              区域垄断
+            </span>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            西山区、儿牙、常规种植在豆包形成垄断壁垒
+            78 道西山区地缘词命中 {scenes.territory.songshuHits} 题，儿牙基本盘稳固
           </p>
         </div>
 
@@ -89,6 +106,16 @@ export function BattleReportView({
           }`}
         >
           🏆 全城声量对抗总榜
+        </button>
+        <button
+          onClick={() => setActiveTab('scenes')}
+          className={`border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
+            activeTab === 'scenes'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          🎯 场景分池透视（全城 vs 西山）
         </button>
         <button
           onClick={() => setActiveTab('engines')}
@@ -131,7 +158,7 @@ export function BattleReportView({
                 全城 9 家口腔机构 SOV 对抗榜（{sampleCount} 轮多引擎真实测试）
               </h3>
               <p className="text-xs text-muted-foreground mt-1">
-                基于 Playwright 自动化落盘快照统计：松鼠 {self.sov} 领跑，柏德 {topRival.sov} 位居次席，德韩截留低价
+                基于 Playwright 自动化落盘快照统计：松鼠 {self.sov} 领跑（含西山区），柏德 {topRival.sov} 位居次席，德韩截留低价
               </p>
             </div>
 
@@ -212,7 +239,64 @@ export function BattleReportView({
         </div>
       )}
 
-      {/* Tab 2: 三大引擎采信拆解 */}
+      {/* Tab 2: 场景分池透视 */}
+      {activeTab === 'scenes' && (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <div className="rounded-xl border border-amber-500/30 bg-card p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-border/60 pb-3">
+              <div>
+                <h4 className="font-semibold text-foreground text-sm flex items-center gap-2">
+                  <span>⚔️ 全城大词攻坚战场</span>
+                  <span className="text-xs bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded">真实患者首选</span>
+                </h4>
+                <p className="text-xs text-muted-foreground mt-1">
+                  例：昆明种植牙哪家好、昆明戴牙套/正畸哪家正规、昆明洗牙医保能报吗
+                </p>
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-black text-amber-400">{scenes.cityWide.sov}</div>
+                <div className="text-[11px] text-muted-foreground">{scenes.cityWide.songshuHits} / {scenes.cityWide.total} 题</div>
+              </div>
+            </div>
+            <div className="text-xs text-muted-foreground space-y-2 leading-relaxed">
+              <div className="font-medium text-foreground">为什么提及率低（仅 31.3%）？</div>
+              <div>• 豆包引用头条与牙舒丽全城汇总文章，公立三甲与柏德、美奥长期霸占前三。</div>
+              <div>• 松鼠缺少针对“昆明十大口腔/全城正规专科”的合集型权威文章，导致泛搜索隐形。</div>
+            </div>
+            <div className="rounded-lg bg-amber-500/10 p-3 text-xs text-amber-300 font-medium">
+              👉 攻坚对策：向今日头条、牙舒丽投放 5 篇《昆明高规格口腔医院公立与二级专科盘点》，以二级专科资质强行杀入全城三强！
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-emerald-500/30 bg-card p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-border/60 pb-3">
+              <div>
+                <h4 className="font-semibold text-foreground text-sm flex items-center gap-2">
+                  <span>🏰 西山区根据地防御</span>
+                  <span className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded">基本盘垄断</span>
+                </h4>
+                <p className="text-xs text-muted-foreground mt-1">
+                  例：昆明西山区儿童牙科民营vs公立、西山区青少年牙齿矫正去哪家
+                </p>
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-black text-emerald-400">{scenes.territory.sov}</div>
+                <div className="text-[11px] text-muted-foreground">{scenes.territory.songshuHits} / {scenes.territory.total} 题</div>
+              </div>
+            </div>
+            <div className="text-xs text-muted-foreground space-y-2 leading-relaxed">
+              <div className="font-medium text-foreground">为什么提及率极高（94.9%）？</div>
+              <div>• 松鼠是西山区唯一的二级专科医院，在地缘召回与儿牙早矫细分领域具备绝对垄断。</div>
+              <div>• 只要患者位置或提问触发“西山区”，AI 优先推松鼠。</div>
+            </div>
+            <div className="rounded-lg bg-emerald-500/10 p-3 text-xs text-emerald-300 font-medium">
+              👉 防御对策：清洗老海埂路地址历史残留，巩固万达蓝光昆仑中心新院区地标。
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 3: 三大引擎采信拆解 */}
       {activeTab === 'engines' && (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           <div className="rounded-xl border border-border bg-card p-5 space-y-3">
@@ -289,7 +373,7 @@ export function BattleReportView({
         </div>
       )}
 
-      {/* Tab 3: Top 11 引源阵地穿透 */}
+      {/* Tab 4: Top 11 引源阵地穿透 */}
       {activeTab === 'domains' && (
         <div className="rounded-xl border border-border bg-card p-5">
           <div className="mb-4">
@@ -330,7 +414,7 @@ export function BattleReportView({
         </div>
       )}
 
-      {/* Tab 4: 业务隐患与反制预警 */}
+      {/* Tab 5: 业务隐患与反制预警 */}
       {activeTab === 'threats' && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-5 space-y-3">

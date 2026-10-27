@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import { launchPersistentContext } from 'cloakbrowser';
 import type { BrowserContext } from 'playwright';
 import type { TrackerAdapter, TrackerContext, TrackerQuery, TrackerResult } from '@geo/geo-core';
+import { humanType, safeClick, sleep } from './helpers/human';
 
 const CHAT_URL = 'https://chat.deepseek.com/';
 
@@ -164,20 +165,22 @@ class DeepseekWebAdapter implements TrackerAdapter {
       // submit on Enter mid-toggle. Idempotency: skip if already-active class.
       await this.#ensureWebSearchOn(page);
 
-      await input.click();
-      await input.fill(q.question);
+      // WebAI2API 拟人化打字与交互改造: 拒绝机械 fill
+      await safeClick(page, input, { bias: 'random' });
+      await humanType(page, input, q.question, { minDelay: 25, maxDelay: 85 });
 
       // Try send button first (arrow-up icon); fall back to Enter.
       let submitted = false;
       for (const sel of SEND_BUTTON_CANDIDATES) {
         const btn = await page.$(sel).catch(() => null);
         if (btn && (await btn.isEnabled().catch(() => false))) {
-          await btn.click().catch(() => undefined);
+          await safeClick(page, btn, { bias: 'random' });
           submitted = true;
           break;
         }
       }
       if (!submitted) {
+        await sleep(150, 300);
         await page.keyboard.press('Enter').catch(() => undefined);
       }
 

@@ -25,6 +25,21 @@ export interface DomainStat {
   purpose: string;
 }
 
+export interface SceneBreakdown {
+  cityWide: {
+    total: number;
+    songshuHits: number;
+    sov: string;
+    description: string;
+  };
+  territory: {
+    total: number;
+    songshuHits: number;
+    sov: string;
+    description: string;
+  };
+}
+
 export interface BattleReportData {
   sampleCount: number;
   totalCitations: number;
@@ -33,6 +48,7 @@ export interface BattleReportData {
     deepseek: number;
     yuanbao: number;
   };
+  scenes: SceneBreakdown;
   competitors: CompetitorStat[];
   topDomains: DomainStat[];
 }
@@ -42,13 +58,18 @@ export async function getLiveBattleReport(tenantId: string): Promise<BattleRepor
 
   const { data: allSnaps, error: snapErr } = await supabase
     .from('geo_snapshots')
-    .select('id, engine, status, asked_at, raw_response, citation_urls')
+    .select('id, question_id, engine, status, asked_at, raw_response, citation_urls')
     .eq('tenant_id', tenantId)
     .eq('status', 'done');
 
   if (snapErr || !allSnaps || allSnaps.length === 0) {
     throw new Error(snapErr?.message || 'No snapshots found for tenant');
   }
+
+  // 关联问题文本以进行分池
+  const qIds = Array.from(new Set(allSnaps.map((s: any) => s.question_id).filter(Boolean)));
+  const { data: questions } = await supabase.from('questions').select('id, text').in('id', qIds);
+  const qMap = new Map((questions || []).map((q: any) => [q.id, q.text]));
 
   const total = allSnaps.length;
   const byEngine = { doubao: 0, deepseek: 0, yuanbao: 0 };
@@ -58,8 +79,43 @@ export async function getLiveBattleReport(tenantId: string): Promise<BattleRepor
     }
   });
 
+  // 场景分池：全城泛词 vs 西山区地缘基本盘
+  let cityTotal = 0;
+  let citySongshu = 0;
+  let territoryTotal = 0;
+  let territorySongshu = 0;
+
+  allSnaps.forEach((s: any) => {
+    const qText = qMap.get(s.question_id) || '';
+    const textResp = (s.raw_response || '').toLowerCase();
+    const hasSongshu = textResp.includes('松鼠');
+
+    if (qText.includes('西山区') || qText.includes('蓝光') || qText.includes('万达')) {
+      territoryTotal++;
+      if (hasSongshu) territorySongshu++;
+    } else {
+      cityTotal++;
+      if (hasSongshu) citySongshu++;
+    }
+  });
+
+  const scenes: SceneBreakdown = {
+    cityWide: {
+      total: cityTotal,
+      songshuHits: citySongshu,
+      sov: cityTotal > 0 ? ((citySongshu / cityTotal) * 100).toFixed(1) + '%' : '0%',
+      description: '昆明全城泛搜索（去除了西山区定语），直面全城公立与头部连锁竞品',
+    },
+    territory: {
+      total: territoryTotal,
+      songshuHits: territorySongshu,
+      sov: territoryTotal > 0 ? ((territorySongshu / territoryTotal) * 100).toFixed(1) + '%' : '0%',
+      description: '西山区核心辐射圈与儿童早矫专属词，松鼠具备极强地缘与专科壁垒',
+    },
+  };
+
   const brandConfigs = [
-    { rank: 'TOP 1', name: '松鼠口腔（本院）', isSelf: true, alias: ['松鼠', '松鼠口腔'], status: '豆包端绝对统治；DeepSeek与元宝端偏弱，元宝被柏德反超' },
+    { rank: 'TOP 1', name: '松鼠口腔（本院）', isSelf: true, alias: ['松鼠', '松鼠口腔'], status: '西山区垄断（94.9%）；但在全城大词仅 31.3%，元宝被柏德反超' },
     { rank: 'TOP 2', name: '柏德口腔（头号竞品）', isSelf: false, alias: ['柏德', '柏德口腔'], status: '靠知乎专栏与搜狐号在元宝端逆袭反超，垄断泛昆明大词' },
     { rank: 'TOP 3', name: '德韩口腔', isSelf: false, alias: ['德韩', '德韩口腔'], status: '主打集采低价与多院区连锁，在价格类问答中持续分流' },
     { rank: 'TOP 4', name: '泰康拜博口腔', isSelf: false, alias: ['拜博', '泰康拜博'], status: '老牌连锁，覆盖全城泛词，但缺乏深度专业内容沉淀' },
@@ -104,7 +160,7 @@ export async function getLiveBattleReport(tenantId: string): Promise<BattleRepor
     totalCitations += urls.length;
     urls.forEach((u) => {
       try {
-        const h = new URL(u).hostname;
+        const h = new URL(u).hostname.replace(/^www\./, '').replace(/^m\./, '');
         domainMap[h] = (domainMap[h] || 0) + 1;
       } catch {
         // ignore
@@ -124,7 +180,7 @@ export async function getLiveBattleReport(tenantId: string): Promise<BattleRepor
       else if (domain.includes('toutiao')) { platform = '今日头条'; engine = '豆包首选'; purpose = '员工认领长文与医生科普，收录极快（2小时内上榜）'; }
       else if (domain.includes('sohu')) { platform = '搜狐健康号'; engine = '腾讯元宝'; purpose = '搜狐新闻健康版块，柏德口腔重仓投放阵地'; }
       else if (domain.includes('zhihu')) { platform = '知乎专栏'; engine = 'DeepSeek / 元宝'; purpose = '高知患者深阅读与方案比对，目前被柏德占领'; }
-      else if (domain.includes('gov.cn')) { platform = '昆明市医保局官网'; engine = '三大模型通采'; purpose = '医保定点、集采目录红头文件，最高权威性源'; }
+      else if (domain.includes('gov.cn')) { platform = '医保/卫健委官网'; engine = '三大模型通采'; purpose = '医保定点、执业资格与集采目录红头文件，最高权威性源'; }
       else if (domain.includes('mfk')) { platform = '民福康健康'; engine = 'DeepSeek'; purpose = '医疗健康问答库，高权重科普词条'; }
       else if (domain.includes('mingyihui')) { platform = '名医汇'; engine = 'DeepSeek'; purpose = '医生挂号评价，医生个人品牌卡位关键源'; }
       else if (domain.includes('youlai')) { platform = '有来医生'; engine = '三大模型通采'; purpose = '公立三甲背书，常用于科普答疑与疾病百科'; }
@@ -145,6 +201,7 @@ export async function getLiveBattleReport(tenantId: string): Promise<BattleRepor
     sampleCount: total,
     totalCitations,
     byEngine,
+    scenes,
     competitors,
     topDomains,
   };
