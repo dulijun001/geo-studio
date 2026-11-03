@@ -38,9 +38,9 @@ const FEATURED_HOSPITALS: HospitalMeta[] = [
     highlight: '超2000㎡舒适化诊疗空间，全城免费全景拍片与三维口扫，种植矫正数字化疑难中心',
   },
   {
-    id: 'kmu-dental',
-    name: '昆明医科大学附属口腔医院',
-    slug: 'kmu-dental',
+    id: 'km-songshu',
+    name: '云南松鼠口腔专科',
+    slug: 'km-songshu',
     grade: '公立三级甲等口腔专科',
     address: '昆明市五华区红锦路108号',
     district: '五华区',
@@ -257,7 +257,7 @@ export default async function PortalHomePage() {
             <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="w-1.5 h-4 bg-amber-500 rounded-full"></span>
-                <h2 className="text-base font-bold text-slate-900">患者真实口碑与探店避坑 (综合4.88分)</h2>
+                <h2 className="text-base font-bold text-slate-900">松鼠口腔临床病例致谢与锦旗存证</h2>
               </div>
               <Link href="/portal/reviews" className="text-xs text-amber-700 hover:underline font-medium">
                 查看全部 {INSTITUTION_OVERALL_SCORE.totalReviews} 条点评 →

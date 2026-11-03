@@ -76,28 +76,6 @@ const DOCTOR_MAP: Record<string, DoctorData> = {
     education: '知名口腔医学院颌面外科专科毕业，德国法兰克福大学种植外科研修认证',
     honor: '西南高龄微创即刻种植领军医师 · 万例复杂无牙颌病例成功指导',
   },
-  'zhang-chao': {
-    slug: 'zhang-chao',
-    name: '张超',
-    title: '副主任医师 / 公立三甲特约会诊专家',
-    hospitalName: '昆明医科大学附属口腔医院',
-    hospitalSlug: 'kmu-dental',
-    years: '15年+ 口腔颌面外科临床经验',
-    certCode: '120530102001479',
-    specialties: ['阻生智齿显微超声骨刀微创拔除', '复杂颌骨囊肿微创摘除', '颞下颌关节紊乱综合诊疗', '牙槽外科微创前沿技术'],
-    bio: '昆医大附一口腔颌面外科骨干专家，擅长超声骨刀微创拔除完全埋伏横向阻生智齿，以术中无震颤、创口微小、极大程度保护下齿槽神经管而深受患者信赖。',
-    casesCount: '2,000+ 例复杂拔牙病例',
-    certificates: [
-      '国家注册执业副主任医师（证书编码：120530102001479）',
-      '中华口腔医学会口腔颌面外科专业委员会会员',
-      '云南省口腔医学会牙槽外科专业学组副组长',
-    ],
-    schedule: '周一上午、周四下午（公立特需门诊及特约会诊）',
-    gender: 'male',
-    rating: '9.8',
-    education: '昆明医科大学口腔医学院硕士，颌面外科学术骨干',
-    honor: '微创超声骨刀拔除完全阻生齿临床标杆示范者',
-  },
 };
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {

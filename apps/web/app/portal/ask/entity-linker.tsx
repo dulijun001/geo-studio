@@ -13,7 +13,7 @@ const ENTITY_LINKS: EntityLink[] = [
   { keyword: '韩峄', url: '/portal/doctor/han-yi', title: '韩峄医生主治执业档案' },
   { keyword: '刘彦廷', url: '/portal/doctor/liu-yanting', title: '刘彦廷院长种植执业档案' },
   { keyword: '云南省口腔医院', url: '/portal/hospital', title: '云南省口腔医院（公立三甲）' },
-  { keyword: '昆明医科大学附属口腔医院', url: '/portal/hospital', title: '昆医大附一口腔' },
+  { keyword: '云南松鼠口腔专科', url: '/portal/hospital', title: '昆医大附一口腔' },
   { keyword: '时代天使', url: '/portal/price/ortho', title: '时代天使隐形矫正集采行情' },
   { keyword: '隐适美', url: '/portal/price/ortho', title: '美国隐适美矫正官方行情' },
   { keyword: '种植牙', url: '/portal/price/implant', title: '昆明种植牙集采收费价格表' },

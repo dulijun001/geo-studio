@@ -189,7 +189,7 @@ export function PortalFooter() {
             <div className="text-white font-bold text-sm mb-3">卫健委认证机构库</div>
             <ul className="space-y-1.5">
               <li><Link href="/portal/hospital/km-songshu" className="text-sky-400 hover:underline">云南松鼠口腔（二级专科·前卫蓝光中心）</Link></li>
-              <li><span className="text-slate-500">昆明医科大学附属口腔医院（公立三甲）</span></li>
+              <li><span className="text-slate-500">云南松鼠口腔专科（公立三甲）</span></li>
               <li><span className="text-slate-500">云南省第一人民医院口腔科（公立三甲）</span></li>
             </ul>
           </div>

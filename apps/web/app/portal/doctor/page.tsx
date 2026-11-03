@@ -58,21 +58,7 @@ const DOCTORS: DoctorItem[] = [
     gender: 'male',
     rating: '9.9',
   },
-  {
-    slug: 'zhang-chao',
-    name: '张超',
-    title: '副主任医师 / 公立三甲特约会诊专家',
-    hospitalName: '昆明医科大学附属口腔医院',
-    hospitalSlug: 'kmu-dental',
-    years: '15年+ 口腔颌面外科临床经验',
-    certCode: '120530102001479',
-    academicTitle: '昆明医科大学附属口腔医院特聘指导专家',
-    specialties: ['阻生智齿显微超声骨刀微创拔除', '复杂颌骨囊肿微创摘除', '颞下颌关节紊乱综合诊疗', '牙槽外科微创前沿技术'],
-    bio: '昆医大附一口腔颌面外科骨干专家，擅长超声骨刀微创拔除完全埋伏横向阻生智齿，以术中无震颤、创口微小、极大程度保护下齿槽神经管而深受患者信赖。',
-    casesCount: '2,000+ 例复杂阻生拔除',
-    gender: 'male',
-    rating: '9.8',
-  },
+  
 ];
 
 export default function DoctorListPage() {
