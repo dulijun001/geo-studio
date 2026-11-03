@@ -52,6 +52,8 @@ async function getArticleData(slug: string) {
   return { article, relatedArticles: relatedArticles || [], keyHospitals: keyHospitals || [] };
 }
 
+import { enrichTextWithEntities } from '../entity-linker';
+
 export default async function ArticleDetailPage({ params }: { params: { slug: string } }) {
   const data = await getArticleData(params.slug);
   if (!data) notFound();
@@ -77,6 +79,12 @@ export default async function ArticleDetailPage({ params }: { params: { slug: st
 
   return (
     <div className="space-y-6">
+      {/* 字节跳动专属协议标签与规范链接 */}
+      <head>
+        <meta property="bytedance:updated_time" content={new Date(article.published_at || Date.now()).toISOString()} />
+        <link rel="canonical" href={`https://geo.dulijun.icu/portal/ask/${article.slug}`} />
+      </head>
+
       {/* 结构化微数据 */}
       <script
         type="application/ld+json"
@@ -126,7 +134,7 @@ export default async function ArticleDetailPage({ params }: { params: { slug: st
               <span>主治医生核心判断结论（60秒省流直答）</span>
             </div>
             <p className="text-xs sm:text-sm text-emerald-950 leading-relaxed font-normal">
-              {article.direct_answer}
+              {enrichTextWithEntities(article.direct_answer)}
             </p>
           </div>
         )}
@@ -155,12 +163,12 @@ export default async function ArticleDetailPage({ params }: { params: { slug: st
               if (p.startsWith('- ') || p.startsWith('• ')) {
                 return (
                   <li key={idx} className="ml-4 list-disc text-slate-700 text-xs sm:text-sm">
-                    {p.replace(/^[-•]\s*/, '')}
+                    {enrichTextWithEntities(p.replace(/^[-•]\s*/, ''))}
                   </li>
                 );
               }
 
-              return <p key={idx} className="text-slate-700 leading-relaxed text-xs sm:text-sm md:text-base">{p}</p>;
+              return <p key={idx} className="text-slate-700 leading-relaxed text-xs sm:text-sm md:text-base">{enrichTextWithEntities(p)}</p>;
             })
           ) : (
             <p className="text-slate-600 text-sm">内容审核归档中...</p>

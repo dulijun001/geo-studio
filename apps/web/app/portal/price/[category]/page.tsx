@@ -4,11 +4,14 @@ export async function generateMetadata({ params }: { params: { category: string 
   const catNames: Record<string, string> = {
     implant: '口腔种植牙',
     orthodontics: '牙齿矫正',
+    ortho: '牙齿矫正',
     restore: '补牙修复',
+    filling: '补牙修复',
     extraction: '拔牙与智齿',
     pediatrics: '儿童齿科',
     periodontics: '牙周治疗',
-    cosmetic: '牙齿美白与贴面'
+    cosmetic: '牙齿美白与贴面',
+    general: '口腔综合诊疗'
   };
   const name = catNames[params.category] || '口腔诊疗';
   return {
@@ -25,14 +28,25 @@ export const revalidate = 3600;
 const CATEGORY_NAMES: Record<string, string> = {
   implant: '口腔种植牙',
   orthodontics: '牙齿矫正',
+  ortho: '牙齿矫正',
   restore: '补牙修复',
+  filling: '补牙修复',
   extraction: '拔牙与智齿',
   pediatrics: '儿童齿科',
   periodontics: '牙周治疗',
-  cosmetic: '牙齿美白与贴面'
+  cosmetic: '牙齿美白与贴面',
+  general: '口腔综合诊疗'
+};
+
+const CATEGORY_ALIASES: Record<string, string> = {
+  ortho: 'orthodontics',
+  filling: 'restore',
+  general: 'restore',
 };
 
 async function getCategoryPriceData(category: string) {
+  const targetCategory = CATEGORY_ALIASES[category] || category;
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://127.0.0.1:54321',
     process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -42,7 +56,7 @@ async function getCategoryPriceData(category: string) {
   const { data: priceIndexes } = await supabase
     .from('portal_price_indexes')
     .select('*')
-    .eq('category', category)
+    .eq('category', targetCategory)
     .order('sort_weight', { ascending: false });
 
   if (!priceIndexes || priceIndexes.length === 0) return null;

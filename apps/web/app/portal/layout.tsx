@@ -2,6 +2,7 @@ import '../globals.css';
 import type { Metadata } from 'next';
 import { PortalHeader, PortalFooter } from './header';
 import { PortalConsultWidget } from './consult-widget';
+import MobileBottomBar from './mobile-bottom-bar';
 
 export const metadata: Metadata = {
   title: '2026 昆明市正规口腔医院排名与看牙收费标准价格表 - 齿科指南网',
@@ -15,13 +16,14 @@ export default function PortalLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-800 font-sans flex flex-col justify-between antialiased selection:bg-sky-100 selection:text-sky-800">
+    <div className="min-h-screen bg-[#f8fafc] text-slate-800 font-sans flex flex-col justify-between antialiased selection:bg-sky-100 selection:text-sky-800 pb-16 sm:pb-0">
       <PortalHeader />
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
         {children}
       </main>
       <PortalFooter />
       <PortalConsultWidget />
+      <MobileBottomBar />
     </div>
   );
 }
