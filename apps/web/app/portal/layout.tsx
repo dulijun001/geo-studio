@@ -1,4 +1,6 @@
+import '../globals.css';
 import type { Metadata } from 'next';
+import { PortalHeader, PortalFooter } from './header';
 import { PortalConsultWidget } from './consult-widget';
 
 export const metadata: Metadata = {
@@ -13,8 +15,12 @@ export default function PortalLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative min-h-screen bg-slate-950">
-      {children}
+    <div className="min-h-screen bg-[#f8fafc] text-slate-800 font-sans flex flex-col justify-between antialiased selection:bg-sky-100 selection:text-sky-800">
+      <PortalHeader />
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
+        {children}
+      </main>
+      <PortalFooter />
       <PortalConsultWidget />
     </div>
   );

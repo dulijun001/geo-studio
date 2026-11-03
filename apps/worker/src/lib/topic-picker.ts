@@ -1,3 +1,4 @@
+import { reportError } from '@geo/shared';
 /**
  * V1.10 / docs/09 — Topic picker (混合 5 抽 + 2 手填位).
  *
@@ -19,7 +20,6 @@
  * enqueueing the batch, and may spill into next day's run.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { reportError } from '@geo/shared';
 
 /** Shape of a single auto-picked question (row from RPC `daily_ops_pick_topics`). */
 export type PickedQuestion = {
@@ -106,6 +106,8 @@ async function pickCompetitorLostQuestions(
     const candidateIds = Array.from(lostQIds).filter((id) => !recentlyUsedQIds.has(id));
     if (candidateIds.length === 0) return [];
 
+    const districtRegex =
+      /西山区|五华区|盘龙区|官渡区|呈贡区|安宁|东川|晋宁|富民|宜良|石林|嵩明|禄劝|寻甸/;
     const { data: qRows, error: qErr } = await client
       .from('questions')
       .select('id, text, intent, priority')
@@ -113,12 +115,23 @@ async function pickCompetitorLostQuestions(
       .in('id', candidateIds)
       .eq('active', true)
       .is('deleted_at', null)
-      .order('priority', { ascending: false })
-      .limit(limit);
+      .order('priority', { ascending: false });
 
     if (qErr || !qRows) return [];
 
-    return qRows.map((q: any) => ({
+    type RawQuestionRow = {
+      id: string;
+      text: string;
+      intent?: string | null;
+      priority?: number | null;
+    };
+
+    // 过滤掉区县长尾词（例如西山区等），严格聚焦昆明全城核心大词
+    const filteredQRows = (qRows as unknown as RawQuestionRow[])
+      .filter((q) => !districtRegex.test(q.text))
+      .slice(0, limit);
+
+    return filteredQRows.map((q) => ({
       id: q.id,
       text: q.text,
       intent: q.intent ?? null,
