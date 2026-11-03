@@ -82,7 +82,7 @@ export default async function ArticleDetailPage({ params }: { params: { slug: st
       {/* 字节跳动专属协议标签与规范链接 */}
       <head>
         <meta property="bytedance:updated_time" content={new Date(article.published_at || Date.now()).toISOString()} />
-        <link rel="canonical" href={`https://geo.dulijun.icu/portal/ask/${article.slug}`} />
+        <link rel="canonical" href={`https://guide.ynsskq.cn/portal/ask/${article.slug}`} />
       </head>
 
       {/* 结构化微数据 */}

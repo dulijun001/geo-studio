@@ -2,7 +2,7 @@ import type { MetadataRoute } from 'next';
 import { getSupabaseServiceClient } from '@/lib/supabase/service';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://geo.dulijun.icu';
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://guide.ynsskq.cn';
   const now = new Date();
 
   // 1. 静态主路由
