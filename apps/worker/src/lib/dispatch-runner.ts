@@ -25,6 +25,7 @@ import { dispatchDaily, type DispatchInput } from '@geo/geo-core';
 import { reportError, reportEvent } from '@geo/shared';
 import { getServiceClient } from './supabase';
 import { notifyNewDispatchedTasks } from './wecom-notifier';
+import { syncVariantToPortal } from './portal-sync';
 
 type DispatchSettings = {
   daily_cap_per_staff: number;
@@ -266,6 +267,14 @@ export async function runAutoDispatch(tenantId: string): Promise<AutoDispatchRes
     notifyNewDispatchedTasks(tenantId, taskIds).catch((err) => {
       console.error('[dispatch-runner] notifyNewDispatchedTasks error:', err);
     });
+
+    // 自动将派单变体同步至自建口腔决策门户 (portal_articles)
+    const variantIdsToSync = Array.from(new Set(rows.map((r: any) => r.variant_id).filter(Boolean)));
+    for (const vId of variantIdsToSync) {
+      syncVariantToPortal(vId as string).catch((err) => {
+        console.error(`[dispatch-runner] auto sync portal article ${vId} error:`, err);
+      });
+    }
   }
 
   // Audit log — actor_user_id intentionally null for cron-originated dispatch
