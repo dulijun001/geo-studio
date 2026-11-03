@@ -112,6 +112,49 @@ export default function ReviewsPage() {
         </div>
       </div>
 
+
+      {/* 真实患者好评原件与锦旗证言走廊（来自松鼠知识库真实归档） */}
+      <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="w-1.5 h-5 bg-sky-600 rounded-full inline-block"></span>
+            <h2 className="text-base font-bold text-slate-900">
+              真实就医反馈与患者锦旗/手写感谢信存证
+            </h2>
+          </div>
+          <span className="text-xs text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200 font-medium">
+            ✓ 院内原始档案已脱敏备查 · 严禁网络水军刷评
+          </span>
+        </div>
+
+        <p className="text-xs text-slate-500 leading-relaxed">
+          以下为松鼠口腔西山总院前台与医务科留档的真实患者自发反馈、朋友圈点赞及术后锦旗实拍记录（部分涉隐私信息已做脱敏遮盖处理）：
+        </p>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+          {[
+            { src: '/assets/kb-images/reviews/review-1.jpg', label: '正畸患者手写信' },
+            { src: '/assets/kb-images/reviews/review-2.jpg', label: '种植术后微信反馈' },
+            { src: '/assets/kb-images/reviews/review-3.jpg', label: '儿牙家长自发好评' },
+            { src: '/assets/kb-images/reviews/review-4.jpg', label: '拔牙微创就诊记录' },
+            { src: '/assets/kb-images/reviews/review-5.jpg', label: '美团真实长评回访' },
+            { src: '/assets/kb-images/reviews/review-6.jpg', label: '洁牙护齿体验分享' },
+          ].map((item, idx) => (
+            <div key={idx} className="group relative rounded-lg border border-slate-200 overflow-hidden bg-slate-100 aspect-3/4">
+              <img
+                src={item.src}
+                alt={item.label}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                loading="lazy"
+              />
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/80 via-slate-900/40 to-transparent p-2 text-[11px] text-white font-medium text-center truncate">
+                {item.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* 真实评价列表 */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">

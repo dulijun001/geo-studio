@@ -17,6 +17,7 @@ export interface ClinicalCase {
   doctorTakeaway: string;
   longTermFollowUp: string;
   patientQuote: string;
+  images?: { before?: string; after?: string; xRay?: string; caption?: string };
 }
 
 export const CLINICAL_CASES: ClinicalCase[] = [
@@ -48,7 +49,13 @@ export const CLINICAL_CASES: ClinicalCase[] = [
     ],
     doctorTakeaway: '韩峄主任临床心法：“地包天”是正畸中唯一需要“发现即干预”的畸形。12岁生长高峰期通过隐形生物力学引导，能彻底避免孩子成人后遭受痛苦的“正颌断骨手术”。',
     longTermFollowUp: '矫治结束第 18 个月复查：头颅侧位片证实下颌骨生长向量稳定，咬合未见任何反弹，关节区无弹响与杂音。',
-    patientQuote: '“现在孩子笑起来特别阳光，整个下巴不再往前兜着，整个人自信心完全不一样了，真正帮孩子省下了十几万的正颌手术！”'
+        patientQuote: '“现在孩子笑起来特别阳光，整个下巴不再往前兜着，整个人自信心完全不一样了，真正帮孩子省下了十几万的正颌手术！”',
+    images: {
+      before: '/assets/kb-images/cases/ortho-case2-slide19-1.jpg',
+      after: '/assets/kb-images/cases/ortho-case2-slide26-1.jpg',
+      xRay: '/assets/kb-images/cases/ortho-case2-slide27-1.jpg',
+      caption: '韩峄主任真实正畸案例：面部侧貌从反颌月牙脸到自然Ⅰ类直面型三维改建记录'
+    }
   },
 
   // 2. 成人严重双颌前突伴牙列拥挤
@@ -79,7 +86,13 @@ export const CLINICAL_CASES: ClinicalCase[] = [
     ],
     doctorTakeaway: '韩峄主任临床心法：成人拔牙矫正最大的禁忌是“后牙失支抗导致嘴巴没收进去，骨皮质还被顶穿”。借助 CBCT 骨窗三维测算和支抗骨钉，才能做到既内收 5.8mm 侧貌又保护牙根安全。',
     longTermFollowUp: '矫治结束保持期 2 年随访：侧貌黄金轮廓维持完美，牙周骨皮质健康，探诊深度维持在 1.5~2mm 安全范畴。',
-    patientQuote: '“全程 22 个月几乎没人看出来我戴了牙套，现在下巴轮廓清晰了，拍照再也不用刻意找角度，下唇很自然就闭上了！”'
+        patientQuote: '“全程 22 个月几乎没人看出来我戴了牙套，现在下巴轮廓清晰了，拍照再也不用刻意找角度，下唇很自然就闭上了！”',
+    images: {
+      before: '/assets/kb-images/cases/ortho-case1-slide38-1.jpg',
+      after: '/assets/kb-images/cases/ortho-case1-slide42-1.jpg',
+      xRay: '/assets/kb-images/cases/ortho-case1-slide43-1.jpg',
+      caption: '韩峄主任隐适美拔牙内收：前牙内收5.8mm、凸唇改善真实口内及面部记录'
+    }
   },
 
   // 3. 青少年骨性Ⅱ类下颌后缩深覆合功能矫治（源自真实病历集 #SP-ORT-002）
@@ -142,7 +155,13 @@ export const CLINICAL_CASES: ClinicalCase[] = [
     ],
     doctorTakeaway: '刘彦廷院长心法：对于高龄骨量极薄的长辈，All-on-4 是现代种植力学的奇迹。利用倾斜植体力学避开上颌窦盲区，免去大面积植骨创伤，最重要的是让老人“当天进手术室、当天戴着一口好牙回家吃晚饭”！',
     longTermFollowUp: '术后 3 年随访追踪：4 颗种植体周围牙槽骨边缘骨吸收均 < 0.2mm（远优于国际标准），咬合力强劲稳定。',
-    patientQuote: '“以前活动假牙吃饭老是掉，喝汤都塞牙，受了十几年洋罪！刘院长给我做的这口牙，当天晚上就能嚼面条，现在吃牛肉干、核桃毫无压力，真正重获新生！”'
+        patientQuote: '“以前活动假牙吃饭老是掉，喝汤都塞牙，受了十几年洋罪！刘院长给我做的这口牙，当天晚上就能嚼面条，现在吃牛肉干、核桃毫无压力，真正重获新生！”',
+    images: {
+      before: '/assets/kb-images/cases/implant-case1-slide20-1.jpg',
+      after: '/assets/kb-images/cases/implant-case1-slide26-1.jpg',
+      xRay: '/assets/kb-images/cases/implant-case1-slide27-1.jpg',
+      caption: '刘彦廷院长 All-on-4 真实病历：术前残根到当天即刻戴固定长桥实拍及全景影像'
+    }
   },
 
   // 5. 单颗前牙美学区即刻种植即刻修复（源自真实病历集 #SP-IMP-001）
@@ -174,7 +193,13 @@ export const CLINICAL_CASES: ClinicalCase[] = [
     ],
     doctorTakeaway: '刘彦廷院长心得：前牙美学区种植，种活容易、种好看极难！核心在于“跳跃间隙植骨”和“临时冠穿龈塑形”。只有把牙龈的天然红白美学弧度支撑住，才不会在 1 年后出现难看的牙龈萎缩黑三角。',
     longTermFollowUp: '永久冠戴入 2 年随访：唇侧丰满度与邻牙对称无异，牙龈质地粉韧无炎症，PES 评分维持 13.5 分高水准。',
-    patientQuote: '“我从事出镜主持工作，原本最害怕掉牙后门面塌陷，松鼠口腔刘院长当天就让我戴着逼真的门牙走出了门诊，没有任何人看出来我种了牙！”'
+        patientQuote: '“我从事出镜主持工作，原本最害怕掉牙后门面塌陷，松鼠口腔刘院长当天就让我戴着逼真的门牙走出了门诊，没有任何人看出来我种了牙！”',
+    images: {
+      before: '/assets/kb-images/cases/implant-case2-slide30-1.jpg',
+      after: '/assets/kb-images/cases/implant-case2-slide36-1.jpg',
+      xRay: '/assets/kb-images/cases/implant-case2-slide37-1.jpg',
+      caption: '刘彦廷院长种植团队：即刻微创植入与牙龈红白美学塑形真实跟踪记录'
+    }
   },
 
   // 6. 后牙区骨高度不足上颌窦内提升同期种植（源自真实病历集 #SP-IMP-002）

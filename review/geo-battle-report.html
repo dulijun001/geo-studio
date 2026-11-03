@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>GEO-Studio 竞品战情研报与已发布内容AI引用透视报告</title>
+<style>
+  @page {
+    size: A4;
+    margin: 20mm 16mm 20mm 16mm;
+    @bottom-center {
+      content: "第 " counter(page) " 页 / 共 " counter(pages) " 页";
+      font-size: 10px;
+      color: #94a3b8;
+    }
+  }
+  * {
+    box-sizing: border-box;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    color: #1e293b;
+    line-height: 1.55;
+    font-size: 13px;
+    background-color: #ffffff;
+    margin: 0;
+    padding: 0;
+  }
+  
+  .header {
+    border-bottom: 2px solid #0f172a;
+    padding-bottom: 12px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+  .title-group h1 {
+    font-size: 22px;
+    margin: 0 0 6px 0;
+    color: #0f172a;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  .title-group .subtitle {
+    font-size: 13px;
+    color: #475569;
+    margin: 0;
+  }
+  .meta-info {
+    text-align: right;
+    font-size: 11px;
+    color: #64748b;
+    line-height: 1.4;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    background-color: #e0f2fe;
+    color: #0369a1;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .stat-card .label {
+    font-size: 11px;
+    color: #64748b;
+    margin-bottom: 4px;
+  }
+  .stat-card .value {
+    font-size: 20px;
+    font-weight: 700;
+    color: #0f172a;
+  }
+  .stat-card .desc {
+    font-size: 10px;
+    color: #94a3b8;
+    margin-top: 2px;
+  }
+  .highlight-card {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+  }
+  .highlight-card .value {
+    color: #15803d;
+  }
+
+  h2 {
+    font-size: 15px;
+    margin: 22px 0 10px 0;
+    color: #0f172a;
+    border-left: 4px solid #2563eb;
+    padding-left: 8px;
+    display: flex;
+    align-items: center;
+  }
+  
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11.5px;
+    margin-bottom: 16px;
+  }
+  th {
+    background: #f1f5f9;
+    color: #334155;
+    text-align: left;
+    padding: 7px 9px;
+    font-weight: 600;
+    border: 1px solid #e2e8f0;
+  }
+  td {
+    padding: 7px 9px;
+    border: 1px solid #e2e8f0;
+    color: #334155;
+    vertical-align: middle;
+  }
+  tr:nth-child(even) {
+    background: #fafafa;
+  }
+  .self-row {
+    background: #ecfdf5 !important;
+    font-weight: 600;
+  }
+  .self-row td {
+    color: #065f46;
+  }
+
+  .tag-green {
+    background: #dcfce7;
+    color: #166534;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10.5px;
+    font-weight: 600;
+  }
+  .tag-blue {
+    background: #dbeafe;
+    color: #1e40af;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10.5px;
+  }
+  .tag-orange {
+    background: #ffedd5;
+    color: #9a3412;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10.5px;
+  }
+
+  .scene-box {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .scene-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 12px;
+    background: #ffffff;
+  }
+  .scene-card h3 {
+    margin: 0 0 6px 0;
+    font-size: 13px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .scene-card p {
+    margin: 0;
+    font-size: 11.5px;
+    color: #64748b;
+  }
+
+  .callout {
+    background: #f8fafc;
+    border-left: 4px solid #f59e0b;
+    padding: 10px 12px;
+    border-radius: 0 6px 6px 0;
+    margin: 14px 0;
+    font-size: 11.5px;
+  }
+  .callout strong {
+    color: #b45309;
+  }
+  
+  .evidence-box {
+    background: #f1f5f9;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #334155;
+    margin-top: 4px;
+    line-height: 1.45;
+  }
+  
+  .page-break {
+    page-break-after: always;
+  }
+</style>
+</head>
+<body>
+
+  <!-- 报告头部 -->
+  <div class="header">
+    <div class="title-group">
+      <span class="badge">GEO-Studio 战情中枢 · 权威数据穿透</span>
+      <h1>昆明口腔 AI 搜索竞品战情与内容被引透视报告</h1>
+      <p class="subtitle">松鼠口腔 vs 昆明 8 家头部竞品在豆包、DeepSeek、腾讯元宝真实收录分析</p>
+    </div>
+    <div class="meta-info">
+      <div><strong>报告日期：</strong>2026 年 10 月 20 日</div>
+      <div><strong>数据样本：</strong>230 份实测大模型问答快照</div>
+      <div><strong>已发内容：</strong>154 篇矩阵打卡归档</div>
+    </div>
+  </div>
+
+  <!-- 核心指标大盘 -->
+  <div class="stat-grid">
+    <div class="stat-card highlight-card">
+      <div class="label">松鼠口腔整体 SOV (TOP 1)</div>
+      <div class="value">53.0%</div>
+      <div class="desc">总命中 122 / 230 样本</div>
+    </div>
+    <div class="stat-card highlight-card">
+      <div class="label">豆包大模型提及率</div>
+      <div class="value">83.7%</div>
+      <div class="desc">命中 87 / 104 次（绝对主场）</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">西山区地缘基本盘</div>
+      <div class="value">94.9%</div>
+      <div class="desc">78 题中命中 74 题</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">全城泛词提及率</div>
+      <div class="value">31.6%</div>
+      <div class="desc">152 题中命中 48 题（需攻坚）</div>
+    </div>
+  </div>
+
+  <!-- 场景分化分析 -->
+  <div class="scene-box">
+    <div class="scene-card" style="border-top: 3px solid #16a34a;">
+      <h3>
+        <span>西山区地缘辐射圈（基本盘）</span>
+        <span class="tag-green">SOV 94.9%</span>
+      </h3>
+      <p>包含“西山区/万达/蓝光”及儿童早矫专属词。松鼠依托二级专科医院资质与本地强心智形成绝对壁垒，三大模型均首推松鼠口腔。</p>
+    </div>
+    <div class="scene-card" style="border-top: 3px solid #f97316;">
+      <h3>
+        <span>昆明全城泛搜索（争夺区）</span>
+        <span class="tag-orange">SOV 31.6%</span>
+      </h3>
+      <p>昆明全城种植牙、公立私立对比、价格排行等泛词。直面柏德、德韩、美奥等头部连锁分流，在元宝端被柏德（44.3%）反超。</p>
+    </div>
+  </div>
+
+  <!-- 一、竞品战情研报大盘 -->
+  <h2>一、品牌声量占有率（SOV）全城战情大盘</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 60px;">排名</th>
+        <th style="width: 140px;">品牌机构</th>
+        <th style="width: 70px;">总命中数</th>
+        <th style="width: 75px;">整体 SOV</th>
+        <th style="width: 85px;">豆包 (104篇)</th>
+        <th style="width: 95px;">DeepSeek (65篇)</th>
+        <th style="width: 90px;">腾讯元宝 (61篇)</th>
+        <th>竞争格局与当前态势</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="self-row">
+        <td><strong>TOP 1</strong></td>
+        <td><strong>松鼠口腔 (本院)</strong></td>
+        <td><strong>122</strong></td>
+        <td><strong>53.0%</strong></td>
+        <td><span class="tag-green">83.7%</span> (87)</td>
+        <td><span class="tag-blue">23.1%</span> (15)</td>
+        <td><span class="tag-blue">32.8%</span> (20)</td>
+        <td><strong>豆包绝对主场</strong>；西山区垄断（94.9%），但在全城词及元宝受柏德分流。</td>
+      </tr>
+      <tr>
+        <td>TOP 2</td>
+        <td><strong>柏德口腔</strong> (头号竞品)</td>
+        <td>70</td>
+        <td>30.4%</td>
+        <td>29.8% (31)</td>
+        <td>18.5% (12)</td>
+        <td><span class="tag-orange">44.3%</span> (27)</td>
+        <td><strong>元宝端反超松鼠</strong>；靠搜狐健康号与知乎专栏垄断泛昆明大词。</td>
+      </tr>
+      <tr>
+        <td>TOP 3</td>
+        <td><strong>德韩口腔</strong></td>
+        <td>43</td>
+        <td>18.7%</td>
+        <td>19.2% (20)</td>
+        <td>9.2% (6)</td>
+        <td>27.9% (17)</td>
+        <td>主打集采低价与多分院连锁，在价格类问答中持续分流。</td>
+      </tr>
+      <tr>
+        <td>TOP 4</td>
+        <td><strong>美奥口腔</strong></td>
+        <td>39</td>
+        <td>17.0%</td>
+        <td>11.5% (12)</td>
+        <td>15.4% (10)</td>
+        <td>27.9% (17)</td>
+        <td>聚焦低价种牙、学生隐形正畸分期，元宝提及率极高。</td>
+      </tr>
+      <tr>
+        <td>TOP 5</td>
+        <td><strong>泰康拜博口腔</strong></td>
+        <td>30</td>
+        <td>13.0%</td>
+        <td>14.4% (15)</td>
+        <td>7.7% (5)</td>
+        <td>16.4% (10)</td>
+        <td>老牌连锁，依靠全城泛词自然收录，缺乏深度专业科普。</td>
+      </tr>
+      <tr>
+        <td>TOP 6</td>
+        <td><strong>昆明蓝橙口腔</strong></td>
+        <td>28</td>
+        <td>12.2%</td>
+        <td>3.8% (4)</td>
+        <td>21.5% (14)</td>
+        <td>16.4% (10)</td>
+        <td>在儿牙早矫与窝沟封闭题库高频出现，威胁正畸前置漏斗。</td>
+      </tr>
+      <tr>
+        <td>TOP 7</td>
+        <td><strong>尚爱韩美口腔</strong></td>
+        <td>25</td>
+        <td>10.9%</td>
+        <td>8.7% (9)</td>
+        <td>3.1% (2)</td>
+        <td>23.0% (14)</td>
+        <td>以韩国登腾 3800 集采种植牙切入，价格卡片权重稳定。</td>
+      </tr>
+      <tr>
+        <td>TOP 8</td>
+        <td><strong>团圆口腔</strong></td>
+        <td>22</td>
+        <td>9.6%</td>
+        <td>4.8% (5)</td>
+        <td>15.4% (10)</td>
+        <td>11.5% (7)</td>
+        <td>具备二级专科资质，但在主流大模型中未形成体系化收录。</td>
+      </tr>
+      <tr>
+        <td>TOP 9</td>
+        <td><strong>亿大口腔</strong></td>
+        <td>5</td>
+        <td>2.2%</td>
+        <td>2.9% (3)</td>
+        <td>0.0% (0)</td>
+        <td>3.3% (2)</td>
+        <td>缺乏全网外链与高权重知识源沉淀，当前 GEO 权重极弱。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- 分页标记 -->
+  <div class="page-break"></div>
+
+  <!-- 二、AI 模型真实引用的 Top 渠道 -->
+  <h2>二、AI 大模型真实采信的 Top 权重外链渠道</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 50px;">排名</th>
+        <th style="width: 130px;">平台名称</th>
+        <th style="width: 140px;">核心域名</th>
+        <th style="width: 70px;">引用频次</th>
+        <th style="width: 120px;">主要采信引擎</th>
+        <th>平台特性与攻防价值</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>TOP 1</strong></td>
+        <td><strong>牙舒丽口腔门户</strong></td>
+        <td><code>yslw.com</code></td>
+        <td><strong>295 次</strong></td>
+        <td>豆包 / DeepSeek</td>
+        <td>全国齿科垂直门户，权重极高；<strong>⚠️上面仍残留松鼠老海埂路地址，需纠错</strong>。</td>
+      </tr>
+      <tr>
+        <td><strong>TOP 2</strong></td>
+        <td><strong>抖音短视频</strong></td>
+        <td><code>iesdouyin.com</code></td>
+        <td><strong>216 次</strong></td>
+        <td>豆包独家</td>
+        <td>患者真实探店与就诊点评，豆包第一优先采信的富媒体源。</td>
+      </tr>
+      <tr>
+        <td><strong>TOP 3</strong></td>
+        <td><strong>今日头条</strong></td>
+        <td><code>toutiao.com</code></td>
+        <td><strong>97 次</strong></td>
+        <td>豆包首选</td>
+        <td>员工认领长文与医生科普，收录极快，<strong>松鼠口腔基本盘阵地</strong>。</td>
+      </tr>
+      <tr>
+        <td><strong>TOP 4</strong></td>
+        <td><strong>搜狐健康号</strong></td>
+        <td><code>sohu.com</code></td>
+        <td><strong>71 次</strong></td>
+        <td>腾讯元宝</td>
+        <td>门户新闻健康版块，<strong>柏德口腔重仓投放阵地（借此垄断元宝端）</strong>。</td>
+      </tr>
+      <tr>
+        <td>TOP 5</td>
+        <td>有来医生</td>
+        <td><code>youlai.cn</code></td>
+        <td>43 次</td>
+        <td>三大模型通采</td>
+        <td>公立三甲名医背书，常用于科普答疑与疾病百科。</td>
+      </tr>
+      <tr>
+        <td>TOP 6</td>
+        <td>百度百科</td>
+        <td><code>baike.baidu.com</code></td>
+        <td>40 次</td>
+        <td>DeepSeek / 豆包</td>
+        <td>实体词条收录，医院背景与定点资质硬核背书。</td>
+      </tr>
+      <tr>
+        <td><strong>TOP 7</strong></td>
+        <td><strong>知乎专栏</strong></td>
+        <td><code>zhuanlan.zhihu.com</code></td>
+        <td><strong>38 次</strong></td>
+        <td>DeepSeek / 元宝</td>
+        <td>高知患者深阅读与方案比对，目前被柏德与蓝橙占据。</td>
+      </tr>
+      <tr>
+        <td>TOP 8</td>
+        <td>医保/卫健委官网</td>
+        <td><code>ybj.km.gov.cn</code></td>
+        <td>38 次</td>
+        <td>三大模型通采</td>
+        <td>定点资质、执业备案与集采目录红头文件，最高权威性源。</td>
+      </tr>
+      <tr>
+        <td>TOP 9</td>
+        <td>名医汇</td>
+        <td><code>mingyihui.net</code></td>
+        <td>33 次</td>
+        <td>DeepSeek</td>
+        <td>医生执业挂号与患者真实评价，医生个人品牌卡位关键。</td>
+      </tr>
+      <tr>
+        <td>TOP 10</td>
+        <td>民福康健康</td>
+        <td><code>mip.mfk.com</code></td>
+        <td>34 次</td>
+        <td>DeepSeek</td>
+        <td>医疗健康问答库，高权重科普词条。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- 三、已发内容被大模型真实引用 -->
+  <h2>三、已发内容被大模型真实引用（Citations）穿透详报</h2>
+  <p style="font-size: 11.5px; color: #64748b; margin-top: -4px;">
+    系统将已发布的 154 篇矩阵内容 URL 与 230 份大模型真实生成的 Citation 引用出处进行反向精准碰撞，已被直接采信的典型实例如下：
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 140px;">文章标题 / 员工</th>
+        <th style="width: 65px;">平台</th>
+        <th style="width: 60px;">采信模型</th>
+        <th style="width: 150px;">触发用户真实提问</th>
+        <th>AI 采信原文证据与推荐逻辑</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <strong>《昆明西山区做牙齿矫正一般用啥设备啊？》</strong><br>
+          <span style="font-size: 10.5px; color: #64748b;">员工：冯文萍</span>
+        </td>
+        <td><span class="tag-blue">头条文章</span></td>
+        <td><span class="tag-green">豆包</span></td>
+        <td>
+          ① 昆明西山区做牙齿矫正一般用啥设备啊？<br>
+          ② 昆明西山区做口腔综合常用哪些诊疗设备？
+        </td>
+        <td>
+          豆包在给出设备清单时，<strong>直接采纳了文中的 CBCT 三维口腔 CT、iTero 口扫仪、无油空压机与消毒供应中心等参数</strong>，并把松鼠口腔与西山区人民医院并列推荐。
+          <div class="evidence-box">
+            “结合西山区人民医院口腔科、松鼠口腔等实际配置，标配全套数字化设备：CBCT、iTero 口扫、3D 打印种植导板、独立消毒供应中心...”
+          </div>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <strong>《昆明西山区做种植牙的医生得有啥资质》</strong><br>
+          <span style="font-size: 10.5px; color: #64748b;">员工：鲁丽红</span>
+        </td>
+        <td><span class="tag-blue">头条文章</span></td>
+        <td><span class="tag-green">豆包</span></td>
+        <td>
+          昆明西山区连锁口腔和独立门诊种牙有啥差异
+        </td>
+        <td>
+          豆包在对比连锁与单体门诊时，<strong>直接采信了文中关于“层流无菌手术室、数字化导板与资质门槛”的论述</strong>，并将松鼠口腔作为西山区标杆连锁机构推荐。
+          <div class="evidence-box">
+            “连锁口腔（松鼠口腔、德韩等）标配无菌层流种植手术室、四手操作，术前精准测算骨量避开神经血管...”
+          </div>
+        </td>
+      </tr>
+      <tr>
+        <td>
+          <strong>《牙齿不齐会影响孩子发音吗?昆明西山区哪里能评估?》</strong><br>
+          <span style="font-size: 10.5px; color: #64748b;">员工：保媛</span>
+        </td>
+        <td><span class="tag-blue">头条文章</span></td>
+        <td><span class="tag-green">豆包</span></td>
+        <td>
+          昆明西山区做牙齿矫正能用医保报销吗？
+        </td>
+        <td>
+          豆包解答医保统筹与个账余额区别时，<strong>直接采信了文中针对“西山区医保定点机构（松鼠口腔）支持医保个账余额支付”的权威释法</strong>。
+          <div class="evidence-box">
+            “西山区医保定点口腔（松鼠口腔、公立医院口腔科等）：允许用医保卡个人账户余额支付矫正前期检查与拔牙费用...”
+          </div>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- 四、后续攻坚与破局建议 -->
+  <h2>四、后续内容投放与攻坚建议</h2>
+  <div class="callout">
+    <strong>💡 破局核心策略：</strong>
+    <ol style="margin: 6px 0 0 16px; padding: 0; line-height: 1.6;">
+      <li><strong>知乎与新发内容存在爬取时差</strong>：10 月中旬新打卡的 30+ 篇知乎专栏正在被搜索引擎建库，预计发布后 3~7 天将逐步在 DeepSeek 与豆包中体现引用。</li>
+      <li><strong>必须补齐“搜狐健康自媒体号”</strong>：竞品柏德在腾讯元宝以 44.3% 霸榜，71 次引用全来自搜狐健康。建议将当前头条/知乎的优质文章同步分发搜狐自媒体，快速反包围元宝端。</li>
+      <li><strong>清理牙舒丽历史残留地址</strong>：牙舒丽为第一大信源（295 次），其残留的松鼠 6 月份老海埂路地址容易对大模型产生干扰，需联系平台更新为现址。</li>
+    </ol>
+  </div>
+
+  <div style="margin-top: 25px; border-top: 1px dashed #cbd5e1; padding-top: 10px; font-size: 11px; color: #94a3b8; text-align: center;">
+    GEO-Studio 智能算法引擎 · 昆明松鼠口腔品牌运营部专供 · 内部机密
+  </div>
+
+</body>
+</html>

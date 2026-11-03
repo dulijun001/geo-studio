@@ -160,6 +160,82 @@ export default function CaseDetailPage({
             </div>
           </div>
 
+
+          {/* 真实病历临床影像与口内对比（知识库原图） */}
+          {c.images && (
+            <div className="bg-white rounded-xl border border-slate-200/90 p-6 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h2 className="text-base md:text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <span className="w-1.5 h-5 bg-sky-600 rounded-full inline-block"></span>
+                  真实临床影像与面部/口内蜕变记录
+                </h2>
+                <span className="text-xs text-sky-700 bg-sky-50 px-2.5 py-0.5 rounded font-medium border border-sky-100">
+                  原件数字化留档 · 已脱敏授权
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {c.images.before && (
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-semibold text-rose-700 flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                      术前初诊状态 (Before)
+                    </div>
+                    <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-100 aspect-4/3 flex items-center justify-center">
+                      <img
+                        src={c.images.before}
+                        alt={`${c.title} 术前记录`}
+                        className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                        loading="lazy"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {c.images.after && (
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-semibold text-emerald-700 flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      治疗完成/戴牙效果 (After)
+                    </div>
+                    <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-100 aspect-4/3 flex items-center justify-center">
+                      <img
+                        src={c.images.after}
+                        alt={`${c.title} 治疗完成效果`}
+                        className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                        loading="lazy"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {c.images.xRay && (
+                  <div className="space-y-1.5">
+                    <div className="text-xs font-semibold text-sky-700 flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-sky-500"></span>
+                      数字化全景/CBCT/侧位测量
+                    </div>
+                    <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-900 aspect-4/3 flex items-center justify-center">
+                      <img
+                        src={c.images.xRay}
+                        alt={`${c.title} 数字化全景影像`}
+                        className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                        loading="lazy"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {c.images.caption && (
+                <div className="text-xs text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-100 flex items-center gap-2">
+                  <span>📸</span>
+                  <span>{c.images.caption}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* 初诊主诉与临床诊断 */}
           <div className="bg-white rounded-xl border border-slate-200/90 p-6 shadow-xs space-y-4">
             <h2 className="text-base md:text-lg font-bold text-slate-900 flex items-center gap-2">
