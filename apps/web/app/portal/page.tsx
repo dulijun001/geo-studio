@@ -229,7 +229,7 @@ export default async function PortalHomePage() {
                 <div key={c.slug} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-colors space-y-2 text-xs">
                   <div className="flex items-center justify-between">
                     <span className="px-2 py-0.5 rounded bg-sky-100 text-sky-800 font-semibold text-[11px]">
-                      {c.categoryName}
+                      {c.category}
                     </span>
                     <span className="text-slate-400">主治：{c.doctorName}医生</span>
                   </div>
@@ -242,7 +242,7 @@ export default async function PortalHomePage() {
                     {c.chiefComplaint}
                   </p>
                   <div className="pt-2 flex items-center justify-between border-t border-slate-200/60">
-                    <span className="text-emerald-700 font-bold">{c.costRange.split('（')[0]}</span>
+                    <span className="text-emerald-700 font-bold">{c.materials ? c.materials.split('+')[0]?.trim() : '正规集采耗材'}</span>
                     <Link href={`/portal/cases/${c.slug}`} className="text-sky-600 font-medium hover:underline">
                       查看前后对比方案 →
                     </Link>

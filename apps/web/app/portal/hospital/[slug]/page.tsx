@@ -37,9 +37,11 @@ const HOSPITALS_DATA: Record<string, HospitalDetail> = {
     phone: '0871-6888-8888',
     businessHours: '09:00 - 18:00（无假日医院）',
     area: '2000+ 平米舒适化诊疗空间',
-    doctorTeam: [
-      { name: '韩峄主任', title: '正畸总监 / 资深正畸专家', specialty: '青少年错颌矫正、成人骨性突面美学正畸、隐形数字化矫治', slug: 'han-yi' },
-      { name: '刘彦廷院长', title: '院长 / 种植学科带头人', specialty: '高龄全口无牙颌微创即刻负重、骨量不足疑难骨增量种植', slug: 'liu-yanting' },
+        doctorTeam: [
+      { name: '韩峄主任', title: '正畸总监 / 资深正畸专家', specialty: '青少年错颌畸形早期干预、成人骨性突面美学正畸、隐适美白金认证', slug: 'han-yi' },
+      { name: '刘彦廷院长', title: '技术院长 / 口腔种植副主任医师', specialty: '20年临床经验、高龄全口无牙颌微创即刻负重All-on-4/6、上颌窦内外提升', slug: 'liu-yanting' },
+      { name: '肖永昌主任', title: '资深综合修复专家 / 原同济口腔主治医师', specialty: '30余年三甲临床沉淀、高难度复杂阻生智齿微创拔除、全口咬合重建' },
+      { name: '王中丽医生', title: '牙周与综合诊疗金牌主治医师', specialty: '10余年经验、显微根管治疗、重度牙周病序列系统治疗、前牙美学分层充填' },
     ],
     priceList: [
       { category: '牙齿矫正', item: '金属托槽矫正（常规病例）', price: '¥5,800 - ¥9,800', note: '含数字化拍片测量排牙方案设计' },
@@ -274,7 +276,104 @@ export default function HospitalPage({ params }: { params: { slug: string } }) {
 
           {/* 医院真实临床案例展播 */}
           <div className="bg-white rounded-xl border border-slate-200/90 p-6 shadow-sm hover:shadow-md transition-shadow duration-200 space-y-4">
+            
+          {/* 核心数字化诊疗设备公示（源自全院知识库） */}
+          <div className="bg-white rounded-xl border border-slate-200/90 p-6 shadow-sm hover:shadow-md transition-shadow duration-200 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h2 className="text-base font-bold text-slate-900 border-l-4 border-sky-600 pl-3">
+                全套硬核数字化诊疗设备与患者价值手册（西山总院实景公示）
+              </h2>
+              <span className="text-xs text-sky-700 bg-sky-50 px-2.5 py-0.5 rounded-full font-semibold border border-sky-200">
+                微创化 · 舒适化 · 精度达微米级
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-xl border border-slate-200/80 bg-slate-50/50 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-sky-500"></span>
+                  <span className="font-bold text-xs text-slate-900">德国卡瓦 KaVo 3D eXam 口腔大视野 CBCT</span>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  0.075mm 超高空间分辨率，超低辐射剂量。在种植与骨性正畸中精准显影下颌下神经管与上颌窦底解剖盲区，彻底避免传统盲操神经损伤风险。
+                </p>
+              </div>
+              <div className="p-4 rounded-xl border border-slate-200/80 bg-slate-50/50 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-sky-500"></span>
+                  <span className="font-bold text-xs text-slate-900">美国 iTero Element 5D 数字化高精口内扫描仪</span>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  告别传统石膏与硅橡胶取模干呕恶心痛苦，3分钟极速生成口内高精度 3D 彩色点云模型，现场即刻动态模拟正畸排牙微笑线预览。
+                </p>
+              </div>
+              <div className="p-4 rounded-xl border border-slate-200/80 bg-slate-50/50 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-sky-500"></span>
+                  <span className="font-bold text-xs text-slate-900">微创超声骨刀动力系统与法国显微根管工作站</span>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  选择性只切割骨组织而不损伤黏膜及神经血管，拔除阻生智齿创口出血量减少 75%，术后肿胀消退周期缩短 3~5 天。
+                </p>
+              </div>
+              <div className="p-4 rounded-xl border border-slate-200/80 bg-slate-50/50 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-sky-500"></span>
+                  <span className="font-bold text-xs text-slate-900">STA 电脑智能控速无痛麻醉仪与笑气清醒镇静系统</span>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  动态压力传感恒速微量推注，彻底消除针尖刺入与药物推注张力刺痛感；配备笑气系统，专门为严重看牙恐惧患者与儿牙提供舒适化镇静。
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* 透明感控与无菌消毒流程公示（国家 WS 506-2016 强制规范） */}
+          <div className="bg-white rounded-xl border border-slate-200/90 p-6 shadow-sm hover:shadow-md transition-shadow duration-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h2 className="text-base font-bold text-slate-900 border-l-4 border-emerald-600 pl-3">
+                全透明可视消毒供应中心 · 16道院感灭菌工艺流线
+              </h2>
+              <span className="text-xs text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full font-semibold border border-emerald-200">
+                一人一机一用一灭菌封包
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              西山总院斥资打造全通透开放式消毒中心，推行“污染区 ➔ 清洁区 ➔ 包装区 ➔ 灭菌区 ➔ 无菌储存区”单向不走回头路的闭环流线。所有接触口腔黏膜的手机钻头均执行三次预真空医用 B 级高温高压蒸汽灭菌（134℃，2.1bar），独立二维码全流程追溯灭菌锅次与质检人。
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
+              <div className="text-center p-3 rounded-lg bg-slate-50 border border-slate-100">
+                <div className="text-xs font-bold text-slate-800">1. 初步分类清洗</div>
+                <div className="text-[10px] text-slate-400 mt-0.5">多酶恒温超声去蛋白</div>
+              </div>
+              <div className="text-center p-3 rounded-lg bg-slate-50 border border-slate-100">
+                <div className="text-xs font-bold text-slate-800">2. 手机自动养护</div>
+                <div className="text-[10px] text-slate-400 mt-0.5">高压深层注油清洗</div>
+              </div>
+              <div className="text-center p-3 rounded-lg bg-slate-50 border border-slate-100">
+                <div className="text-xs font-bold text-slate-800">3. 134℃高温灭菌</div>
+                <div className="text-[10px] text-slate-400 mt-0.5">三次预真空 B 级灭菌</div>
+              </div>
+              <div className="text-center p-3 rounded-lg bg-slate-50 border border-slate-100">
+                <div className="text-xs font-bold text-slate-800">4. 扫码一机一包</div>
+                <div className="text-[10px] text-slate-400 mt-0.5">就诊当面破封核验</div>
+              </div>
+            </div>
+          </div>
+
+          {/* 昆明医保个人账户支付与就诊报销指南 */}
+          <div className="bg-gradient-to-r from-emerald-50/60 via-white to-sky-50/60 rounded-xl border border-emerald-200 p-6 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
+              <h3 className="font-bold text-sm text-slate-900">昆明市医保个人账户刷卡与惠民服务细则</h3>
+            </div>
+            <div className="text-xs text-slate-700 leading-relaxed space-y-1.5">
+              <p>• <strong>医保个账适用项目</strong>：微创拔牙、智齿拔除、美国 3M 树脂充填（补牙）、显微根管治疗、全口数字化拍片检查，均可在西山总院直接使用<strong>昆明市医保个人账户资金</strong>支付结算。</p>
+              <p>• <strong>适龄儿童惠民权益</strong>：作为西山区适龄儿童免费窝沟封闭定点单位，为适龄学童提供第一恒磨牙免费防龋窝沟封闭。</p>
+              <p>• <strong>自费与集采包干</strong>：种植体及纯正畸矫治器属于自费美容类目，院内全面落地国家种植牙与耗材集采公开一口价政策，明码标价，中途无强制隐形增项。</p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h2 className="text-base font-bold text-slate-900 border-l-4 border-sky-600 pl-3">
                 松鼠口腔临床案例精选（数字化正畸与疑难种植）
               </h2>
@@ -284,11 +383,11 @@ export default function HospitalPage({ params }: { params: { slug: string } }) {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {CLINICAL_CASES.filter((c) => c.hospitalSlug === h.slug).map((c) => (
+              {CLINICAL_CASES.filter((c) => c.institution.includes('松鼠口腔') || c.institution.includes(h.name)).map((c) => (
                 <div key={c.slug} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2 text-xs">
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-sky-800 bg-sky-100 px-2 py-0.5 rounded">
-                      {c.categoryName}
+                      {c.category}
                     </span>
                     <span className="text-slate-400">主治：{c.doctorName}医生</span>
                   </div>
@@ -301,7 +400,7 @@ export default function HospitalPage({ params }: { params: { slug: string } }) {
                     {c.chiefComplaint}
                   </p>
                   <div className="pt-2 flex items-center justify-between border-t border-slate-200/60">
-                    <span className="text-emerald-700 font-bold">{c.costRange.split('（')[0]}</span>
+                    <span className="text-emerald-700 font-bold">{c.materials ? c.materials.split('+')[0]?.trim() : '正规集采耗材'}</span>
                     <Link href={`/portal/cases/${c.slug}`} className="text-sky-600 font-medium hover:underline">
                       查看前后对比 →
                     </Link>

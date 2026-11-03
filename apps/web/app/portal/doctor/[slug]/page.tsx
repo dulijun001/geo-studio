@@ -276,7 +276,7 @@ export default function DoctorDetailPage({ params }: { params: { slug: string } 
                 <div key={c.slug} className="p-4 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-bold text-sky-800 bg-sky-100 px-2 py-0.5 rounded">
-                      {c.categoryName}
+                      {c.category}
                     </span>
                     <span className="text-slate-400">治疗周期：{c.duration}</span>
                   </div>
@@ -289,7 +289,7 @@ export default function DoctorDetailPage({ params }: { params: { slug: string } 
                     <span className="text-red-600 font-semibold">【主诉】</span>{c.chiefComplaint}
                   </p>
                   <div className="pt-2 flex items-center justify-between text-xs border-t border-slate-200/60">
-                    <span className="text-emerald-700 font-medium">{c.costRange.split('（')[0]}</span>
+                    <span className="text-emerald-700 font-medium">{c.materials ? c.materials.split('+')[0]?.trim() : '正规集采耗材'}</span>
                     <Link
                       href={`/portal/cases/${c.slug}`}
                       className="text-sky-600 font-semibold hover:underline"

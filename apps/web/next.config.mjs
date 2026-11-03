@@ -1,5 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  async redirects() {
+    return [
+      { source: '/portal/price/ortho', destination: '/portal/price/orthodontics', permanent: true },
+      { source: '/portal/price/filling', destination: '/portal/price/restore', permanent: true },
+    ];
+  },
+
   // Never let `next dev` overwrite the production artifacts used by the
   // employee-facing launchd service. Both processes may run at the same time.
   distDir: process.env.NODE_ENV === 'production' ? '.next-prod' : '.next-dev',
