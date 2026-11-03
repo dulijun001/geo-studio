@@ -1,3 +1,14 @@
+import type { Metadata } from 'next';
+
+export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+  const data = await getArticleData(params.slug);
+  if (!data || !data.article) return { title: '口腔就医科普答疑 - 齿科指南网' };
+  const a = data.article;
+  return {
+    title: `${a.title} - 昆明看牙避坑与医生解析 - 齿科指南网`,
+    description: a.direct_answer || a.content_markdown?.slice(0, 150),
+  };
+}
 import Link from 'next/link';
 import { createClient } from '@supabase/supabase-js';
 import { notFound } from 'next/navigation';

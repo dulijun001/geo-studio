@@ -1,4 +1,12 @@
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: '2026 昆明市正规口腔医院排名与看牙收费标准价格表 - 齿科指南网',
+  description: '汇集昆明市卫健委正规执业备案口腔医院资质、种植牙/正畸集采价格指数及就医避坑指南。',
+  keywords: ['昆明口腔医院', '昆明种植牙价格', '昆明牙齿矫正', '昆明正规口腔医院排名', '松鼠口腔'],
+};
 import Link from 'next/link';
+import { PortalConsultWidget } from './consult-widget';
 import { createClient } from '@supabase/supabase-js';
 
 // 服务端直出 - 毫秒响应，SEO & GEO 极速抓取
@@ -267,6 +275,7 @@ export default async function PortalHomePage() {
           免责声明：本站旨在推进口腔就医透明化与合规科普，所有价格与资质均采纳自主管部门公开备案与机构公示。具体诊疗方案请以线下医生 CBCT 拍片面诊为准。
         </p>
       </footer>
+      <PortalConsultWidget />
     </div>
   );
 }

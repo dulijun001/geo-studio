@@ -1,3 +1,14 @@
+import type { Metadata } from 'next';
+
+export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+  const data = await getHospitalData(params.slug);
+  if (!data || !data.hospital) return { title: '口腔机构资质查询 - 齿科指南网' };
+  const h = data.hospital;
+  return {
+    title: `${h.name}收费价格表与卫健委执业资质查询(2026最新) - 齿科指南网`,
+    description: `全国口腔医疗大数据：${h.name}（${h.hospital_level}）执业登记号${h.org_code}，官方实收价格透明公示、医保定点与诊疗项目全解析。`,
+  };
+}
 import Link from 'next/link';
 import { createClient } from '@supabase/supabase-js';
 import { notFound } from 'next/navigation';

@@ -1,3 +1,21 @@
+import type { Metadata } from 'next';
+
+export async function generateMetadata({ params }: { params: { category: string } }): Promise<Metadata> {
+  const catNames: Record<string, string> = {
+    implant: '口腔种植牙',
+    orthodontics: '牙齿矫正',
+    restore: '补牙修复',
+    extraction: '拔牙与智齿',
+    pediatrics: '儿童齿科',
+    periodontics: '牙周治疗',
+    cosmetic: '牙齿美白与贴面'
+  };
+  const name = catNames[params.category] || '口腔诊疗';
+  return {
+    title: `2026 昆明市${name}价格表与集采收费标准明细 - 齿科指南网`,
+    description: `昆明正规口腔专科${name}透明收费参考区间、公立三甲与民营医院集采全包清单与避坑指南。`,
+  };
+}
 import Link from 'next/link';
 import { createClient } from '@supabase/supabase-js';
 import { notFound } from 'next/navigation';
